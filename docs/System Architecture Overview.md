@@ -54,6 +54,7 @@ graph TD
 
 Turborepo を使用し、型定義と設定を共有する。
 
+```bash
 /  
 ├── apps/  
 │   ├── backend/       \# Hono (API, WebSocket, Batch)  
@@ -66,3 +67,4 @@ Turborepo を使用し、型定義と設定を共有する。
 │   ├── contract/      \# Shared Types & API Schema  
 │   └── ui/            \# 共通UIコンポーネント (Tailwind)  
 └── infra/             \# Docker Compose, Nginx, Scripts  
+```
