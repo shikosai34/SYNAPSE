@@ -1,9 +1,12 @@
+// このドキュメントはオンプレで考えてた時のやつです
+// 古いので、更新するか生成し直させてください
+
 # **02\. APIインターフェース仕様**
 
 ## **1\. 基本方針 (Standards)**
 
-* **Base URL:** https://api.shikosai.net (Hono Server)  
-* **Protocol:** HTTP/1.1 or HTTP/2 (over Cloudflare)  
+* **Base URL:** https://api.shikosai.net (Hono Server)
+* **Protocol:** HTTP/1.1 or HTTP/2 (over Cloudflare)
 * **Data Format:** JSON (Content-Type: application/json)  
 * **Response Schema:** 成功・失敗に関わらず統一されたエンベロープを使用する。
 
