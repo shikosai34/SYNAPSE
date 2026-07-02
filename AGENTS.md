@@ -1,0 +1,80 @@
+# Agents.md
+// テンプレートを以下に貼り付けたので、書き換えること
+// 書き換えたらこの指示は消して良い
+
+## Project goal
+以下のシステムのモノレポ構成です。
+- 文化祭の模擬店向けシステム
+  - 注文管理
+  - 売上管理
+- 来場者向けシステム
+  - スタンプラリー
+  - 事前注文選択
+  - 抽選
+- 校内配信の制御システム
+  - 配信映像を作成しているOBSに対して信号を送信
+  - webUI
+
+## Stack
+// TODO マネージャーで確認
+- Framework: Hono + Vite
+- Language: TypeScript
+- Package manager: bun
+- Database: Cloudflare D1
+- backend: Cloudflare Workers
+- strage: Cloudflare R2
+- Auth: 
+- Deploy target: Cloudflare Pages + Workers
+- monorepo : turbo
+
+## Important commands
+- Install: `...`
+- Dev: `...`
+- Typecheck: `...`
+- Lint: `...`
+- Test: `...`
+- Build: `...`
+
+## Working rules
+- 変更前に関連ファイルを読む。
+- 既存の設計・命名に合わせる。
+- 大きな変更は小さな差分に分ける。
+- コードを書き足し、削除したときにはコメントでその理由、思想、選択理由を日付と共にすぐ近くに残しておく。
+- 不要な依存関係を追加しない。
+- 仕様が曖昧な場合は、最小変更で実装し、仮定をPR本文に書く。
+
+## UI rules
+- docs/DESIGN.mdに従う。
+- アクセシビリティーに配慮する。
+
+## Validation
+// TODO 開発開始してpackage.jsonができたら、bunのlintやtestを追加する
+変更後は原則として以下を実行する。
+1. `...`
+2. `...`
+3. `...`
+
+## Attention
+- 本番環境の設定値を変更しない。
+- 自作UIコンポーネントを使わない。
+- DBスキーマを勝手に破壊的変更しない。
+- 認証・課金・権限周りを推測で変えない。
+- generated files を手編集しない。
+
+## Directory map
+- `docs`: 設計資料
+- `package`: パッケージ定義
+- `apps`: ソースコード
+- `apps/visitor`: 来場者向けアプリ
+- `apps/register`: 模擬店向けアプリ
+- `apps/stream`: 校内配信制御アプリ
+
+## PR expectations
+PRには以下を書く。
+- 変更内容
+- 背景
+- ユーザーからの指示
+- 実行した確認
+- 影響範囲
+- 残タスク
+  - issueを立てているか
