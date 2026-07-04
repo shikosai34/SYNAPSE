@@ -16,24 +16,24 @@
   - webUI
 
 ## Stack
-// TODO マネージャーで確認
-- Framework: Hono + Vite
-- Language: TypeScript
-- Package manager: bun
-- Database: Cloudflare D1
-- backend: Cloudflare Workers
-- strage: Cloudflare R2
-- Auth: 
-- Deploy target: Cloudflare Pages + Workers
-- monorepo : turbo
+- Product name: **FesFlow** (`packages/config` の PRODUCT_NAME に集約。名称変更はここだけ編集)
+- Frontend: Vite + React 19 + React Router (SPA)。UI は Tailwind v4 + radix/shadcn
+- Backend: Hono を Cloudflare Workers 上で実行 (`apps/api`)
+- API: REST (Hono routes) + tRPC。認証は better-auth
+- Language: TypeScript / Package manager: bun / monorepo: turbo
+- Database: Cloudflare D1 (drizzle-orm)。ローカルは wrangler(Miniflare) がエミュレート
+- Storage: Cloudflare R2 (`packages/storage` で抽象化、ローカルは MinIO/wrangler)
+- Deploy target: Cloudflare Workers (API=Worker, フロント=Workers Static Assets)
+- 重要: Worker では db/auth は per-request (AsyncLocalStorage)。`process.env` 直読み禁止、
+  env は `getEnv()` / `c.env` 経由。fs/Node サーバ API は使わない。
 
 ## Important commands
-- Install: `...`
-- Dev: `...`
-- Typecheck: `...`
-- Lint: `...`
-- Test: `...`
-- Build: `...`
+- Install: `bun install`
+- Dev(all): `bun run dev` / 個別: `bun run dev:api`(:8787), `bun run dev:register`(:3000)
+- Typecheck: `bun run check-types` (turbo)
+- Build: `bun run build` (turbo)
+- DB: `bun run db:generate` (スキーマ→SQL), `bun run db:migrate:local` / `:remote` (D1適用)
+- Deploy: 各アプリで `bunx wrangler deploy` (or `bun run deploy`)
 
 ## Working rules
 - 変更前に関連ファイルを読む。
@@ -62,12 +62,18 @@
 - generated files を手編集しない。
 
 ## Directory map
-- `docs`: 設計資料
-- `package`: パッケージ定義
-- `apps`: ソースコード
-- `apps/visitor`: 来場者向けアプリ
-- `apps/register`: 模擬店向けアプリ
-- `apps/stream`: 校内配信制御アプリ
+- `docs`: 設計資料 (`docs/reference` は旧 FesOrder のドメイン資料)
+- `apps/api`: バックエンド (Hono Worker, D1+R2, REST+tRPC+better-auth)
+- `apps/register`: 模擬店向けアプリ (Vite SPA, 移植済み)
+- `apps/visitor`: 来場者向けアプリ (スタンプラリー/事前注文/抽選, 未着手)
+- `apps/stream`: 校内配信制御アプリ (未着手)
+- `packages/config`: ブランド定数 (PRODUCT_NAME) + tsconfig.base
+- `packages/db`: drizzle スキーマ + createDb / ALS リクエストストア
+- `packages/auth`: better-auth ファクトリ
+- `packages/api`: tRPC ルーター (`@fesflow/api`)
+- `packages/storage`: R2/MinIO 抽象化
+- 移植補助シム: `apps/register/src/components/{link,image,script}.tsx`,
+  `apps/register/src/lib/next-navigation.ts` (旧 next/* 互換)
 
 ## PR expectations
 PRには以下を書く。
