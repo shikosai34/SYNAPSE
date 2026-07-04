@@ -273,9 +273,9 @@ function MenuManagementContent() {
   return (
     <DashboardLayout title={circleName} subtitle="メニュー・トッピング管理" type="circle">
       <div className="space-y-6">
-        <div className="flex justify-between items-center border-b-[1px] border-border pb-3">
+        <div className="flex justify-between items-center border-b-thick border-border pb-3">
           <h2 className="text-sm font-bold uppercase tracking-wider">[メニュー一覧]</h2>
-          <Button onClick={() => setIsAddingMenu(true)} className="rounded-none border-[1px] border-primary bg-primary text-primary-foreground hover:bg-background hover:text-foreground h-8 text-[11px] font-bold shadow-none px-3">
+          <Button onClick={() => setIsAddingMenu(true)} className="rounded-none border-thick border-primary bg-primary text-primary-foreground hover:bg-background hover:text-foreground h-8 text-[11px] font-bold shadow-none px-3">
             <Plus className="mr-1.5 h-3.5 w-3.5" />
             メニューを追加
           </Button>

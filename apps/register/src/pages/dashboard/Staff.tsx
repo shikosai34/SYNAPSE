@@ -253,8 +253,8 @@ function StaffManagementContent() {
 
         {/* スタッフ追加/編集フォーム */}
         {isAddingStaff && (
-          <Card className="border-[1px] border-border rounded-none shadow-none p-2">
-            <CardHeader className="pb-3 border-b-[1px] border-border">
+          <Card className="border-thick border-border rounded-none shadow-none p-2">
+            <CardHeader className="pb-3 border-b-thick border-border">
               <CardTitle className="text-xs uppercase font-bold tracking-wider">
                 {editingStaffId ? "[スタッフ情報を編集]" : "[新しいスタッフを追加]"}
               </CardTitle>
@@ -270,7 +270,7 @@ function StaffManagementContent() {
                       setStaffForm({ ...staffForm, name: e.target.value })
                     }
                     placeholder="山田 太郎"
-                    className="border-[1px] border-border rounded-none focus-visible:ring-0 h-9 text-xs bg-background"
+                    className="border-thick border-border rounded-none focus-visible:ring-0 h-9 text-xs bg-background"
                   />
                 </div>
                 <div className="space-y-1">
@@ -282,7 +282,7 @@ function StaffManagementContent() {
                     onChange={(e) =>
                       setStaffForm({ ...staffForm, shiftStart: e.target.value })
                     }
-                    className="border-[1px] border-border rounded-none focus-visible:ring-0 h-9 text-xs bg-background font-mono"
+                    className="border-thick border-border rounded-none focus-visible:ring-0 h-9 text-xs bg-background font-mono"
                   />
                 </div>
                 <div className="space-y-1">
@@ -294,12 +294,12 @@ function StaffManagementContent() {
                     onChange={(e) =>
                       setStaffForm({ ...staffForm, shiftEnd: e.target.value })
                     }
-                    className="border-[1px] border-border rounded-none focus-visible:ring-0 h-9 text-xs bg-background font-mono"
+                    className="border-thick border-border rounded-none focus-visible:ring-0 h-9 text-xs bg-background font-mono"
                   />
                 </div>
               </div>
               <div className="flex justify-end gap-2 pt-2">
-                <Button variant="outline" onClick={resetForm} className="border-[1px] border-border rounded-none h-8 text-[11px] font-bold hover:bg-neutral-100 px-3">
+                <Button variant="outline" onClick={resetForm} className="border-thick border-border rounded-none h-8 text-[11px] font-bold hover:bg-neutral-100 px-3">
                   <X className="mr-1.5 h-4 w-4" />
                   キャンセル
                 </Button>
@@ -310,7 +310,7 @@ function StaffManagementContent() {
                     createStaff.isPending ||
                     updateStaff.isPending
                   }
-                  className="border-[1px] border-primary bg-primary text-primary-foreground hover:bg-background hover:text-foreground h-8 text-[11px] font-bold rounded-none shadow-none px-3"
+                  className="border-thick border-primary bg-primary text-primary-foreground hover:bg-background hover:text-foreground h-8 text-[11px] font-bold rounded-none shadow-none px-3"
                 >
                   <Save className="mr-1.5 h-4 w-4" />
                   {editingStaffId ? "更新" : "追加"}
@@ -321,8 +321,8 @@ function StaffManagementContent() {
         )}
 
         {/* スタッフ一覧 */}
-        <Card className="border-[1px] border-border rounded-none shadow-none">
-          <CardHeader className="p-4 pb-2 border-b border-border">
+        <Card className="border-thick border-border rounded-none shadow-none">
+          <CardHeader className="p-4 pb-2 border-b-thick border-border">
             <CardTitle className="flex items-center gap-2 text-xs uppercase font-bold">
               <User className="h-4 w-4" />
               スタッフ一覧 ({staffList?.length || 0})
@@ -341,7 +341,7 @@ function StaffManagementContent() {
                     }`}
                   >
                     <div className="flex items-center gap-3">
-                      <div className="h-8 w-8 rounded-none bg-primary/10 flex items-center justify-center border border-border">
+                      <div className="h-8 w-8 rounded-none bg-primary/10 flex items-center justify-center border-thick border-border">
                         <User className="h-4 w-4 text-primary" />
                       </div>
                       <div>

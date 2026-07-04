@@ -460,7 +460,7 @@ export default function EventDashboard() {
   if (!eventId) {
     return (
       <EventAdminGuard>
-        <div className="container mx-auto p-6 text-center font-mono pt-20 border-[1px] border-dashed border-border rounded-none max-w-lg">
+        <div className="container mx-auto p-6 text-center font-mono pt-20 border-thick border-dashed border-border rounded-none max-w-lg">
           <p className="text-muted-foreground uppercase text-xs font-bold tracking-widest">
             アクティブなイベントが選択されていません。
           </p>
@@ -484,7 +484,7 @@ export default function EventDashboard() {
         {/* ==================================================== */}
         {activeTab === "circles" && (
           <div className="space-y-6">
-            <div className="flex justify-between items-center border-b-[1px] border-border pb-3">
+            <div className="flex justify-between items-center border-b-thick border-border pb-3">
               <h2 className="text-sm font-bold uppercase tracking-wider flex items-center gap-2">
                 <Building2 className="h-4 w-4" />
                 サークル一覧 ({circles?.length || 0})
@@ -494,7 +494,7 @@ export default function EventDashboard() {
                   setShowCircleForm(!showCircleForm);
                   setShowEditForm(false);
                 }}
-                className="rounded-none border-[1px] border-primary bg-primary text-primary-foreground hover:bg-background hover:text-foreground h-8 text-[11px] uppercase font-bold transition-all shadow-none px-3"
+                className="rounded-none border-thick border-primary bg-primary text-primary-foreground hover:bg-background hover:text-foreground h-8 text-[11px] uppercase font-bold transition-all shadow-none px-3"
               >
                 <Plus className="mr-1.5 h-3.5 w-3.5" />
                 新規追加
@@ -503,8 +503,8 @@ export default function EventDashboard() {
 
             {/* 作成フォーム */}
             {showCircleForm && (
-              <Card className="border-[1px] border-border rounded-none bg-background shadow-none p-2">
-                <CardHeader className="pb-3 border-b-[1px] border-border">
+              <Card className="border-thick border-border rounded-none bg-background shadow-none p-2">
+                <CardHeader className="pb-3 border-b-thick border-border">
                   <CardTitle className="text-xs uppercase font-bold tracking-wider">[新規サークル登録]</CardTitle>
                 </CardHeader>
                 <CardContent className="pt-4 space-y-4">
@@ -514,7 +514,7 @@ export default function EventDashboard() {
                       <Input
                         id="circleName"
                         placeholder="例: たこ焼き 茨香庵"
-                        className="border-[1px] border-border rounded-none focus-visible:ring-0 h-9 text-xs bg-background"
+                        className="border-thick border-border rounded-none focus-visible:ring-0 h-9 text-xs bg-background"
                         value={circleForm.name}
                         onChange={(e) => setCircleForm({ ...circleForm, name: e.target.value })}
                       />
@@ -525,7 +525,7 @@ export default function EventDashboard() {
                         id="circlePin"
                         type="password"
                         placeholder="例: 1234"
-                        className="border-[1px] border-border rounded-none focus-visible:ring-0 h-9 text-xs bg-background"
+                        className="border-thick border-border rounded-none focus-visible:ring-0 h-9 text-xs bg-background"
                         value={circleForm.managerPin}
                         onChange={(e) => setCircleForm({ ...circleForm, managerPin: e.target.value })}
                       />
@@ -536,7 +536,7 @@ export default function EventDashboard() {
                         id="managerEmail"
                         type="email"
                         placeholder="leader@example.com"
-                        className="border-[1px] border-border rounded-none focus-visible:ring-0 h-9 text-xs bg-background"
+                        className="border-thick border-border rounded-none focus-visible:ring-0 h-9 text-xs bg-background"
                         value={circleForm.managerEmail}
                         onChange={(e) => setCircleForm({ ...circleForm, managerEmail: e.target.value })}
                       />
@@ -546,7 +546,7 @@ export default function EventDashboard() {
                       <Input
                         id="managerName"
                         placeholder="代表者のお名前"
-                        className="border-[1px] border-border rounded-none focus-visible:ring-0 h-9 text-xs bg-background"
+                        className="border-thick border-border rounded-none focus-visible:ring-0 h-9 text-xs bg-background"
                         value={circleForm.managerName}
                         onChange={(e) => setCircleForm({ ...circleForm, managerName: e.target.value })}
                       />
@@ -556,7 +556,7 @@ export default function EventDashboard() {
                       <Input
                         id="circleDescription"
                         placeholder="出店ジャンルや販売メニュー等の説明"
-                        className="border-[1px] border-border rounded-none focus-visible:ring-0 h-9 text-xs bg-background"
+                        className="border-thick border-border rounded-none focus-visible:ring-0 h-9 text-xs bg-background"
                         value={circleForm.description}
                         onChange={(e) => setCircleForm({ ...circleForm, description: e.target.value })}
                       />
@@ -565,7 +565,7 @@ export default function EventDashboard() {
                   <div className="flex justify-end gap-2 pt-2">
                     <Button
                       variant="outline"
-                      className="border-[1px] border-border rounded-none h-8 text-[11px] font-bold hover:bg-neutral-100 px-3"
+                      className="border-thick border-border rounded-none h-8 text-[11px] font-bold hover:bg-neutral-100 px-3"
                       onClick={() => setShowCircleForm(false)}
                     >
                       キャンセル
@@ -573,7 +573,7 @@ export default function EventDashboard() {
                     <Button
                       onClick={handleCreateCircle}
                       disabled={!circleForm.name || !circleForm.managerEmail || createCircleMutation.isPending}
-                      className="border-[1px] border-primary bg-primary text-primary-foreground hover:bg-background hover:text-foreground h-8 text-[11px] font-bold rounded-none shadow-none px-3"
+                      className="border-thick border-primary bg-primary text-primary-foreground hover:bg-background hover:text-foreground h-8 text-[11px] font-bold rounded-none shadow-none px-3"
                     >
                       サークルを追加
                     </Button>
@@ -584,8 +584,8 @@ export default function EventDashboard() {
 
             {/* 編集フォーム */}
             {showEditForm && editingCircleId && (
-              <Card className="border-[1px] border-border rounded-none bg-background shadow-none p-2">
-                <CardHeader className="pb-3 border-b-[1px] border-border">
+              <Card className="border-thick border-border rounded-none bg-background shadow-none p-2">
+                <CardHeader className="pb-3 border-b-thick border-border">
                   <CardTitle className="text-xs uppercase font-bold tracking-wider">[サークル情報の編集]</CardTitle>
                 </CardHeader>
                 <CardContent className="pt-4 space-y-4">
@@ -594,7 +594,7 @@ export default function EventDashboard() {
                       <Label htmlFor="editCircleName" className="text-[10px] font-bold uppercase">サークル名 *</Label>
                       <Input
                         id="editCircleName"
-                        className="border-[1px] border-border rounded-none focus-visible:ring-0 h-9 text-xs bg-background"
+                        className="border-thick border-border rounded-none focus-visible:ring-0 h-9 text-xs bg-background"
                         value={editForm.name}
                         onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
                       />
@@ -605,7 +605,7 @@ export default function EventDashboard() {
                         id="editCirclePin"
                         type="password"
                         placeholder="変更時のみ入力"
-                        className="border-[1px] border-border rounded-none focus-visible:ring-0 h-9 text-xs bg-background"
+                        className="border-thick border-border rounded-none focus-visible:ring-0 h-9 text-xs bg-background"
                         value={editForm.managerPin}
                         onChange={(e) => setEditForm({ ...editForm, managerPin: e.target.value })}
                       />
@@ -615,7 +615,7 @@ export default function EventDashboard() {
                       <Input
                         id="editManagerEmail"
                         type="email"
-                        className="border-[1px] border-border rounded-none focus-visible:ring-0 h-9 text-xs bg-background"
+                        className="border-thick border-border rounded-none focus-visible:ring-0 h-9 text-xs bg-background"
                         value={editForm.managerEmail}
                         onChange={(e) => setEditForm({ ...editForm, managerEmail: e.target.value })}
                       />
@@ -624,7 +624,7 @@ export default function EventDashboard() {
                       <Label htmlFor="editManagerName" className="text-[10px] font-bold uppercase">代表者名</Label>
                       <Input
                         id="editManagerName"
-                        className="border-[1px] border-border rounded-none focus-visible:ring-0 h-9 text-xs bg-background"
+                        className="border-thick border-border rounded-none focus-visible:ring-0 h-9 text-xs bg-background"
                         value={editForm.managerName}
                         onChange={(e) => setEditForm({ ...editForm, managerName: e.target.value })}
                       />
@@ -633,7 +633,7 @@ export default function EventDashboard() {
                       <Label htmlFor="editCircleDescription" className="text-[10px] font-bold uppercase">説明</Label>
                       <Input
                         id="editCircleDescription"
-                        className="border-[1px] border-border rounded-none focus-visible:ring-0 h-9 text-xs bg-background"
+                        className="border-thick border-border rounded-none focus-visible:ring-0 h-9 text-xs bg-background"
                         value={editForm.description}
                         onChange={(e) => setEditForm({ ...editForm, description: e.target.value })}
                       />
@@ -642,7 +642,7 @@ export default function EventDashboard() {
                   <div className="flex justify-end gap-2 pt-2">
                     <Button
                       variant="outline"
-                      className="border-[1px] border-border rounded-none h-8 text-[11px] font-bold hover:bg-neutral-100 px-3"
+                      className="border-thick border-border rounded-none h-8 text-[11px] font-bold hover:bg-neutral-100 px-3"
                       onClick={() => {
                         setShowEditForm(false);
                         setEditingCircleId(null);
@@ -653,7 +653,7 @@ export default function EventDashboard() {
                     <Button
                       onClick={handleEditCircle}
                       disabled={!editForm.name || !editForm.managerEmail || updateCircleMutation.isPending}
-                      className="border-[1px] border-primary bg-primary text-primary-foreground hover:bg-background hover:text-foreground h-8 text-[11px] font-bold rounded-none shadow-none px-3"
+                      className="border-thick border-primary bg-primary text-primary-foreground hover:bg-background hover:text-foreground h-8 text-[11px] font-bold rounded-none shadow-none px-3"
                     >
                       変更を保存
                     </Button>
@@ -670,10 +670,10 @@ export default function EventDashboard() {
                 {circles.map((cir) => (
                   <Card
                     key={cir.id}
-                    className="border-[1px] border-border rounded-none bg-background flex flex-col justify-between shadow-none hover:border-neutral-800 transition-all p-3"
+                    className="border-thick border-border rounded-none bg-background flex flex-col justify-between shadow-none hover:border-neutral-800 transition-all p-3"
                   >
                     <div>
-                      <div className="flex justify-between items-start border-b-[1px] border-muted pb-2 mb-2">
+                      <div className="flex justify-between items-start border-b-thick border-muted pb-2 mb-2">
                         <CardTitle className="text-xs font-bold uppercase tracking-wide flex items-center gap-1.5 truncate max-w-[80%]">
                           <Building2 className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                           {cir.name}
@@ -721,7 +721,7 @@ export default function EventDashboard() {
                     <Button
                       variant="outline"
                       size="sm"
-                      className="w-full border-[1px] border-border hover:bg-neutral-100 rounded-none uppercase font-bold tracking-wider text-[10px] h-8 shadow-none"
+                      className="w-full border-thick border-border hover:bg-neutral-100 rounded-none uppercase font-bold tracking-wider text-[10px] h-8 shadow-none"
                       onClick={() => {
                         const authStored = localStorage.getItem("circleAuth");
                         if (authStored) {
@@ -749,7 +749,7 @@ export default function EventDashboard() {
                 ))}
               </div>
             ) : (
-              <Card className="border-[1px] border-dashed border-border rounded-none p-12 text-center text-muted-foreground bg-background shadow-none">
+              <Card className="border-thick border-dashed border-border rounded-none p-12 text-center text-muted-foreground bg-background shadow-none">
                 <Users className="h-8 w-8 mx-auto mb-4 opacity-40 text-foreground" />
                 <p className="text-xs uppercase tracking-widest font-bold font-headline">サークルが登録されていません</p>
               </Card>
@@ -762,7 +762,7 @@ export default function EventDashboard() {
         {/* ==================================================== */}
         {activeTab === "sales" && (
           <div className="space-y-6">
-            <div className="flex justify-between items-center border-b-[1px] border-border pb-3">
+            <div className="flex justify-between items-center border-b-thick border-border pb-3">
               <h2 className="text-sm font-bold uppercase tracking-wider flex items-center gap-2">
                 <TrendingUp className="h-4 w-4" />
                 イベント全体売上統計
@@ -775,7 +775,7 @@ export default function EventDashboard() {
               <div className="space-y-6">
                 {/* 売上概要カード */}
                 <div className="grid gap-4 md:grid-cols-3 font-mono">
-                  <Card className="rounded-none border-[1px] border-border shadow-none">
+                  <Card className="rounded-none border-thick border-border shadow-none">
                     <CardHeader className="p-3 pb-1">
                       <CardTitle className="text-[10px] uppercase font-bold text-muted-foreground">総注文数</CardTitle>
                     </CardHeader>
@@ -784,7 +784,7 @@ export default function EventDashboard() {
                     </CardContent>
                   </Card>
 
-                  <Card className="rounded-none border-[1px] border-border shadow-none">
+                  <Card className="rounded-none border-thick border-border shadow-none">
                     <CardHeader className="p-3 pb-1">
                       <CardTitle className="text-[10px] uppercase font-bold text-muted-foreground">完了取引数</CardTitle>
                     </CardHeader>
@@ -793,7 +793,7 @@ export default function EventDashboard() {
                     </CardContent>
                   </Card>
 
-                  <Card className="rounded-none border-[1px] border-border shadow-none bg-primary text-primary-foreground">
+                  <Card className="rounded-none border-thick border-border shadow-none bg-primary text-primary-foreground">
                     <CardHeader className="p-3 pb-1">
                       <CardTitle className="text-[10px] uppercase font-bold text-primary-foreground/75">イベント総売上</CardTitle>
                     </CardHeader>
@@ -806,7 +806,7 @@ export default function EventDashboard() {
                 {/* グラフ */}
                 <div className="grid gap-6 md:grid-cols-2">
                   {/* サークル別売上 (横棒) */}
-                  <Card className="rounded-none border-[1px] border-border shadow-none">
+                  <Card className="rounded-none border-thick border-border shadow-none">
                     <CardHeader className="p-4">
                       <CardTitle className="text-xs font-bold uppercase">[サークル別売上比率]</CardTitle>
                     </CardHeader>
@@ -838,7 +838,7 @@ export default function EventDashboard() {
                   </Card>
 
                   {/* 時間帯別売上推移 (折れ線SVG) */}
-                  <Card className="rounded-none border-[1px] border-border shadow-none">
+                  <Card className="rounded-none border-thick border-border shadow-none">
                     <CardHeader className="p-4">
                       <CardTitle className="text-xs font-bold uppercase">[イベント時間帯別売上]</CardTitle>
                     </CardHeader>
@@ -919,7 +919,7 @@ export default function EventDashboard() {
         {/* ==================================================== */}
         {activeTab === "staff" && (
           <div className="space-y-6">
-            <div className="flex justify-between items-center border-b-[1px] border-border pb-3">
+            <div className="flex justify-between items-center border-b-thick border-border pb-3">
               <h2 className="text-sm font-bold uppercase tracking-wider flex items-center gap-2">
                 <Users className="h-4 w-4" />
                 イベント所属スタッフ管理
@@ -927,7 +927,7 @@ export default function EventDashboard() {
             </div>
 
             {/* 新規スタッフ招待 */}
-            <Card className="border-[1px] border-border rounded-none bg-background shadow-none">
+            <Card className="border-thick border-border rounded-none bg-background shadow-none">
               <CardHeader className="p-4 pb-2">
                 <CardTitle className="text-xs uppercase font-bold">[スタッフ招待トークンの発行]</CardTitle>
                 <CardDescription className="text-[10px]">追加したいスタッフのメールアドレスを入力して、招待トークンを生成します。</CardDescription>
@@ -942,7 +942,7 @@ export default function EventDashboard() {
                       placeholder="staff@example.com"
                       value={inviteEmail}
                       onChange={(e) => setInviteEmail(e.target.value)}
-                      className="border-[1px] border-border rounded-none focus-visible:ring-0 h-9 text-xs bg-background"
+                      className="border-thick border-border rounded-none focus-visible:ring-0 h-9 text-xs bg-background"
                     />
                   </div>
                   <div className="w-full sm:w-48 space-y-1">
@@ -951,7 +951,7 @@ export default function EventDashboard() {
                       id="inviteRole"
                       value={inviteRole}
                       onChange={(e: any) => setInviteRole(e.target.value)}
-                      className="w-full h-9 border-[1px] border-border rounded-none bg-background px-2 text-xs font-bold uppercase font-mono"
+                      className="w-full h-9 border-thick border-border rounded-none bg-background px-2 text-xs font-bold uppercase font-mono"
                     >
                       <option value="event_staff">イベントスタッフ (一般)</option>
                       <option value="event_admin">イベント管理者 (フルアクセス)</option>
@@ -960,7 +960,7 @@ export default function EventDashboard() {
                   <Button
                     onClick={handleInviteStaff}
                     disabled={!inviteEmail || createInviteMutation.isPending}
-                    className="border-[1px] border-primary bg-primary text-primary-foreground hover:bg-background hover:text-foreground h-9 text-xs font-bold rounded-none shadow-none px-4"
+                    className="border-thick border-primary bg-primary text-primary-foreground hover:bg-background hover:text-foreground h-9 text-xs font-bold rounded-none shadow-none px-4"
                   >
                     <UserPlus className="mr-1.5 h-4 w-4" />
                     招待を発行
@@ -969,13 +969,13 @@ export default function EventDashboard() {
 
                 {/* 招待一覧 */}
                 {invites && invites.length > 0 && (
-                  <div className="border-t border-border pt-4">
+                  <div className="border-t-thick border-border pt-4">
                     <h3 className="text-[10px] font-bold uppercase text-muted-foreground mb-2">[アクティブな招待リンク一覧]</h3>
                     <div className="space-y-2">
                       {invites.map((inv) => {
                         const inviteUrl = `${window.location.origin}/login?invite=${inv.token}`;
                         return (
-                          <div key={inv.id} className="flex flex-col sm:flex-row justify-between items-start sm:items-center p-2.5 border border-border text-[10px] font-mono bg-muted/30">
+                          <div key={inv.id} className="flex flex-col sm:flex-row justify-between items-start sm:items-center p-2.5 border-thick border-border text-[10px] font-mono bg-muted/30">
                             <div className="space-y-0.5">
                               <p className="font-bold text-foreground">ロール: {inv.role}</p>
                               <p className="text-muted-foreground text-[8px] break-all select-all">リンク: {inviteUrl}</p>
@@ -998,8 +998,8 @@ export default function EventDashboard() {
             </Card>
 
             {/* スタッフ一覧 */}
-            <Card className="border-[1px] border-border rounded-none shadow-none">
-              <CardHeader className="p-4 pb-2 border-b border-border">
+            <Card className="border-thick border-border rounded-none shadow-none">
+              <CardHeader className="p-4 pb-2 border-b-thick border-border">
                 <CardTitle className="text-xs uppercase font-bold">[登録済みスタッフ一覧]</CardTitle>
               </CardHeader>
               <CardContent className="p-0">
@@ -1014,7 +1014,7 @@ export default function EventDashboard() {
                           <p className="text-[10px] text-muted-foreground">{member.userEmail}</p>
                         </div>
                         <div className="flex items-center gap-3">
-                          <Badge variant="default" className="rounded-none text-[8px] font-mono border-border bg-transparent text-foreground border uppercase">
+                          <Badge variant="default" className="rounded-none text-[8px] font-mono border-thick border-border bg-transparent text-foreground border uppercase">
                             {member.role === "event_admin" ? "管理者" : "スタッフ"}
                           </Badge>
                           {/* 最上位管理者は削除不可などの制御 */}
@@ -1026,7 +1026,7 @@ export default function EventDashboard() {
                                 deactivateStaffMutation.mutate(member.id);
                               }
                             }}
-                            className="border-border hover:bg-destructive hover:text-destructive-foreground text-[10px] h-7 px-2 rounded-none shadow-none"
+                            className="border-thick border-border hover:bg-destructive hover:text-destructive-foreground text-[10px] h-7 px-2 rounded-none shadow-none"
                           >
                             解除
                           </Button>
@@ -1047,14 +1047,14 @@ export default function EventDashboard() {
         {/* ==================================================== */}
         {activeTab === "settings" && (
           <div className="space-y-6">
-            <div className="flex justify-between items-center border-b-[1px] border-border pb-3">
+            <div className="flex justify-between items-center border-b-thick border-border pb-3">
               <h2 className="text-sm font-bold uppercase tracking-wider flex items-center gap-2">
                 <Settings className="h-4 w-4" />
                 イベント基本設定・ロゴ画像
               </h2>
             </div>
 
-            <Card className="border-[1px] border-border rounded-none bg-background shadow-none">
+            <Card className="border-thick border-border rounded-none bg-background shadow-none">
               <CardContent className="pt-6 space-y-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   {/* 設定項目 */}
@@ -1065,7 +1065,7 @@ export default function EventDashboard() {
                         id="settingsEventName"
                         value={eventForm.eventName}
                         onChange={(e) => setEventForm({ ...eventForm, eventName: e.target.value })}
-                        className="border-[1px] border-border rounded-none focus-visible:ring-0 h-9 text-xs bg-background"
+                        className="border-thick border-border rounded-none focus-visible:ring-0 h-9 text-xs bg-background"
                       />
                     </div>
                     <div className="space-y-1">
@@ -1074,7 +1074,7 @@ export default function EventDashboard() {
                         id="settingsDescription"
                         value={eventForm.description}
                         onChange={(e) => setEventForm({ ...eventForm, description: e.target.value })}
-                        className="border-[1px] border-border rounded-none focus-visible:ring-0 h-9 text-xs bg-background"
+                        className="border-thick border-border rounded-none focus-visible:ring-0 h-9 text-xs bg-background"
                       />
                     </div>
                     <div className="grid grid-cols-2 gap-3">
@@ -1085,7 +1085,7 @@ export default function EventDashboard() {
                           type="date"
                           value={eventForm.startDate}
                           onChange={(e) => setEventForm({ ...eventForm, startDate: e.target.value })}
-                          className="border-[1px] border-border rounded-none focus-visible:ring-0 h-9 text-xs bg-background font-mono"
+                          className="border-thick border-border rounded-none focus-visible:ring-0 h-9 text-xs bg-background font-mono"
                         />
                       </div>
                       <div className="space-y-1">
@@ -1095,14 +1095,14 @@ export default function EventDashboard() {
                           type="date"
                           value={eventForm.endDate}
                           onChange={(e) => setEventForm({ ...eventForm, endDate: e.target.value })}
-                          className="border-[1px] border-border rounded-none focus-visible:ring-0 h-9 text-xs bg-background font-mono"
+                          className="border-thick border-border rounded-none focus-visible:ring-0 h-9 text-xs bg-background font-mono"
                         />
                       </div>
                     </div>
                   </div>
 
                   {/* ロゴ画像アップロード */}
-                  <div className="space-y-2 border border-border border-dashed p-4 flex flex-col justify-center items-center bg-muted/20">
+                  <div className="space-y-2 border-thick border-dashed border-border p-4 flex flex-col justify-center items-center bg-muted/20">
                     <Label className="text-[10px] font-bold uppercase text-muted-foreground block text-center mb-2">イベント画像（ロゴ・背景用）</Label>
                     
                     {eventForm.logoUrl ? (
@@ -1110,7 +1110,7 @@ export default function EventDashboard() {
                         <img
                           src={eventForm.logoUrl}
                           alt="Event logo"
-                          className="max-h-24 mx-auto block border border-border bg-background"
+                          className="max-h-24 mx-auto block border-thick border-border bg-background"
                         />
                         <button
                           onClick={() => setEventForm((prev) => ({ ...prev, logoUrl: "" }))}
@@ -1121,7 +1121,7 @@ export default function EventDashboard() {
                       </div>
                     ) : (
                       <div className="text-center space-y-2">
-                        <div className="bg-background border border-border p-3 inline-block">
+                        <div className="bg-background border-thick border-border p-3 inline-block">
                           <Upload className="h-6 w-6 text-muted-foreground" />
                         </div>
                         <p className="text-[9px] text-muted-foreground uppercase">PNG, JPG (Max 5MB)</p>
@@ -1138,7 +1138,7 @@ export default function EventDashboard() {
                       />
                       <Label
                         htmlFor="logo-file-input"
-                        className="border-[1px] border-border bg-background hover:bg-muted text-[10px] font-bold uppercase px-3 py-1.5 cursor-pointer inline-flex items-center gap-1.5"
+                        className="border-thick border-border bg-background hover:bg-muted text-[10px] font-bold uppercase px-3 py-1.5 cursor-pointer inline-flex items-center gap-1.5"
                       >
                         画像ファイルを選択
                       </Label>
@@ -1146,11 +1146,11 @@ export default function EventDashboard() {
                   </div>
                 </div>
 
-                <div className="border-t border-border pt-4 flex justify-end">
+                <div className="border-t-thick border-border pt-4 flex justify-end">
                   <Button
                     onClick={handleSaveSettings}
                     disabled={!eventForm.eventName || updateEventMutation.isPending}
-                    className="border-[1px] border-primary bg-primary text-primary-foreground hover:bg-background hover:text-foreground h-9 text-xs font-bold rounded-none shadow-none px-4 flex items-center gap-1.5"
+                    className="border-thick border-primary bg-primary text-primary-foreground hover:bg-background hover:text-foreground h-9 text-xs font-bold rounded-none shadow-none px-4 flex items-center gap-1.5"
                   >
                     <Save className="h-4 w-4" />
                     設定を保存
@@ -1166,14 +1166,14 @@ export default function EventDashboard() {
         {/* ==================================================== */}
         {activeTab === "wristbands" && (
           <div className="space-y-6">
-            <div className="flex justify-between items-center border-b-[1px] border-border pb-3">
+            <div className="flex justify-between items-center border-b-thick border-border pb-3">
               <h2 className="text-sm font-bold uppercase tracking-wider flex items-center gap-2">
                 <Lock className="h-4 w-4" />
                 リストバンド紛失のロック・再発行処理
               </h2>
             </div>
 
-            <Card className="border-[1px] border-border rounded-none bg-background shadow-none">
+            <Card className="border-thick border-border rounded-none bg-background shadow-none">
               <CardHeader className="p-4 pb-2">
                 <CardTitle className="text-xs uppercase font-bold">[登録情報スキャン・照会]</CardTitle>
                 <CardDescription className="text-[10px]">紛失したと思われるリストバンドID、または来場者ユーザーIDを入力して照会します。</CardDescription>
@@ -1184,12 +1184,12 @@ export default function EventDashboard() {
                     placeholder="例: wb_test_001 または usr_xxxx"
                     value={lostSearchCode}
                     onChange={(e) => setLostSearchCode(e.target.value)}
-                    className="border-[1px] border-border rounded-none focus-visible:ring-0 h-9 text-xs bg-background font-mono flex-1"
+                    className="border-thick border-border rounded-none focus-visible:ring-0 h-9 text-xs bg-background font-mono flex-1"
                   />
                   <Button
                     onClick={handleSearchLost}
                     disabled={!lostSearchCode || lookupWristbandMutation.isPending}
-                    className="border-[1px] border-primary bg-primary text-primary-foreground hover:bg-background hover:text-foreground h-9 text-xs font-bold rounded-none shadow-none px-4"
+                    className="border-thick border-primary bg-primary text-primary-foreground hover:bg-background hover:text-foreground h-9 text-xs font-bold rounded-none shadow-none px-4"
                   >
                     <Search className="h-4 w-4 mr-1" />
                     照会
@@ -1198,8 +1198,8 @@ export default function EventDashboard() {
 
                 {/* 照会結果表示 */}
                 {lookupResult && (
-                  <div className="border border-border p-4 bg-muted/10 space-y-4 text-xs font-mono">
-                    <div className="border-b border-border pb-2">
+                  <div className="border-thick border-border p-4 bg-muted/10 space-y-4 text-xs font-mono">
+                    <div className="border-b-thick border-border pb-2">
                       <h4 className="font-bold uppercase text-[10px] text-muted-foreground mb-1">[来場者アカウント情報]</h4>
                       <p>ユーザーID: {lookupResult.user.id}</p>
                       <p>表示用呼び出しID: #{lookupResult.user.displayId}</p>
@@ -1207,14 +1207,14 @@ export default function EventDashboard() {
                       <p>ニックネーム: {lookupResult.user.nickname || "未登録"}</p>
                     </div>
 
-                    <div className="border-b border-border pb-2">
+                    <div className="border-b-thick border-border pb-2">
                       <h4 className="font-bold uppercase text-[10px] text-muted-foreground mb-1">[紐付く物理リストバンド]</h4>
                       {lookupResult.wristband ? (
                         <div className="space-y-2">
                           <p>リストバンドコード: {lookupResult.wristband.id}</p>
                           <p className="flex items-center gap-2">
                             状態:
-                            <Badge variant="default" className={`rounded-none text-[8px] font-mono border uppercase ${
+                            <Badge variant="default" className={`rounded-none text-[8px] font-mono border-thick border-border uppercase ${
                               lookupResult.wristband.status === "active" ? "bg-success/20 text-success border-success" : "bg-destructive/20 text-destructive border-destructive"
                             }`}>
                               {lookupResult.wristband.status}
@@ -1247,12 +1247,12 @@ export default function EventDashboard() {
                           placeholder="新しいリストバンドIDを入力"
                           value={newWristbandId}
                           onChange={(e) => setNewWristbandId(e.target.value)}
-                          className="border-[1px] border-border rounded-none focus-visible:ring-0 h-9 text-xs bg-background font-mono flex-1"
+                          className="border-thick border-border rounded-none focus-visible:ring-0 h-9 text-xs bg-background font-mono flex-1"
                         />
                         <Button
                           onClick={() => handleReissueWb(lookupResult.user.id)}
                           disabled={!newWristbandId || registerWristbandMutation.isPending}
-                          className="border-[1px] border-border bg-background text-foreground hover:bg-primary hover:text-primary-foreground h-9 text-xs font-bold rounded-none shadow-none px-4"
+                          className="border-thick border-border bg-background text-foreground hover:bg-primary hover:text-primary-foreground h-9 text-xs font-bold rounded-none shadow-none px-4"
                         >
                           <RefreshCw className="h-3.5 w-3.5 mr-1" />
                           再発行登録
@@ -1271,14 +1271,14 @@ export default function EventDashboard() {
         {/* ==================================================== */}
         {activeTab === "issue" && (
           <div className="space-y-6">
-            <div className="flex justify-between items-center border-b-[1px] border-border pb-3">
+            <div className="flex justify-between items-center border-b-thick border-border pb-3">
               <h2 className="text-sm font-bold uppercase tracking-wider flex items-center gap-2">
                 <Smartphone className="h-4 w-4" />
                 スマホ用リストバンド（デジタルQR）の発行
               </h2>
             </div>
 
-            <Card className="border-[1px] border-border rounded-none bg-background shadow-none">
+            <Card className="border-thick border-border rounded-none bg-background shadow-none">
               <CardHeader className="p-4 pb-2">
                 <CardTitle className="text-xs uppercase font-bold">[デジタルQRコードの新規生成]</CardTitle>
                 <CardDescription className="text-[10px]">
@@ -1286,14 +1286,14 @@ export default function EventDashboard() {
                 </CardDescription>
               </CardHeader>
               <CardContent className="p-4 pt-0 space-y-4">
-                <div className="bg-muted/10 border border-border p-4 text-center space-y-4">
+                <div className="bg-muted/10 border-thick border-border p-4 text-center space-y-4">
                   <p className="text-[11px] text-muted-foreground uppercase font-mono">
                     発行ボタンを押すと、来場者専用のチェックイン用URLとQRコードが生成されます。
                   </p>
                   <Button
                     onClick={() => issueUserMutation.mutate()}
                     disabled={issueUserMutation.isPending}
-                    className="border-[1px] border-primary bg-primary text-primary-foreground hover:bg-background hover:text-foreground h-11 text-xs font-black uppercase rounded-none shadow-none px-6"
+                    className="border-thick border-primary bg-primary text-primary-foreground hover:bg-background hover:text-foreground h-11 text-xs font-black uppercase rounded-none shadow-none px-6"
                   >
                     <Smartphone className="mr-1.5 h-4 w-4" />
                     スマホ用来場者QRを発行する
@@ -1302,7 +1302,7 @@ export default function EventDashboard() {
 
                 {/* 発行されたQRコードの表示 */}
                 {issuedUser && (
-                  <div className="border border-border p-6 bg-background space-y-6 text-center max-w-sm mx-auto shadow-none font-mono">
+                  <div className="border-thick border-border p-6 bg-background space-y-6 text-center max-w-sm mx-auto shadow-none font-mono">
                     <div className="space-y-1">
                       <span className="bg-primary text-primary-foreground px-2 py-0.5 text-[9px] font-black uppercase tracking-widest inline-block">
                         ONLINE ENTRY QR
@@ -1321,7 +1321,7 @@ export default function EventDashboard() {
                       />
                     </div>
 
-                    <div className="space-y-2 text-left text-[9px] text-muted-foreground border-t border-border pt-4">
+                    <div className="space-y-2 text-left text-[9px] text-muted-foreground border-t-thick border-border pt-4">
                       <p className="break-all select-all"><strong>チェックインURL:</strong><br />{getVisitorLink(issuedUser.userId)}</p>
                       <p className="pt-1">
                         ※来場者は、自身のスマートフォンでこのQRコードをスキャンしてアクセスし、ニックネームや生年月日を入力することで、スマホ単体での入場・注文が可能になります。

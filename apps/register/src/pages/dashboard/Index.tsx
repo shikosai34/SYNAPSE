@@ -84,7 +84,7 @@ function DashboardContent() {
       type="circle"
     >
       <div className="space-y-6">
-        <div className="flex justify-between items-center border-b-[1px] border-border pb-3">
+        <div className="flex justify-between items-center border-b-thick border-border pb-3">
           <h2 className="text-sm font-bold uppercase tracking-wider">[管理メニュー一覧]</h2>
           {role && (
             <div className="flex items-center gap-2">
@@ -102,7 +102,7 @@ function DashboardContent() {
           {menuItems.map((item) => (
             <PermissionGuard key={item.href} permission={item.permission}>
               <Link href={item.href as any}>
-                <Card className="cursor-pointer border-[1px] border-border rounded-none shadow-none hover:bg-primary hover:text-primary-foreground group h-full transition-all">
+                <Card className="cursor-pointer border-thick border-border rounded-none shadow-none hover:bg-primary hover:text-primary-foreground group h-full transition-all">
                   <CardHeader className="p-4 pb-2">
                     <div className="flex items-center gap-2">
                       <span className="font-mono text-lg font-black leading-none">
@@ -123,33 +123,33 @@ function DashboardContent() {
         </div>
 
         <div className="grid gap-4 md:grid-cols-2">
-          <Card className="border-[1px] border-border rounded-none shadow-none">
+          <Card className="border-thick border-border rounded-none shadow-none">
             <CardHeader className="p-4 pb-2">
               <CardTitle className="text-xs uppercase font-bold">[クイックアクション]</CardTitle>
             </CardHeader>
             <CardContent className="p-4 pt-0 space-y-2">
               <PermissionGuard permission="order:write">
                 <Link href="/circle/register">
-                  <Button className="w-full rounded-none border-[1px] border-border text-xs font-bold h-9 bg-background text-foreground hover:bg-primary hover:text-primary-foreground shadow-none" variant="outline">
+                  <Button className="w-full rounded-none border-thick border-border text-xs font-bold h-9 bg-background text-foreground hover:bg-primary hover:text-primary-foreground shadow-none" variant="outline">
                     レジを開く
                   </Button>
                 </Link>
               </PermissionGuard>
               <PermissionGuard permission="order:read">
                 <Link href="/circle/backyard">
-                  <Button className="w-full rounded-none border-[1px] border-border text-xs font-bold h-9 bg-background text-foreground hover:bg-primary hover:text-primary-foreground shadow-none" variant="outline">
+                  <Button className="w-full rounded-none border-thick border-border text-xs font-bold h-9 bg-background text-foreground hover:bg-primary hover:text-primary-foreground shadow-none" variant="outline">
                     厨房ビューを開く
                   </Button>
                 </Link>
               </PermissionGuard>
               <Link href="/visitor/menu">
-                <Button className="w-full rounded-none border-[1px] border-border text-xs font-bold h-9 bg-background text-foreground hover:bg-primary hover:text-primary-foreground shadow-none" variant="outline">
+                <Button className="w-full rounded-none border-thick border-border text-xs font-bold h-9 bg-background text-foreground hover:bg-primary hover:text-primary-foreground shadow-none" variant="outline">
                   来場者メニューを見る
                 </Button>
               </Link>
               <PermissionGuard permission="circle:read">
                 <Link href="/circle/dashboard/qr">
-                  <Button className="w-full bg-primary text-primary-foreground hover:bg-background hover:text-foreground font-bold rounded-none text-xs h-9 shadow-none border border-transparent hover:border-border">
+                  <Button className="w-full bg-primary text-primary-foreground hover:bg-background hover:text-foreground font-bold rounded-none text-xs h-9 shadow-none border-thick border-transparent hover:border-border">
                     モバイルオーダーQRを表示・印刷
                   </Button>
                 </Link>
@@ -157,7 +157,7 @@ function DashboardContent() {
             </CardContent>
           </Card>
 
-          <Card className="border-[1px] border-border rounded-none shadow-none">
+          <Card className="border-thick border-border rounded-none shadow-none">
             <CardHeader className="p-4 pb-2">
               <CardTitle className="text-xs uppercase font-bold">[お知らせ]</CardTitle>
             </CardHeader>

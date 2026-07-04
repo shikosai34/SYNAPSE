@@ -92,15 +92,15 @@ export default function DashboardLayout({
   return (
     <div className="max-w-7xl mx-auto p-4 md:p-6 font-mono bg-background text-foreground">
       {/* 共通ヘッダー */}
-      <div className="flex items-end justify-between border-b-[2px] border-border pb-3 mb-6">
+      <div className="flex items-end justify-between border-b-thick border-border pb-3 mb-6">
         <div>
-          <h1 className="text-[28px] md:text-[36px] font-headline uppercase tracking-tight leading-[1.0] flex items-center gap-2">
-            {type === "system" && <Shield className="h-8 w-8 text-foreground" />}
-            {type === "event" && <Calendar className="h-8 w-8 text-foreground" />}
+          <h1 className="text-lg sm:text-2xl font-black uppercase tracking-wider font-mono flex items-center gap-2">
+            {type === "system" && <Shield className="h-6 w-6 text-foreground" />}
+            {type === "event" && <Calendar className="h-6 w-6 text-foreground" />}
             {title}
           </h1>
           {subtitle && (
-            <p className="font-mono text-[11px] md:text-[13px] uppercase tracking-[1px] mt-1 text-muted-foreground">
+            <p className="font-mono text-[10px] sm:text-xs uppercase tracking-[1px] mt-1 text-muted-foreground">
               {subtitle}
             </p>
           )}
@@ -108,7 +108,7 @@ export default function DashboardLayout({
       </div>
 
       {/* モバイルアコーディオンメニュー (md未満) */}
-      <div className="md:hidden w-full border-[1px] border-border bg-background mb-4">
+      <div className="md:hidden w-full border-thick border-border bg-background mb-4">
         <button
           onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
           className="flex items-center justify-between w-full px-4 py-3 text-xs font-bold uppercase cursor-pointer"
@@ -121,7 +121,7 @@ export default function DashboardLayout({
         </button>
 
         {isMobileMenuOpen && (
-          <nav className="border-t border-border p-1.5 space-y-1 bg-background">
+          <nav className="border-t-thick border-border p-1.5 space-y-1 bg-background">
             {menuItems.map((item, idx) => {
               const Icon = item.icon;
               const isCircleActive = type === "circle" && location.pathname === item.href;
@@ -129,7 +129,7 @@ export default function DashboardLayout({
               const isActive = isCircleActive || isTabActive;
 
               const baseClass = cn(
-                "flex items-center gap-2 px-3 py-2 text-[12px] font-bold uppercase rounded-none transition-all border border-transparent w-full select-none cursor-pointer text-left",
+                "flex items-center gap-2 px-3 py-2.5 text-[12px] font-bold uppercase rounded-none transition-all border border-transparent w-full select-none cursor-pointer text-left",
                 isActive
                   ? "bg-primary text-primary-foreground border-primary"
                   : "hover:bg-muted text-muted-foreground hover:text-foreground"
@@ -171,7 +171,7 @@ export default function DashboardLayout({
       {/* 2カラムレイアウト */}
       <div className="flex flex-col md:flex-row gap-6 items-start">
         {/* 左サイドバー: PCでは縦並び、モバイルでは非表示 (アコーディオンがカバーするため) */}
-        <aside className="hidden md:block w-full md:w-64 shrink-0 border-[1px] border-border bg-background p-2 rounded-none shadow-none md:sticky md:top-4">
+        <aside className="hidden md:block w-full md:w-64 shrink-0 border-thick border-border bg-background p-2 rounded-none shadow-none md:sticky md:top-4">
           <nav className="flex md:flex-col gap-1">
             {menuItems.map((item, idx) => {
               const Icon = item.icon;
@@ -212,7 +212,7 @@ export default function DashboardLayout({
         </aside>
 
         {/* 右メインコンテンツ */}
-        <main className="flex-1 w-full border-[1px] border-border p-4 md:p-6 bg-background rounded-none shadow-none min-h-[500px]">
+        <main className="flex-1 w-full border-thick border-border p-4 md:p-6 bg-background rounded-none shadow-none min-h-[500px]">
           {children}
         </main>
       </div>

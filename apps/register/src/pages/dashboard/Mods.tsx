@@ -239,7 +239,7 @@ function ModsSettingsContent() {
   return (
     <DashboardLayout title={circleName} subtitle="拡張機能 (モッド)" type="circle">
       <div className="space-y-6 font-mono">
-        <div className="border-b border-border pb-3 flex flex-col sm:flex-row justify-between items-start sm:items-end gap-4">
+        <div className="border-b-thick border-border pb-3 flex flex-col sm:flex-row justify-between items-start sm:items-end gap-4">
           <div>
             <h2 className="text-sm font-bold uppercase tracking-wider">[拡張機能管理]</h2>
             <p className="text-[10px] text-muted-foreground mt-1">
@@ -255,7 +255,7 @@ function ModsSettingsContent() {
               setIsUrlImportOpen(!isUrlImportOpen);
             }}
             variant="outline"
-            className="h-11 border border-border font-mono text-xs font-bold rounded-none uppercase flex items-center justify-center gap-1.5"
+            className="h-11 border-thick border-border font-mono text-xs font-bold rounded-none uppercase flex items-center justify-center gap-1.5"
           >
             <Globe className="h-4 w-4" />
             URLからモッドを導入
@@ -271,7 +271,7 @@ function ModsSettingsContent() {
             <Button
               onClick={() => document.getElementById("mod-file-upload")?.click()}
               variant="outline"
-              className="w-full h-11 border border-border font-mono text-xs font-bold rounded-none uppercase flex items-center justify-center gap-1.5"
+              className="w-full h-11 border-thick border-border font-mono text-xs font-bold rounded-none uppercase flex items-center justify-center gap-1.5"
             >
               <Upload className="h-4 w-4" />
               JSONファイルをアップロード
@@ -281,7 +281,7 @@ function ModsSettingsContent() {
 
         {/* URLインポートパネル */}
         {isUrlImportOpen && (
-          <Card className="border border-border rounded-none p-4 bg-muted space-y-3">
+          <Card className="border-thick border-border rounded-none p-4 bg-muted space-y-3">
             <form onSubmit={handleUrlImport} className="flex flex-col sm:flex-row gap-2">
               <div className="flex-1">
                 <Label htmlFor="manifestUrl" className="sr-only">マニフェストURL</Label>
@@ -289,7 +289,7 @@ function ModsSettingsContent() {
                   id="manifestUrl"
                   type="url"
                   placeholder="https://example.com/mod/manifest.json"
-                  className="h-10 border border-border bg-background rounded-none font-mono text-xs focus-visible:ring-0"
+                  className="h-10 border-thick border-border bg-background rounded-none font-mono text-xs focus-visible:ring-0"
                   value={manifestUrl}
                   onChange={(e) => setManifestUrl(e.target.value)}
                   required
@@ -297,27 +297,27 @@ function ModsSettingsContent() {
               </div>
               <Button
                 type="submit"
-                className="h-10 border border-primary bg-primary text-primary-foreground rounded-none font-mono hover:bg-background hover:text-foreground font-bold text-xs uppercase shrink-0 px-4"
+                className="h-10 border-thick border-primary bg-primary text-primary-foreground rounded-none font-mono hover:bg-background hover:text-foreground font-bold text-xs uppercase shrink-0 px-4"
               >
                 <Plus className="mr-1 h-4 w-4" />
                 導入
               </Button>
             </form>
             <p className="text-[10px] text-muted-foreground">
-              ※モッドのリポジトリで公開されている Raw 状態の `manifest.json` のURLを入力してください。
+              ※モッドのリポジトリで公開されている Raw 状態 of `manifest.json` のURLを入力してください。
             </p>
           </Card>
         )}
 
         {/* インストール済みモッド一覧・設定 */}
         <div className="space-y-4">
-          <h3 className="text-xs font-bold uppercase border-b border-border pb-1.5 flex items-center gap-2">
+          <h3 className="text-xs font-bold uppercase border-b-thick border-border pb-1.5 flex items-center gap-2">
             <span>[インストール済みの拡張機能]</span>
             <span className="text-[10px] font-normal text-muted-foreground">({Object.keys(installedMods).length}個)</span>
           </h3>
 
           {Object.keys(installedMods).length === 0 ? (
-            <div className="border border-dashed border-border p-8 text-center bg-muted">
+            <div className="border-thick border-dashed border-border p-8 text-center bg-muted">
               <p className="text-xs text-muted-foreground font-bold">インストールされた拡張機能はありません。</p>
               <p className="text-[10px] text-muted-foreground/80 mt-1">
                 上のボタンから、コミュニティ等で配布されているマニフェストのURLまたはJSONを入力して導入してください。
@@ -328,8 +328,8 @@ function ModsSettingsContent() {
               {Object.entries(installedMods).map(([modId, modState]) => {
                 const { manifest, enabled, settings } = modState;
                 return (
-                  <Card key={modId} className="border border-border rounded-none shadow-none">
-                    <CardHeader className="border-b border-border bg-accent text-accent-foreground p-4">
+                  <Card key={modId} className="border-thick border-border rounded-none shadow-none">
+                    <CardHeader className="border-b-thick border-border bg-accent text-accent-foreground p-4">
                       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
                         <div>
                           <CardTitle className="text-base font-bold flex items-center gap-1.5">
@@ -346,7 +346,7 @@ function ModsSettingsContent() {
                             type="button"
                             variant={enabled ? "default" : "outline"}
                             onClick={() => toggleMod(modId)}
-                            className="border border-border font-bold rounded-none h-9 text-xs uppercase flex-1 sm:flex-none px-3"
+                            className="border-thick border-border font-bold rounded-none h-9 text-xs uppercase flex-1 sm:flex-none px-3"
                           >
                             {enabled ? (
                               <>
@@ -361,7 +361,7 @@ function ModsSettingsContent() {
                           <Button
                             type="button"
                             onClick={() => uninstallMod(modId, manifest.name)}
-                            className="border border-border bg-background text-foreground hover:bg-destructive hover:text-destructive-foreground rounded-none h-9 p-2 shrink-0"
+                            className="border-thick border-border bg-background text-foreground hover:bg-destructive hover:text-destructive-foreground rounded-none h-9 p-2 shrink-0"
                           >
                             <Trash2 className="h-4 w-4" />
                           </Button>
@@ -372,7 +372,7 @@ function ModsSettingsContent() {
                     {/* 動的設定項目レンダリング */}
                     {enabled && manifest.settingsSchema && manifest.settingsSchema.length > 0 && (
                       <CardContent className="p-4 space-y-3">
-                        <p className="text-[10px] font-bold uppercase mb-2 border-b border-border pb-1">[設定項目]</p>
+                        <p className="text-[10px] font-bold uppercase mb-2 border-b-thick border-border pb-1">[設定項目]</p>
                         {manifest.settingsSchema.map((field) => {
                           const currentValue = settings[field.key] ?? field.default;
                           return (
@@ -385,7 +385,7 @@ function ModsSettingsContent() {
                                   id={`${modId}-${field.key}`}
                                   value={currentValue}
                                   onChange={(e) => updateSettingValue(modId, field.key, e.target.value)}
-                                  className="flex min-h-[80px] w-full bg-background text-foreground border border-border px-3 py-2 text-xs transition-all outline-none focus-visible:ring-0 rounded-none font-mono"
+                                  className="flex min-h-[80px] w-full bg-background text-foreground border-thick border-border px-3 py-2 text-xs transition-all outline-none focus-visible:ring-0 rounded-none font-mono"
                                 />
                               ) : field.type === "boolean" ? (
                                 <div className="flex items-center">
@@ -393,7 +393,7 @@ function ModsSettingsContent() {
                                     type="button"
                                     variant={currentValue ? "default" : "outline"}
                                     onClick={() => updateSettingValue(modId, field.key, !currentValue)}
-                                    className="border border-border font-bold rounded-none h-8 text-[10px] px-3"
+                                    className="border-thick border-border font-bold rounded-none h-8 text-[10px] px-3"
                                   >
                                     {currentValue ? "はい (ON)" : "いいえ (OFF)"}
                                   </Button>
@@ -404,7 +404,7 @@ function ModsSettingsContent() {
                                   type={field.type === "number" ? "number" : "text"}
                                   value={currentValue}
                                   onChange={(e) => updateSettingValue(modId, field.key, field.type === "number" ? Number(e.target.value) : e.target.value)}
-                                  className="h-9 border border-border bg-background rounded-none focus-visible:ring-0 text-xs font-mono"
+                                  className="h-9 border-thick border-border bg-background rounded-none focus-visible:ring-0 text-xs font-mono"
                                 />
                               )}
                             </div>
@@ -418,11 +418,11 @@ function ModsSettingsContent() {
             </div>
           )}
 
-          <div className="flex justify-end pt-4 border-t border-border">
+          <div className="flex justify-end pt-4 border-t-thick border-border">
             <Button
               onClick={handleSave}
               disabled={updateModsMutation.isPending}
-              className="h-11 border border-primary bg-primary font-mono text-xs font-bold text-primary-foreground rounded-none hover:bg-background hover:text-foreground uppercase px-6"
+              className="h-11 border-thick border-primary bg-primary font-mono text-xs font-bold text-primary-foreground rounded-none hover:bg-background hover:text-foreground uppercase px-6"
             >
               <Save className="mr-1.5 h-4 w-4" />
               {updateModsMutation.isPending ? "保存中..." : "変更を確定して保存"}

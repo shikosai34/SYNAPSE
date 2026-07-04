@@ -147,7 +147,7 @@ function CircleQrContent() {
     <DashboardLayout title={circleName} subtitle="モバイルオーダーQR" type="circle">
       <div className="space-y-6 font-mono">
         {/* ナビゲーション・アクション（印刷時には非表示） */}
-        <div className="print:hidden flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 border-b border-border pb-4">
+        <div className="print:hidden flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 border-b-thick border-border pb-4">
           <div>
             <h2 className="text-sm font-bold uppercase tracking-wider">[店頭掲示用 モバイルオーダーQR POP]</h2>
             <p className="text-[10px] text-muted-foreground mt-1">
@@ -160,7 +160,7 @@ function CircleQrContent() {
               <DropdownMenuTrigger asChild>
                 <Button
                   disabled={isExporting}
-                  className="rounded-none border-[1px] border-primary bg-primary text-primary-foreground hover:bg-background hover:text-foreground h-9 text-xs font-bold shadow-none px-3 flex items-center gap-1.5"
+                  className="rounded-none border-thick border-primary bg-primary text-primary-foreground hover:bg-background hover:text-foreground h-9 text-xs font-bold shadow-none px-3 flex items-center gap-1.5"
                 >
                   {isExporting ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
@@ -205,7 +205,7 @@ function CircleQrContent() {
               onClick={handlePrint}
               variant="outline"
               disabled={isExporting}
-              className="rounded-none border-[1px] border-border bg-background text-foreground hover:bg-neutral-100 h-9 text-xs font-bold shadow-none px-3"
+              className="rounded-none border-thick border-border bg-background text-foreground hover:bg-neutral-100 h-9 text-xs font-bold shadow-none px-3"
             >
               <Printer className="mr-1.5 h-4 w-4" />
               印刷

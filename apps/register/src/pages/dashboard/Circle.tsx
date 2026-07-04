@@ -101,8 +101,8 @@ function CircleSettingsContent() {
   return (
     <DashboardLayout title={circleName} subtitle="サークル設定" type="circle">
       <div className="space-y-6">
-        <Card className="border-[1px] border-border rounded-none shadow-none">
-          <CardHeader className="pb-3 border-b-[1px] border-border">
+        <Card className="border-thick border-border rounded-none shadow-none">
+          <CardHeader className="pb-3 border-b-thick border-border">
             <CardTitle className="text-sm font-bold uppercase">基本情報</CardTitle>
             <CardDescription className="text-xs text-muted-foreground">サークルの基本情報を編集できます</CardDescription>
           </CardHeader>
@@ -114,7 +114,7 @@ function CircleSettingsContent() {
                 value={form.name}
                 onChange={(e) => setForm({ ...form, name: e.target.value })}
                 placeholder="例: 2年1組"
-                className="border-[1px] border-border rounded-none focus-visible:ring-0 bg-background text-sm"
+                className="border-thick border-border rounded-none focus-visible:ring-0 bg-background text-sm"
               />
             </div>
 
@@ -127,7 +127,7 @@ function CircleSettingsContent() {
                   setForm({ ...form, description: e.target.value })
                 }
                 placeholder="サークルの説明"
-                className="border-[1px] border-border rounded-none focus-visible:ring-0 bg-background text-sm"
+                className="border-thick border-border rounded-none focus-visible:ring-0 bg-background text-sm"
               />
             </div>
 
@@ -140,7 +140,7 @@ function CircleSettingsContent() {
                   setForm({ ...form, iconImagePath: e.target.value })
                 }
                 placeholder="/images/circle/icon.jpg"
-                className="border-[1px] border-border rounded-none focus-visible:ring-0 bg-background text-sm"
+                className="border-thick border-border rounded-none focus-visible:ring-0 bg-background text-sm"
               />
             </div>
 
@@ -153,24 +153,24 @@ function CircleSettingsContent() {
                   setForm({ ...form, backgroundImagePath: e.target.value })
                 }
                 placeholder="/images/circle/background.jpg"
-                className="border-[1px] border-border rounded-none focus-visible:ring-0 bg-background text-sm"
+                className="border-thick border-border rounded-none focus-visible:ring-0 bg-background text-sm"
               />
             </div>
 
-            <Button onClick={handleSave} disabled={updateCircle.isPending} className="rounded-none text-xs font-bold bg-primary text-primary-foreground hover:bg-background hover:text-foreground border border-transparent hover:border-border h-9 shadow-none px-4">
+            <Button onClick={handleSave} disabled={updateCircle.isPending} className="rounded-none text-xs font-bold bg-primary text-primary-foreground hover:bg-background hover:text-foreground border-thick border-transparent hover:border-border h-9 shadow-none px-4">
               <Save className="mr-2 h-4 w-4" />
               {updateCircle.isPending ? "保存中..." : "変更を保存"}
             </Button>
           </CardContent>
         </Card>
 
-        <Card className="border-[1px] border-border rounded-none shadow-none">
-          <CardHeader className="pb-3 border-b-[1px] border-border">
+        <Card className="border-thick border-border rounded-none shadow-none">
+          <CardHeader className="pb-3 border-b-thick border-border">
             <CardTitle className="text-sm font-bold uppercase">サークルID</CardTitle>
             <CardDescription className="text-xs text-muted-foreground">このIDはシステム内で一意であり、変更できません</CardDescription>
           </CardHeader>
           <CardContent className="pt-4">
-            <code className="bg-muted px-3 py-1.5 text-xs rounded-none border-[1px] border-border block w-fit font-mono">{circleId}</code>
+            <code className="bg-muted px-3 py-1.5 text-xs rounded-none border-thick border-border block w-fit font-mono">{circleId}</code>
           </CardContent>
         </Card>
       </div>

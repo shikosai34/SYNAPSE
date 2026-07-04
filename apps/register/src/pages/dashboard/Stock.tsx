@@ -109,8 +109,8 @@ function StockManagementContent() {
           </Card>
         )}
 
-        <Card className="border-[1px] border-border rounded-none shadow-none">
-          <CardHeader className="pb-3 border-b-[1px] border-border">
+        <Card className="border-thick border-border rounded-none shadow-none">
+          <CardHeader className="pb-3 border-b-thick border-border">
             <CardTitle className="flex items-center text-sm font-bold uppercase">
               <Package className="mr-2 h-4 w-4" />
               在庫一覧
@@ -121,9 +121,9 @@ function StockManagementContent() {
               {menus?.map((menu) => (
                 <div
                   key={menu.id}
-                  className="flex items-center gap-4 p-3 border border-border rounded-none text-xs font-mono"
+                  className="flex items-center gap-4 p-3 border-thick border-border rounded-none text-xs font-mono"
                 >
-                  <div className="relative h-12 w-12 rounded-none overflow-hidden flex-shrink-0 border border-border">
+                  <div className="relative h-12 w-12 rounded-none overflow-hidden flex-shrink-0 border-thick border-border">
                     {menu.imagePath ? (
                       <Image
                         src={menu.imagePath}
@@ -148,7 +148,7 @@ function StockManagementContent() {
                   <div className="flex items-center gap-2">
                     <Input
                       type="number"
-                      className="w-20 border-[1px] border-border rounded-none h-8 text-xs bg-background focus-visible:ring-0 text-center"
+                      className="w-20 border-thick border-border rounded-none h-8 text-xs bg-background focus-visible:ring-0 text-center"
                       defaultValue={menu.stockQuantity ?? 0}
                       onBlur={(e) => {
                         const newValue = Number(e.target.value);

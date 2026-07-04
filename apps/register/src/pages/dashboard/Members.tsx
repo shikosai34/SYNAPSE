@@ -191,7 +191,7 @@ function MembersContent() {
   return (
     <DashboardLayout title={circleName} subtitle="メンバー管理" type="circle">
       <div className="space-y-6 font-mono">
-        <div className="flex items-center justify-between border-b-[1px] border-border pb-3">
+        <div className="flex items-center justify-between border-b-thick border-border pb-3">
           <div>
             <h2 className="text-sm font-bold flex items-center gap-2 uppercase tracking-wider">
               <Users className="h-4 w-4" />
@@ -203,14 +203,14 @@ function MembersContent() {
               <Button
                 onClick={() => setShowAddForm(!showAddForm)}
                 variant="outline"
-                className="rounded-none border-[1px] border-border h-8 text-[11px] font-bold shadow-none px-3 bg-background hover:bg-neutral-100"
+                className="rounded-none border-thick border-border h-8 text-[11px] font-bold shadow-none px-3 bg-background hover:bg-neutral-100"
               >
                 <UserPlus className="mr-1.5 h-3.5 w-3.5" />
                 メンバー追加
               </Button>
               <Button 
                 onClick={() => setShowInviteForm(!showInviteForm)}
-                className="rounded-none border-[1px] border-primary bg-primary text-primary-foreground hover:bg-background hover:text-foreground h-8 text-[11px] font-bold shadow-none px-3"
+                className="rounded-none border-thick border-primary bg-primary text-primary-foreground hover:bg-background hover:text-foreground h-8 text-[11px] font-bold shadow-none px-3"
               >
                 <LinkIcon className="mr-1.5 h-3.5 w-3.5" />
                 招待リンク作成
