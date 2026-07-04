@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "sonner";
-import Link from "next/link";
+import Link from "@/components/link";
 import { QrCode, Copy, ExternalLink, RefreshCw } from "lucide-react";
 
 export default function TestWristbandsPage() {

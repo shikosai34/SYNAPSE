@@ -1,6 +1,6 @@
 
 import { useEffect, useState, Suspense } from "react";
-import { useSearchParams, useRouter, usePathname } from "next/navigation";
+import { useSearchParams, useRouter, usePathname } from "@/lib/next-navigation";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { wristbandApi } from "@/lib/api";
 import { authClient } from "@/lib/auth-client";

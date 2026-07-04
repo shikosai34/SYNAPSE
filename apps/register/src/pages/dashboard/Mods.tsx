@@ -17,7 +17,7 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
 import { Save, ArrowLeft, ToggleLeft, ToggleRight, Sparkles, Plus, Trash2, Globe, Upload, ToggleRight as ToggleOn, ToggleLeft as ToggleOff } from "lucide-react";
-import Link from "next/link";
+import Link from "@/components/link";
 
 interface SettingsSchemaField {
   key: string;

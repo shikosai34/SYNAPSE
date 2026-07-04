@@ -1,6 +1,6 @@
 
-import { useState, useEffect, use } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useEffect } from "react";
+import { useRouter, useParams } from "@/lib/next-navigation";
 import { useMutation } from "@tanstack/react-query";
 import { membershipApi } from "@/lib/api";
 import { saveAuthInfo, type RoleType } from "@/hooks/useCircleAuth";
@@ -17,12 +17,9 @@ import { Label } from "@/components/ui/label";
 import Loader from "@/components/loader";
 import { CheckCircle, XCircle, UserPlus } from "lucide-react";
 
-export default function InvitePage({
-  params,
-}: {
-  params: Promise<{ token: string }>;
-}) {
-  const { token } = use(params);
+export default function InvitePage() {
+  // react-router の動的セグメント /invite/:token から取得 (旧 Next の use(params) を置換)
+  const { token = "" } = useParams();
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

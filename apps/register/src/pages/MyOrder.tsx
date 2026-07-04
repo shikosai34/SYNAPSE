@@ -1,6 +1,6 @@
 
 import { useState, useEffect } from "react";
-import Script from "next/script";
+import Script from "@/components/script";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { preOrderApi, wristbandApi, orderApi, circleApi } from "@/lib/api";
 import { ModSandbox } from "@/components/ModSandbox";
@@ -10,7 +10,7 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
-import { useRouter } from "next/navigation";
+import { useRouter } from "@/lib/next-navigation";
 import {
   ArrowLeft,
   Clock,

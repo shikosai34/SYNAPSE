@@ -17,7 +17,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { ImageUpload } from "@/components/image-upload";
 import { toast } from "sonner";
 import { Plus, Edit, Trash2, Save } from "lucide-react";
-import Image from "next/image";
+import Image from "@/components/image";
 
 function MenuManagementContent() {
   const [circleId, setCircleId] = useState<string>("");

@@ -18,7 +18,7 @@ import {
   Loader2,
   Download,
 } from "lucide-react";
-import Link from "next/link";
+import Link from "@/components/link";
 import { QRCodeSVG } from "qrcode.react";
 import { toPng } from "html-to-image";
 import jsPDF from "jspdf";

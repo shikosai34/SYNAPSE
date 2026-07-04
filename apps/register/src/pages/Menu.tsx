@@ -1,7 +1,7 @@
 
 import { useEffect, useState, Suspense } from "react";
-import { useSearchParams, useRouter } from "next/navigation";
-import Script from "next/script";
+import { useSearchParams, useRouter } from "@/lib/next-navigation";
+import Script from "@/components/script";
 import { ModSandbox } from "@/components/ModSandbox";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { eventApi, circleApi, menuApi, preOrderApi, orderApi } from "@/lib/api";
@@ -18,7 +18,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import Image from "next/image";
+import Image from "@/components/image";
 import { ShoppingCart, Plus, Minus, CheckCircle } from "lucide-react";
 
 interface CartItem {

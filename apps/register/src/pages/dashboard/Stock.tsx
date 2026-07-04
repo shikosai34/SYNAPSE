@@ -15,7 +15,7 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
 import { AlertTriangle, Package } from "lucide-react";
-import Image from "next/image";
+import Image from "@/components/image";
 
 function StockManagementContent() {
   const [circleId, setCircleId] = useState<string>("");
