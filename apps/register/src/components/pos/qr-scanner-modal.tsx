@@ -2,6 +2,7 @@
 import { useState, useRef, useEffect } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { preOrderApi, wristbandApi, type PreOrderWithDetails } from "@/lib/api";
+import { extractIdFromCode } from "@/lib/utils";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -73,7 +74,8 @@ export function QrScannerModal({
   // 顧客情報ルックアップ (2026-07-04)
   const lookupCustomerMutation = useMutation({
     mutationFn: async (code: string) => {
-      return await wristbandApi.lookup(code);
+      const parsedCode = extractIdFromCode(code);
+      return await wristbandApi.lookup(parsedCode);
     },
     onSuccess: (data) => {
       if (data.user) {
@@ -94,7 +96,8 @@ export function QrScannerModal({
   // 事前オーダー検索
   const searchMutation = useMutation({
     mutationFn: async (code: string) => {
-      return await preOrderApi.getByCode(code, circleId);
+      const parsedCode = extractIdFromCode(code);
+      return await preOrderApi.getByCode(parsedCode, circleId);
     },
     onSuccess: (data) => {
       setPreOrders(data);
@@ -213,7 +216,7 @@ export function QrScannerModal({
                 playsInline
               />
               <div className="absolute inset-0 flex items-center justify-center">
-                <div className="h-32 w-32 border-[3px] border-dashed border-red-500 animate-pulse" />
+                <div className="h-32 w-32 border-thick border-dashed border-red-500 animate-pulse" />
               </div>
             </div>
           )}
@@ -240,7 +243,7 @@ export function QrScannerModal({
               key={po.id}
               className="border-thick border-border bg-background p-4 sm:p-5 space-y-4"
             >
-              <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start border-b-[2px] border-border pb-3 gap-2 sm:gap-0">
+              <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start border-b-thin border-border pb-3 gap-2 sm:gap-0">
                 <div>
                   <span className="bg-primary text-primary-foreground px-2 py-1 font-mono text-xs font-bold uppercase tracking-widest">
                     事前オーダー
@@ -257,7 +260,7 @@ export function QrScannerModal({
               </div>
 
               {/* 注文アイテム明細 */}
-              <div className="space-y-2 bg-muted p-3 border-[2px] border-border">
+              <div className="space-y-2 bg-muted p-3 border-thin border-border">
                 <p className="font-mono text-xs font-bold uppercase tracking-wider">
                   [注文内容]
                 </p>

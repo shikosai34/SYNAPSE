@@ -216,10 +216,10 @@ function CircleQrContent() {
         {/* 店頭掲示用 POP シート (印刷対象) */}
         <div
           ref={popRef}
-          className="print:m-0 print:p-0 print:border-none print:shadow-none border-[4px] border-border bg-background p-6 space-y-6 text-center text-foreground max-w-2xl mx-auto rounded-none"
+          className="print:m-0 print:p-0 print:border-none print:shadow-none border-thick border-border bg-background p-6 space-y-6 text-center text-foreground max-w-2xl mx-auto rounded-none"
         >
           {/* POP ヘッダー */}
-          <div className="bg-primary text-primary-foreground p-5 border-[2px] border-border space-y-1 rounded-none">
+          <div className="bg-primary text-primary-foreground p-5 border-thin border-border space-y-1 rounded-none">
             <span className="bg-background text-foreground px-3 py-0.5 font-mono text-[10px] font-black uppercase tracking-widest inline-block rounded-none border border-border">
               MOBILE ORDER AVAILABLE
             </span>
@@ -233,7 +233,7 @@ function CircleQrContent() {
 
           {/* メイン QR 描画エリア */}
           <div className="my-6 flex flex-col items-center justify-center space-y-4">
-            <div className="relative border-[4px] border-border bg-background p-5 rounded-none shadow-[4px_4px_0px_0px_var(--border)]">
+            <div className="relative border-thick border-border bg-background p-5 rounded-none shadow-[4px_4px_0px_0px_var(--border)]">
               <QRCodeSVG
                 value={mobileOrderUrl}
                 size={220}
@@ -254,7 +254,7 @@ function CircleQrContent() {
           </div>
 
           {/* POP フッターステップ案内 */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 font-mono text-left pt-4 border-t-[2px] border-border">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 font-mono text-left pt-4 border-t-thin border-border">
             <div className="border border-border p-2.5 bg-muted rounded-none">
               <span className="bg-primary text-primary-foreground px-1.5 py-0.5 text-[8px] font-bold mr-1 rounded-none">
                 STEP 1

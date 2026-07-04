@@ -39,9 +39,9 @@ export default function Home() {
   return (
     <div className="bg-background text-foreground font-body">
       {/* ヒーローセクション */}
-      <section className="border-b-[5px] border-border py-sp-6 sm:py-sp-7 px-sp-3 sm:px-sp-4 bg-background">
+      <section className="border-b-heavy border-border py-sp-6 sm:py-sp-7 px-sp-3 sm:px-sp-4 bg-background">
         <div className="max-w-5xl mx-auto text-center space-y-sp-4 sm:space-y-sp-5">
-          <div className="inline-block bg-accent text-accent-foreground font-headline uppercase text-[10px] sm:text-[12px] tracking-[3px] px-sp-3 py-sp-2 border-[3px] border-accent">
+          <div className="inline-block bg-accent text-accent-foreground font-headline uppercase text-[10px] sm:text-[12px] tracking-[3px] px-sp-3 py-sp-2 border-thick border-accent">
             {PRODUCT_NAME.toUpperCase()} // SYSTEM v1.0
           </div>
           {/* 製品名をロゴ的に大きく表示 (2026-07-04 ユーザー要望)。
@@ -72,9 +72,9 @@ export default function Home() {
       </section>
 
       {/* 機能紹介 */}
-      <section className="py-sp-6 sm:py-sp-7 px-sp-3 sm:px-sp-4 border-b-[5px] border-border bg-muted">
+      <section className="py-sp-6 sm:py-sp-7 px-sp-3 sm:px-sp-4 border-b-heavy border-border bg-muted">
         <div className="max-w-6xl mx-auto space-y-sp-4 sm:space-y-sp-5">
-          <div className="flex flex-col sm:flex-row sm:justify-between sm:items-end border-b-[3px] border-border pb-sp-3 gap-1">
+          <div className="flex flex-col sm:flex-row sm:justify-between sm:items-end border-b-thick border-border pb-sp-3 gap-1">
             <h2 className="text-[28px] sm:text-[32px] md:text-[48px] font-headline uppercase tracking-tight leading-[1.05]">
               主な機能
             </h2>
@@ -86,14 +86,14 @@ export default function Home() {
             {features.map((feature) => (
               <div
                 key={feature.title}
-                className="bg-background border-[3px] border-border p-sp-4 flex flex-col justify-between hover:bg-primary hover:text-primary-foreground group"
+                className="bg-background border-thick border-border p-sp-4 flex flex-col justify-between hover:bg-primary hover:text-primary-foreground group"
               >
                 <div>
                   <div className="flex items-center justify-between mb-sp-3 sm:mb-sp-4">
                     <span className="font-mono text-[24px] sm:text-[28px] font-bold leading-none">
                       {feature.index}
                     </span>
-                    <span className="font-mono text-[10px] font-bold uppercase border-[2px] border-border group-hover:border-primary-foreground px-sp-2 py-sp-1 tracking-[1px]">
+                    <span className="font-mono text-[10px] font-bold uppercase border-thin border-border group-hover:border-primary-foreground px-sp-2 py-sp-1 tracking-[1px]">
                       {feature.tag}
                     </span>
                   </div>
@@ -122,7 +122,7 @@ export default function Home() {
 
       {/* CTA */}
       <section className="py-sp-6 sm:py-sp-7 px-sp-3 sm:px-sp-4 bg-primary text-primary-foreground">
-        <div className="max-w-4xl mx-auto border-[5px] border-primary-foreground p-sp-4 sm:p-sp-5 md:p-sp-7 text-center space-y-sp-4 sm:space-y-sp-5 bg-primary">
+        <div className="max-w-4xl mx-auto border-heavy border-primary-foreground p-sp-4 sm:p-sp-5 md:p-sp-7 text-center space-y-sp-4 sm:space-y-sp-5 bg-primary">
           <h2 className="text-[28px] sm:text-[32px] md:text-[48px] font-headline uppercase tracking-tight leading-[1.05]">
             GET STARTED NOW
           </h2>
@@ -134,7 +134,7 @@ export default function Home() {
               <Button
                 size="lg"
                 variant="accent"
-                className="w-full sm:w-auto border-[3px] border-transparent"
+                className="w-full sm:w-auto border-thick border-transparent"
               >
                 ログイン画面へ進む
               </Button>

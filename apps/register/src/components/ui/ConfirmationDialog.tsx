@@ -1,0 +1,59 @@
+import { Button } from "@/components/ui/button";
+
+interface ConfirmationDialogProps {
+  isOpen: boolean;
+  title: string;
+  description: string;
+  onConfirm: () => void; // 保存して閉じる等のアクション
+  onDiscard: () => void; // 破棄して閉じる
+  onCancel: () => void;  // 編集に戻る
+}
+
+export function ConfirmationDialog({
+  isOpen,
+  title,
+  description,
+  onConfirm,
+  onDiscard,
+  onCancel
+}: ConfirmationDialogProps) {
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-foreground/80 p-4 backdrop-blur-sm">
+      <div className="w-full max-w-md bg-background border-thick border-border p-6 space-y-6 font-mono text-foreground">
+        <div className="space-y-2">
+          <h3 className="text-sm font-bold uppercase tracking-wider text-destructive">
+            {title}
+          </h3>
+          <p className="text-xs text-muted-foreground leading-[1.6]">
+            {description}
+          </p>
+        </div>
+
+        <div className="flex flex-col sm:flex-row gap-2 pt-2">
+          <Button
+            onClick={onConfirm}
+            className="flex-1 h-10 border-thick border-primary bg-primary text-primary-foreground font-bold text-xs uppercase rounded-none hover:bg-background hover:text-foreground"
+          >
+            [保存して閉じる]
+          </Button>
+          <Button
+            onClick={onDiscard}
+            variant="outline"
+            className="flex-1 h-10 border-thick border-destructive bg-destructive text-destructive-foreground font-bold text-xs uppercase rounded-none hover:bg-background hover:text-destructive"
+          >
+            [保存せず閉じる]
+          </Button>
+          <Button
+            onClick={onCancel}
+            variant="outline"
+            className="flex-1 h-10 border-thick border-border bg-background text-foreground font-bold text-xs uppercase rounded-none hover:bg-primary hover:text-primary-foreground"
+          >
+            [入力を続ける]
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}

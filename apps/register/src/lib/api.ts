@@ -460,6 +460,7 @@ export interface SalesStats {
 
 export type Role =
   | "event_admin"
+  | "event_staff"
   | "circle_manager"
   | "cashier"
   | "kitchen_staff"
@@ -549,7 +550,9 @@ export interface CreateMenuInput {
   name: string;
   price: number;
   description?: string;
+  imagePath?: string;
   imageUrl?: string;
+  stockQuantity?: number;
   stock?: number;
   isAvailable?: boolean;
   toppingIds?: string[];
@@ -559,7 +562,9 @@ export interface UpdateMenuInput {
   name?: string;
   price?: number;
   description?: string;
+  imagePath?: string | null;
   imageUrl?: string;
+  stockQuantity?: number | null;
   stock?: number | null;
   isAvailable?: boolean;
   toppingIds?: string[];
@@ -569,6 +574,7 @@ export interface CreateToppingInput {
   circleId: string;
   name: string;
   price: number;
+  description?: string;
   stock?: number;
   isAvailable?: boolean;
 }
@@ -576,6 +582,7 @@ export interface CreateToppingInput {
 export interface UpdateToppingInput {
   name?: string;
   price?: number;
+  description?: string | null;
   stock?: number | null;
   isAvailable?: boolean;
 }

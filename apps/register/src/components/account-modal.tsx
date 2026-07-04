@@ -148,21 +148,21 @@ export default function AccountModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/75 p-4 backdrop-blur-sm">
-      <div className="relative w-full max-w-md border-[1px] border-border bg-background p-6 shadow-none font-mono rounded-none max-h-[90vh] overflow-y-auto">
+      <div className="relative w-full max-w-md border-thin border-border bg-background p-6 shadow-none font-mono rounded-none max-h-[90vh] overflow-y-auto">
         <button
           onClick={onClose}
-          className="absolute right-4 top-4 w-8 h-8 border-[1px] border-border flex items-center justify-center hover:bg-primary hover:text-primary-foreground transition-all rounded-none cursor-pointer"
+          className="absolute right-4 top-4 w-8 h-8 border-thin border-border flex items-center justify-center hover:bg-primary hover:text-primary-foreground transition-all rounded-none cursor-pointer"
         >
           <X className="h-4 w-4" />
         </button>
 
-        <div className="mb-6 border-b-[1px] border-border pb-3 flex items-center gap-2">
+        <div className="mb-6 border-b-thin border-border pb-3 flex items-center gap-2">
           <User className="h-5 w-5 text-primary" />
           <h2 className="text-lg font-black uppercase tracking-wider">[アカウント管理]</h2>
         </div>
 
         {/* 現在のアクティブスペース */}
-        <div className="space-y-1 mb-6 bg-muted/30 p-4 border-[1px] border-border rounded-none flex items-center justify-between">
+        <div className="space-y-1 mb-6 bg-muted/30 p-4 border-thin border-border rounded-none flex items-center justify-between">
           <div>
             <span className="text-[10px] text-muted-foreground uppercase font-bold tracking-wider">現在のアクティブスペース</span>
             <p className="font-bold text-xs">{activeLabel}</p>
@@ -176,7 +176,7 @@ export default function AccountModal({
         <section className="space-y-3 mb-6">
           <h3 className="text-xs font-black uppercase tracking-wider text-muted-foreground">[プロフィール]</h3>
           <div className="flex items-center gap-3">
-            <div className="relative w-16 h-16 border-[1px] border-border bg-muted/30 flex items-center justify-center overflow-hidden shrink-0">
+            <div className="relative w-16 h-16 border-thin border-border bg-muted/30 flex items-center justify-center overflow-hidden shrink-0">
               {image ? (
                 <img src={image} alt="アイコン" className="w-full h-full object-cover" />
               ) : (
@@ -189,7 +189,7 @@ export default function AccountModal({
                 type="button"
                 variant="outline"
                 size="sm"
-                className="h-8 text-[11px] rounded-none border-[1px]"
+                className="h-8 text-[11px] rounded-none border-thin"
                 onClick={() => fileRef.current?.click()}
                 disabled={uploading}
               >
@@ -212,12 +212,12 @@ export default function AccountModal({
             <Input
               value={name}
               onChange={(e) => setName(e.target.value)}
-              className="rounded-none border-[1px] h-9 text-sm"
+              className="rounded-none border-thin h-9 text-sm"
               placeholder="表示名"
             />
           </div>
           <Button
-            className="w-full h-9 rounded-none border-[1px] text-xs uppercase font-black"
+            className="w-full h-9 rounded-none border-thin text-xs uppercase font-black"
             onClick={() => profileMutation.mutate()}
             disabled={profileMutation.isPending || !name.trim()}
           >
@@ -232,12 +232,12 @@ export default function AccountModal({
             type="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            className="rounded-none border-[1px] h-9 text-sm"
+            className="rounded-none border-thin h-9 text-sm"
             placeholder="you@example.com"
           />
           <Button
             variant="outline"
-            className="w-full h-9 rounded-none border-[1px] text-xs uppercase font-black"
+            className="w-full h-9 rounded-none border-thin text-xs uppercase font-black"
             onClick={() => emailMutation.mutate()}
             disabled={emailMutation.isPending || !email.trim() || email.trim().toLowerCase() === (me?.email ?? userEmail ?? "").toLowerCase()}
           >
@@ -250,7 +250,7 @@ export default function AccountModal({
         <div className="space-y-2 border-t border-border/20 pt-4">
           <Button
             variant="outline"
-            className="w-full h-11 border-[1px] border-border rounded-none flex items-center justify-center gap-2 uppercase font-black"
+            className="w-full h-11 border-thin border-border rounded-none flex items-center justify-center gap-2 uppercase font-black"
             onClick={onLogout}
           >
             <LogOut className="h-4 w-4" />
@@ -259,7 +259,7 @@ export default function AccountModal({
 
           {/* 危険な操作: アカウント削除 */}
           {confirmDelete ? (
-            <div className="border-[1px] border-destructive p-3 space-y-2 bg-destructive/5">
+            <div className="border-thin border-destructive p-3 space-y-2 bg-destructive/5">
               <p className="text-[11px] font-bold text-destructive">
                 本当に削除しますか？すべての所属・権限が失われ、元に戻せません。
               </p>

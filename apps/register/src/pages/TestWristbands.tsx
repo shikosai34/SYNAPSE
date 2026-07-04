@@ -63,7 +63,7 @@ export default function TestWristbandsPage() {
               key={band.id}
               className="border-thick border-border bg-background rounded-none p-4 shadow-none space-y-4 text-center"
             >
-              <CardHeader className="p-0 border-b-[2px] border-border pb-2">
+              <CardHeader className="p-0 border-b-thin border-border pb-2">
                 <CardTitle className="text-base font-bold uppercase">
                   {band.name}
                 </CardTitle>
@@ -86,14 +86,14 @@ export default function TestWristbandsPage() {
                   <Button
                     onClick={() => copyToClipboard(band.id)}
                     variant="outline"
-                    className="w-full h-10 border-[2px] border-border bg-background text-foreground text-xs font-bold uppercase rounded-none hover:bg-primary hover:text-primary-foreground"
+                    className="w-full h-10 border-thin border-border bg-background text-foreground text-xs font-bold uppercase rounded-none hover:bg-primary hover:text-primary-foreground"
                   >
                     <Copy className="mr-1.5 h-3.5 w-3.5" />
                     IDコードをコピー (レジ用)
                   </Button>
 
                   <Link href={`/checkin?wb=${band.id}`} target="_blank">
-                    <Button className="w-full h-10 border-[2px] border-border bg-primary text-primary-foreground text-xs font-bold uppercase rounded-none hover:bg-background hover:text-foreground mt-2">
+                    <Button className="w-full h-10 border-thin border-border bg-primary text-primary-foreground text-xs font-bold uppercase rounded-none hover:bg-background hover:text-foreground mt-2">
                       <ExternalLink className="mr-1.5 h-3.5 w-3.5" />
                       チェックインを試す
                     </Button>

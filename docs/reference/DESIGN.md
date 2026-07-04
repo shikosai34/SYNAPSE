@@ -1,142 +1,130 @@
-# RawBlock Design System
+# StudioBlank Design System
 
 ## Overview
 
-RawBlock is an unapologetic, anti-design system that strips interfaces down to their structural bones. Built for experimental portfolios and avant-garde art sites, it embraces thick borders, system-level aesthetics, and the raw power of black-on-white. There are no rounded corners, no shadows, no polish. Every element looks like it was assembled from HTML primitives -- because that is the point. This is brutalism as a design language.
+StudioBlank is an ultra-minimal design system where whitespace is the primary design feature. Built for photographer and visual artist portfolios, every UI element recedes so the work itself commands attention. The system uses no shadows, no border radius, and a monochromatic palette with weight contrast in a single type family. Geometry is pure, grids are strict, and ornamentation is entirely absent.
 
 ---
 
 ## Colors
 
-- **Black** (#000000): Text, borders, fills
-- **White** (#FFFFFF): Background, inverse text
-- **Blue** (#0000FF): Links only (hyperlink blue)
-- **Surface Base** (#FFFFFF): App background
-- **Surface Inverted** (#000000): Inverted sections
-- **Success** (#008000): Success (pure green)
-- **Warning** (#FFA500): Warning (pure orange)
-- **Error** (#FF0000): Error (pure red)
-- **Info** (#0000FF): Info (same as link blue)
+- **Color Primary** (#0A0A0A): Primary text, actions
+- **Color Secondary** (#FAFAFA): Backgrounds, inverse surfaces
+- **Color Tertiary** (#D4D4D8): Subtle dividers, borders
+- **Surface Base** (#FAFAFA): Page background
+- **Surface Inverse** (#0A0A0A): Dark sections, footer
+- **Color Success** (#16A34A): Upload complete
+- **Color Warning** (#CA8A04): Storage warnings
+- **Color Error** (#DC2626): Validation errors
+- **Color Info** (#71717A): Informational notes
 
 ## Typography
 
-- **Headline Font**: Archivo Black
-- **Body Font**: Work Sans
-- **Mono Font**: Space Mono
+- **Headline Font**: Inter
+- **Body Font**: Inter
+- **Mono Font**: IBM Plex Mono
 
-- **h1**: Archivo Black 64px regular, 1.0 line height
-- **h2**: Archivo Black 48px regular, 1.05 line height
-- **h3**: Archivo Black 32px regular, 1.1 line height
-- **h4**: Work Sans 22px semibold, 1.2 line height
-- **body**: Work Sans 16px regular, 1.6 line height
-- **small**: Work Sans 14px regular, 1.5 line height
-- **tiny**: Work Sans 12px regular, 1.4 line height
-- **mono**: Space Mono 15px regular, 1.5 line height
+- **text-hero**: Inter 64px bold, 1.05 line height
+- **text-h1**: Inter 40px bold, 1.1 line height
+- **text-h2**: Inter 28px semibold, 1.2 line height
+- **text-h3**: Inter 20px semibold, 1.3 line height
+- **text-body**: Inter 16px light, 1.65 line height
+- **text-body-sm**: Inter 14px regular, 1.6 line height
+- **text-caption**: Inter 12px regular, 1.5 line height
+- **text-mono**: IBM Plex Mono 13px regular, 1.5 line height
 
 ---
 
 ## Spacing
 
-Base unit: 8px (intentionally irregular usage)
-Spacing is deliberately inconsistent to create visual tension. Use the scale below as a starting point, then break it when the design demands it.
-- **sp-1**: 4px
-- **sp-2**: 8px
-- **sp-3**: 16px
-- **sp-4**: 24px
-- **sp-5**: 40px
-- **sp-6**: 64px
-- **sp-7**: 80px
-- **sp-8**: 120px
+Base unit: **16px**. Very generous spacing creates openness and directs focus to imagery.
+- **space-1**: 4px — Tight inline gaps
+- **space-2**: 8px — Icon-to-label spacing
+- **space-3**: 16px — Standard element gap
+- **space-4**: 32px — Between grouped elements
+- **space-5**: 48px — Section inner padding
+- **space-6**: 64px — Between sections
+- **space-8**: 96px — Major page-level divisions
+- **space-10**: 128px — Hero top/bottom margins
 
 ## Border Radius
 
-- **radius-none** (0px): All elements -- no rounding
-Every single element uses 0px border radius. No exceptions.
+- **radius-none** (0px): All elements (default)
+All components use 0px corners. No rounding is applied anywhere. Pure geometric edges define every surface, button, card, and input.
 
 ## Elevation
 
-RawBlock uses **no shadows**. Visual hierarchy is achieved exclusively through border weight and scale contrast.
-- **shadow-none**: None. All elements.
-Use border-thin (1px), border-thick (3px), or border-heavy (5px) to define element boundaries.
+No shadows are used in StudioBlank. The system is completely flat. Depth is communicated exclusively through layering, spacing, and border contrast.
+- **shadow-none**: None. Applied to all elements.
+Focus states use a 2px border offset rather than a box-shadow ring.
 
 ## Components
 
 ### Buttons
-#### Primary
-black (#000000) fill, white (#FFFFFF) text, 3px black border, square. 2px tracking. uppercase text-transform. Hover: background white, text black (full inversion). Active: background black, text white, border 5px.
-#### Secondary
-white fill, black text, 3px black border, square. Hover: background black, text white.
-#### Ghost
-transparent, black text, no border. underline text-decoration. Hover: text blue.
-#### Destructive
-error (#FF0000) fill, white text, 3px black border, square. Hover: background black, text error.
+All buttons are sharp-edged rectangles with no border-radius. Hover is communicated through background inversion.
+#### Variants
+- **Primary**: #0A0A0A fill, #FAFAFA text, no border.
+- **Secondary**: transparent fill, #0A0A0A text, 1px #0A0A0A border.
+- **Ghost**: transparent fill, #0A0A0A text, no border.
+- **Destructive**: #DC2626 fill, #FAFAFA text, no border.
 #### Sizes
-Sizes: Small (6px 16px, 12px, 32px), Medium (10px 24px, 14px, 44px), Large (16px 40px, 18px, 56px).
+Sizes: Small (32px, 16px, 12px, 64px), Medium (40px, 24px, 14px, 96px), Large (48px, 32px, 16px, 128px).
 #### Disabled State
-surface-sunken fill, content-tertiary text, 3px #CCCCCC border.
-- disabled cursor
----
+0.3 opacity, disabled cursor.
+- No hover transitions
 
 ### Cards
-#### Default
-white fill, 3px black border, square, no shadow. sp-4/(24px) padding.
-#### Elevated
-white fill, 5px black border, square, none (heavier border = more importance) shadow. sp-4 padding.
----
+#FFFFFF fill, 1px #E5E5E5 border, square, 0px (image bleeds to edge) padding, no shadow, Hover: Border shifts to #0A0A0A.
+Image cards have zero padding; the image is the card. Caption metadata sits below with space-3 gap.
 
 ### Inputs
-surface-sunken (#F0F0F0) fill, content-primary text, 3px black border, square. Space Mono 15px. 10px/12px padding.
-- **Default**: 3px black border.
-- **Hover**: 3px black border, background #E8E8E8 other.
-- **Focus**: 5px black border, outline none other.
-- **Error**: 3px error border.
-- **Disabled**: 3px #CCCCCC border, background #F5F5F5 other.
-#### Label
-content-primary text. Archivo Black 14px regular uppercase. 4px margin-bottom.
-#### Helper Text
-content-secondary (default) | error (error state) text. Work Sans 12px regular. 4px margin-top.
----
+- **Default**: #D4D4D8 border color, #FFFFFF fill, no shadow.
+- **Hover**: #A1A1AA border color, #FFFFFF fill, no shadow.
+- **Focus**: #0A0A0A border color, #FFFFFF fill, no shadow.
+- **Error**: #DC2626 border color, #FFFFFF fill, no shadow.
+- **Disabled**: #E5E5E5 border color, #F4F4F5 fill, no shadow.
+1px (bottom border only variant available) border, 0px border radius. 40px tall, 14px Inter 400 font size. Focus: 2px #0A0A0A border.
 
 ### Chips
-#### Filter Chip
-white fill, black text, 2px black border, square. 4px/12px padding, uppercase, 10px, tracking 1px text-transform. Active: background black, text white.
-#### Status Chip
-square, 2px respective color border. 11px semibold uppercase tracking 1px. 2px/10px padding.
-- **Active**: #FFFFFF fill, #008000 text, #008000 border.
-- **Warning**: #FFFFFF fill, #FFA500 text, #FFA500 border.
-- **Error**: #FFFFFF fill, #FF0000 text, #FF0000 border.
-- **Default**: #FFFFFF fill, #000000 text, #000000 border.
----
+#### Filter Chips
+- **Default**: transparent fill, #71717A text, 1px #D4D4D8 border.
+- **Selected**: #0A0A0A fill, #FAFAFA text, 1px #0A0A0A border.
+- **Hover**: #F4F4F5 fill, #0A0A0A text, 1px #A1A1AA border.
+#### Status Chips
+- **Published**: #0A0A0A fill, #FAFAFA text, no border.
+- **Draft**: transparent fill, #71717A text, 1px #D4D4D8 border.
+- **Archived**: #F4F4F5 fill, #A1A1AA text, no border.
+- **Featured**: transparent fill, #0A0A0A text, 1px #0A0A0A border.
+0px border radius. 12px Inter 400 uppercase tracking 0.05em. 28px tall.
 
 ### Lists
-transparent, Work Sans, 16px text. 3px black divider, 12px 0px item padding. Hover: text-decoration underline. Active: background black, text white, full-width.
-- No trailing icons; text only
----
+48px row height, 16px horizontal padding, 1px #F4F4F5 divider, #F4F4F5 hover background, #0A0A0A with white text active background, square, 14px Inter 400 font.
 
 ### Checkboxes
-20px x 20px, 3px black border, square. white unchecked background, black checked background, white, 3px stroke checkmark. Focus: 5px border. Disabled: border #CCCCCC, background #F5F5F5.
----
+- **Unchecked**: #FFFFFF fill, 1px #D4D4D8 border.
+- **Checked**: #0A0A0A fill, 1px #0A0A0A border, #FAFAFA checkmark.
+- **Disabled**: #F4F4F5 fill, 1px #E5E5E5 border, #A1A1AA checkmark.
+18px, 0px border radius. Focus: 2px #0A0A0A offset 2px.
 
 ### Radio Buttons
-20px x 20px, 3px black border. circle (the one exception to 0px radius) shape. Unchecked: white fill. Selected: black border, inner dot 10px black. Focus: 5px border. Disabled: border #CCCCCC.
----
+- **Unselected**: #FFFFFF fill, 1px #D4D4D8 border.
+- **Selected**: #FFFFFF fill, 1px #0A0A0A border, #0A0A0A dot.
+- **Disabled**: #F4F4F5 fill, 1px #E5E5E5 border, #A1A1AA dot.
+18px. 8px dot diameter. Focus: 2px #0A0A0A offset 2px.
 
 ### Tooltips
-black fill, white, 13px, Space Mono text, square, none (inverted block) border, no shadow. 8px/12px padding, none (positioned directly adjacent) arrow, 260px max width.
+#0A0A0A fill, #FAFAFA text, 12px Inter 400 font size, 8px 12px padding, square, 200px max width, 6px triangle arrow, 200ms show, 0ms hide delay, no shadow.
 ---
 
 ## Do's and Don'ts
 
-1. **Do** use thick borders (3-5px) as the primary visual organizer; they replace shadows entirely.
-2. **Don't** round any corners -- ever. Sharp edges are non-negotiable in this system.
-3. **Do** use full color inversions (black to white, white to black) for hover and active states.
-4. **Don't** use opacity for disabled states; use lighter border colors and grey fills instead.
-5. **Do** use Archivo Black at large sizes (48-64px) for maximum visual impact.
-6. **Don't** use the blue (#0000FF) for anything other than hyperlinks; it is reserved.
-7. **Do** embrace intentional spacing irregularity -- asymmetric layouts are encouraged.
-8. **Do** use uppercase + tracking for buttons and labels to amplify the raw aesthetic.
-9. **Don't** add decorative images, icons, or illustrations; content and typography do the work.
-10. **Don't** polish or refine; if something looks too "designed," strip it back further.
-
----
-※ This design system is based on RawBlock Design System (MIT License) by https://designmd.ai/chef/rawblock
+1. **Do** let images speak -- the portfolio work is the design, not the interface.
+2. **Don't** add decorative elements such as gradients, patterns, or ornamental shapes.
+3. **Do** use generous margins (minimum 64px between major sections) to create visual breathing room.
+4. **Don't** introduce more than one accent color across the entire site. Monochrome is the identity.
+5. **Do** keep UI chrome to an absolute minimum -- navigation should nearly disappear.
+6. **Don't** use rounded corners, shadows, or any depth effect. The system is strictly flat and geometric.
+7. **Do** use weight contrast within Inter (300 vs 700) to establish hierarchy instead of size alone.
+8. **Don't** overlay text on images unless absolutely necessary -- image integrity is paramount.
+9. **Do** prioritize loading performance; lazy-load gallery images with simple fade-in transitions.
+10. **Don't** use animations or transitions longer than 200ms. Movement should be barely perceptible.

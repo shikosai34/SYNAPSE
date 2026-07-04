@@ -124,7 +124,7 @@ function SalesManagementContent() {
       <div className="space-y-6">
         {/* サマリーカード */}
         <div className="grid gap-4 md:grid-cols-3">
-          <Card className="rounded-none border-thick border-border shadow-none">
+          <Card className="rounded-none shadow-none">
             <CardHeader className="pb-2">
               <CardTitle className="text-xs uppercase font-bold text-muted-foreground">総注文数</CardTitle>
             </CardHeader>
@@ -133,7 +133,7 @@ function SalesManagementContent() {
             </CardContent>
           </Card>
 
-          <Card className="rounded-none border-thick border-border shadow-none">
+          <Card className="rounded-none shadow-none">
             <CardHeader className="pb-2">
               <CardTitle className="text-xs uppercase font-bold text-muted-foreground">完了注文数</CardTitle>
             </CardHeader>
@@ -142,7 +142,7 @@ function SalesManagementContent() {
             </CardContent>
           </Card>
 
-          <Card className="rounded-none border-thick border-border shadow-none bg-primary text-primary-foreground">
+          <Card className="rounded-none shadow-none bg-primary text-primary-foreground">
             <CardHeader className="pb-2">
               <CardTitle className="text-xs uppercase font-bold text-primary-foreground/75">完了売上</CardTitle>
             </CardHeader>
@@ -157,7 +157,7 @@ function SalesManagementContent() {
         {/* グラフエリア */}
         <div className="grid gap-6 md:grid-cols-2">
           {/* 時間帯別売上グラフ (SVG) */}
-          <Card className="rounded-none border-thick border-border shadow-none">
+          <Card className="rounded-none shadow-none">
             <CardHeader>
               <CardTitle className="text-sm font-bold uppercase">[時間帯別売上推移]</CardTitle>
               <CardDescription className="text-[10px]">9:00 - 18:00 の時間帯別売上 (円)</CardDescription>
@@ -234,7 +234,7 @@ function SalesManagementContent() {
           </Card>
 
           {/* メニュー別売上グラフ (HTML棒) */}
-          <Card className="rounded-none border-thick border-border shadow-none">
+          <Card className="rounded-none shadow-none">
             <CardHeader>
               <CardTitle className="text-sm font-bold uppercase">[メニュー別売上構成]</CardTitle>
               <CardDescription className="text-[10px]">完了したメニューごとの合計売上</CardDescription>
@@ -268,7 +268,7 @@ function SalesManagementContent() {
         </div>
 
         {/* 注文履歴カード */}
-        <Card className="rounded-none border-thick border-border shadow-none">
+        <Card className="rounded-none shadow-none">
           <CardHeader>
             <CardTitle className="text-sm font-bold uppercase">注文履歴</CardTitle>
           </CardHeader>

@@ -9,7 +9,7 @@ export default function Placeholder() {
 	const { pathname } = useLocation();
 	return (
 		<div className="max-w-3xl mx-auto px-sp-4 py-sp-7 text-center space-y-sp-4">
-			<div className="inline-block bg-accent text-accent-foreground font-headline uppercase text-[12px] tracking-[3px] px-sp-3 py-sp-2 border-[3px] border-accent">
+			<div className="inline-block bg-accent text-accent-foreground font-headline uppercase text-[12px] tracking-[3px] px-sp-3 py-sp-2 border-thick border-accent">
 				MIGRATION IN PROGRESS
 			</div>
 			<h1 className="text-[28px] sm:text-[40px] font-headline uppercase leading-[1.05]">

@@ -33,7 +33,7 @@ export default function UserMenu() {
 			<DropdownMenuTrigger asChild>
 				<Button variant="outline" size="sm">{session.user.name}</Button>
 			</DropdownMenuTrigger>
-			<DropdownMenuContent className="bg-popover border-[3px] border-border text-popover-foreground">
+			<DropdownMenuContent className="bg-popover border-thick border-border text-popover-foreground">
 				<DropdownMenuLabel>My Account</DropdownMenuLabel>
 				<DropdownMenuSeparator />
 				<DropdownMenuItem>

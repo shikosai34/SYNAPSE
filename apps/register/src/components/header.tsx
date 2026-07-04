@@ -4,6 +4,7 @@ import { Button } from "./ui/button";
 import { toast } from "sonner";
 import { Menu, X, ChevronDown, User, Bell, Shield, Calendar, Building2, LogOut as LeaveIcon } from "lucide-react";
 import AccountModal from "./account-modal";
+import { ConfirmDialog } from "./ui/ConfirmDialog";
 import { PRODUCT_NAME } from "@fesflow/config";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { eventApi, notificationApi, accountApi } from "@/lib/api";
@@ -56,6 +57,8 @@ export default function Header() {
   const [profileModalOpen, setProfileModalOpen] = useState(false);
   const [notifPopoverOpen, setNotifPopoverOpen] = useState(false);
   const [spacePopoverOpen, setSpacePopoverOpen] = useState(false);
+  // スペース退出確認 (native confirm を廃止しアプリ内ダイアログで確認 2026-07-04)
+  const [pendingLeave, setPendingLeave] = useState<{ id: string; name: string } | null>(null);
 
   // ログインユーザーのアカウント情報を取得 (アバター画像用)
   const { data: me } = useQuery({
@@ -342,14 +345,14 @@ export default function Header() {
   };
 
   return (
-    <header className="sticky top-0 z-50 bg-background border-b-[3px] border-border text-foreground font-mono">
+    <header className="sticky top-0 z-50 bg-background border-b-thick border-border text-foreground font-mono">
       <div className="flex items-center justify-between px-4 py-2 max-w-7xl mx-auto gap-4">
         {/* ロゴ / ブランド */}
         <Link
           to="/"
           className="font-headline text-base sm:text-lg md:text-xl uppercase tracking-[2px] leading-none select-none hover:opacity-80 flex items-center gap-2 shrink-0"
         >
-          <span className="font-black border-[2px] border-border px-2 py-1 bg-primary text-primary-foreground text-sm sm:text-base">
+          <span className="font-black border-thin border-border px-2 py-1 bg-primary text-primary-foreground text-sm sm:text-base">
             {PRODUCT_NAME.toUpperCase()}
             {isCircleView && " // BOOTH"}
             {isEventView && " // EVENT"}
@@ -363,7 +366,7 @@ export default function Header() {
             <Link
               key={to}
               to={to}
-              className={`px-3 py-1.5 border-[2px] border-border transition-all whitespace-nowrap ${
+              className={`px-3 py-1.5 border-thin border-border transition-all whitespace-nowrap ${
                 isActive(to)
                   ? "bg-primary text-primary-foreground font-bold"
                   : "bg-background text-foreground hover:bg-muted"
@@ -396,7 +399,7 @@ export default function Header() {
 
                 {/* 通知ポップオーバー (StudioBlank デザインルール準拠のフラットスタイル) */}
                 {notifPopoverOpen && (
-                  <div className="absolute right-0 top-11 z-50 w-72 sm:w-80 border-[1px] border-border bg-background p-4 shadow-none rounded-none text-left">
+                  <div className="absolute right-0 top-11 z-50 w-72 sm:w-80 border-thin border-border bg-background p-4 shadow-none rounded-none text-left">
                     <div className="flex items-center justify-between border-b border-border/20 pb-2 mb-3">
                       <span className="text-[11px] font-black uppercase tracking-wider">[お知らせ・通知]</span>
                       <button
@@ -410,7 +413,7 @@ export default function Header() {
                     <div className="max-h-60 overflow-y-auto space-y-3">
                       {notifications && notifications.length > 0 ? (
                         notifications.map((notif: any) => (
-                          <div key={notif.id} className="text-xs border-[1px] border-border p-3 bg-muted/10 space-y-2">
+                          <div key={notif.id} className="text-xs border-thin border-border p-3 bg-muted/10 space-y-2">
                             <div className="font-bold flex items-center justify-between">
                               <span className="font-headline font-bold">{notif.title}</span>
                               <span className="text-[9px] text-muted-foreground">
@@ -422,7 +425,7 @@ export default function Header() {
                               <div className="flex gap-2 pt-1.5">
                                 <Button
                                   size="sm"
-                                  className="h-7 text-[10px] flex-1 rounded-none border-[1px] border-border bg-primary text-primary-foreground hover:bg-background hover:text-foreground"
+                                  className="h-7 text-[10px] flex-1 rounded-none border-thin border-border bg-primary text-primary-foreground hover:bg-background hover:text-foreground"
                                   onClick={() => respondMutation.mutate({ notifId: notif.id, action: "accept" })}
                                   disabled={respondMutation.isPending}
                                 >
@@ -475,7 +478,7 @@ export default function Header() {
 
                 {/* スペース切り替えポップオーバー */}
                 {spacePopoverOpen && (
-                  <div className="absolute right-0 top-11 z-50 w-72 sm:w-80 border-[1px] border-border bg-background p-4 shadow-none rounded-none text-left">
+                  <div className="absolute right-0 top-11 z-50 w-72 sm:w-80 border-thin border-border bg-background p-4 shadow-none rounded-none text-left">
                     <div className="flex items-center justify-between border-b border-border/20 pb-2 mb-3">
                       <span className="text-[11px] font-black uppercase tracking-wider">[スペース切り替え]</span>
                       <button
@@ -508,11 +511,7 @@ export default function Header() {
                             {isRealMembership(space.id) && (
                               <button
                                 title="このスペースから退出"
-                                onClick={() => {
-                                  if (confirm(`[${space.name}] から退出しますか？この権限は削除されます。`)) {
-                                    leaveMutation.mutate(space.id);
-                                  }
-                                }}
+                                onClick={() => setPendingLeave({ id: space.id, name: space.name })}
                                 disabled={leaveMutation.isPending}
                                 className="p-2 text-muted-foreground hover:text-destructive shrink-0 cursor-pointer"
                               >
@@ -565,7 +564,7 @@ export default function Header() {
           {/* ハンバーガーメニュー (モバイルのみ) */}
           {links.length > 0 && (
             <button
-              className="md:hidden flex items-center justify-center w-10 h-10 border-[3px] border-border bg-background text-foreground hover:bg-primary hover:text-primary-foreground transition-all rounded-none"
+              className="md:hidden flex items-center justify-center w-10 h-10 border-thick border-border bg-background text-foreground hover:bg-primary hover:text-primary-foreground transition-all rounded-none"
               onClick={() => setMobileOpen((prev) => !prev)}
               aria-label={mobileOpen ? "メニューを閉じる" : "メニューを開く"}
             >
@@ -577,14 +576,14 @@ export default function Header() {
 
       {/* モバイルドロワー */}
       {mobileOpen && links.length > 0 && (
-        <div className="md:hidden bg-background border-t-[3px] border-border">
+        <div className="md:hidden bg-background border-t-thick border-border">
           <nav className="flex flex-col">
             {links.map(({ to, label }) => (
               <Link
                 key={to}
                 to={to}
                 onClick={() => setMobileOpen(false)}
-                className={`px-4 py-4 border-b-[2px] border-border font-headline text-[14px] uppercase tracking-[1px] transition-all ${
+                className={`px-4 py-4 border-b-thin border-border font-headline text-[14px] uppercase tracking-[1px] transition-all ${
                   isActive(to)
                     ? "bg-primary text-primary-foreground font-bold"
                     : "bg-background text-foreground hover:bg-muted"
@@ -602,6 +601,18 @@ export default function Header() {
         open={profileModalOpen}
         onClose={() => setProfileModalOpen(false)}
         onLogout={handleLogout}
+      />
+
+      <ConfirmDialog
+        isOpen={!!pendingLeave}
+        title="[スペースから退出]"
+        description={`[${pendingLeave?.name ?? ""}] から退出しますか？この権限は削除されます。`}
+        confirmLabel="退出する"
+        onConfirm={() => {
+          if (pendingLeave) leaveMutation.mutate(pendingLeave.id);
+          setPendingLeave(null);
+        }}
+        onCancel={() => setPendingLeave(null)}
       />
     </header>
   );

@@ -15,7 +15,7 @@ export default function Login() {
 
 	return (
 		<div className="flex min-h-[calc(100vh-4rem)] items-center justify-center p-sp-3 md:p-sp-5 bg-muted">
-			<div className="w-full max-w-lg p-sp-5 bg-background border-[5px] border-border text-foreground">
+			<div className="w-full max-w-lg p-sp-5 bg-background border-heavy border-border text-foreground">
 				<Tabs defaultValue="personal" className="w-full">
 					<TabsList className="grid w-full grid-cols-2">
 						<TabsTrigger value="personal">個人アカウント</TabsTrigger>

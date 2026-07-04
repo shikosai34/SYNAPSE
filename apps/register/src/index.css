@@ -182,15 +182,34 @@
 }
 
 @layer utilities {
+  /* 2026-07-04: 枠線トークンを「幅のみ」定義に変更。色は base の
+     `* { @apply border-border }` と個別の border-<color> が担うため、
+     これまで border-thick が border-border を焼き込んで色指定と競合していた
+     問題を解消する。あわせて方向指定版を追加 —
+     従来 border-b-thick / border-t-thick は未定義でCSSを生成しておらず、
+     ヘッダー区切り線などが「表示されないUI」の原因になっていた。 */
   .border-thin {
-    @apply border-[1px] border-border;
+    @apply border-[1px];
   }
-
   .border-thick {
-    @apply border-[3px] border-border;
+    @apply border-[3px];
+  }
+  .border-heavy {
+    @apply border-[5px];
   }
 
-  .border-heavy {
-    @apply border-[5px] border-border;
-  }
+  .border-t-thin { @apply border-t-[1px]; }
+  .border-b-thin { @apply border-b-[1px]; }
+  .border-l-thin { @apply border-l-[1px]; }
+  .border-r-thin { @apply border-r-[1px]; }
+
+  .border-t-thick { @apply border-t-[3px]; }
+  .border-b-thick { @apply border-b-[3px]; }
+  .border-l-thick { @apply border-l-[3px]; }
+  .border-r-thick { @apply border-r-[3px]; }
+
+  .border-t-heavy { @apply border-t-[5px]; }
+  .border-b-heavy { @apply border-b-[5px]; }
+  .border-l-heavy { @apply border-l-[5px]; }
+  .border-r-heavy { @apply border-r-[5px]; }
 }

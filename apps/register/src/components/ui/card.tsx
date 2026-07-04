@@ -4,12 +4,20 @@ import { cn } from "@/lib/utils";
 
 import { cva, type VariantProps } from "class-variance-authority";
 
+// 2026-07-04: 「押せないものに枠線はいらない」方針へ。表示専用カードは枠線なしを既定にし、
+// クリックできるカードだけ interactive で枠線＋ホバーを付ける。明示的に囲みたい箱 (モーダル等)
+// は bordered を使う。区切り線 (border-b 等) は別途 className で付ける想定。
 const cardVariants = cva(
 	"bg-card text-card-foreground flex flex-col gap-6 border-border shadow-none rounded-none p-[24px]",
 	{
 		variants: {
 			variant: {
-				default: "border-thick",
+				// 表示専用: 枠線なし
+				default: "",
+				// クリック可能: 枠線あり + ホバーで強調
+				interactive: "border-thick hover:border-primary hover:bg-muted/40 transition-colors cursor-pointer",
+				// 明示的な囲み枠 (モーダル本体など)
+				bordered: "border-thick",
 				elevated: "border-heavy",
 			},
 		},

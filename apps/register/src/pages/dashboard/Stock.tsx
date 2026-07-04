@@ -84,7 +84,7 @@ function StockManagementContent() {
       <div className="space-y-6">
         {lowStockItems.length > 0 && (
           <Card className="border-yellow-500 rounded-none shadow-none">
-            <CardHeader className="pb-3 border-b-[1px] border-yellow-200">
+            <CardHeader className="pb-3 border-b-thin border-yellow-200">
               <CardTitle className="flex items-center text-yellow-600 text-sm font-bold uppercase">
                 <AlertTriangle className="mr-2 h-4 w-4" />
                 低在庫アラート
@@ -109,7 +109,7 @@ function StockManagementContent() {
           </Card>
         )}
 
-        <Card className="border-thick border-border rounded-none shadow-none">
+        <Card className=" rounded-none shadow-none">
           <CardHeader className="pb-3 border-b-thick border-border">
             <CardTitle className="flex items-center text-sm font-bold uppercase">
               <Package className="mr-2 h-4 w-4" />

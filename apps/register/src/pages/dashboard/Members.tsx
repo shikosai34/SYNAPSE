@@ -20,9 +20,13 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { Modal } from "@/components/ui/Modal";
+import {
+  FormField,
+  FormSelect,
+  FormSubmitButton,
+} from "@/components/ui/FormField";
 import {
   UserPlus,
   Link as LinkIcon,
@@ -124,6 +128,7 @@ function MembersContent() {
       refetchTokens();
       toast.success("招待を作成しました");
       setInviteSettings((prev) => ({ ...prev, targetEmail: "" }));
+      setShowInviteForm(false);
     },
   });
 
@@ -201,15 +206,15 @@ function MembersContent() {
           <div className="flex gap-2">
             <PermissionGuard permission="member:write">
               <Button
-                onClick={() => setShowAddForm(!showAddForm)}
+                onClick={() => setShowAddForm(true)}
                 variant="outline"
                 className="rounded-none border-thick border-border h-8 text-[11px] font-bold shadow-none px-3 bg-background hover:bg-neutral-100"
               >
                 <UserPlus className="mr-1.5 h-3.5 w-3.5" />
                 メンバー追加
               </Button>
-              <Button 
-                onClick={() => setShowInviteForm(!showInviteForm)}
+              <Button
+                onClick={() => setShowInviteForm(true)}
                 className="rounded-none border-thick border-primary bg-primary text-primary-foreground hover:bg-background hover:text-foreground h-8 text-[11px] font-bold shadow-none px-3"
               >
                 <LinkIcon className="mr-1.5 h-3.5 w-3.5" />
@@ -219,202 +224,134 @@ function MembersContent() {
           </div>
         </div>
 
-      {/* メンバー追加フォーム */}
-      {showAddForm && (
-        <Card>
-          <CardHeader>
-            <CardTitle>新規メンバー追加</CardTitle>
-            <CardDescription>
-              メンバーを直接追加します。招待リンクを使う場合は「招待リンク作成」を使用してください。
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="email">メールアドレス</Label>
-                <Input
-                  id="email"
-                  type="email"
-                  placeholder="example@email.com"
-                  value={newMember.userEmail}
-                  onChange={(e) =>
-                    setNewMember({ ...newMember, userEmail: e.target.value })
-                  }
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="name">名前</Label>
-                <Input
-                  id="name"
-                  placeholder="山田太郎"
-                  value={newMember.userName}
-                  onChange={(e) =>
-                    setNewMember({ ...newMember, userName: e.target.value })
-                  }
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="role">ロール</Label>
-                <select
-                  id="role"
-                  className="w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"
-                  value={newMember.role}
-                  onChange={(e) =>
-                    setNewMember({
-                      ...newMember,
-                      role: e.target.value as Role,
-                    })
-                  }
-                >
-                  {Object.entries(ROLES)
-                    .filter(([key, value]) => {
-                      return [
-                        ROLES.CIRCLE_MANAGER,
-                        ROLES.CIRCLE_STAFF,
-                      ].includes(value as any);
-                    })
-                    .map(([key, value]) => (
-                    <option key={value} value={value}>
-                      {ROLE_NAMES[value]}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="pin">PIN（オプション）</Label>
-                <Input
-                  id="pin"
-                  type="password"
-                  placeholder="4-6桁の数字"
-                  value={newMember.pin}
-                  onChange={(e) =>
-                    setNewMember({ ...newMember, pin: e.target.value })
-                  }
-                />
-              </div>
-            </div>
-            <div className="flex justify-end gap-2">
-              <Button variant="outline" onClick={() => setShowAddForm(false)}>
-                キャンセル
-              </Button>
-              <Button
-                onClick={handleAddMember}
-                disabled={
-                  !newMember.userEmail ||
-                  !newMember.userName ||
-                  addMemberMutation.isPending
-                }
-              >
-                追加
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      )}
+      {/* メンバー追加モーダル */}
+      <Modal
+        isOpen={showAddForm}
+        onClose={() => setShowAddForm(false)}
+        title="[新規メンバー追加]"
+        subtitle="メンバーを直接追加します。招待リンクを使う場合は「招待リンク作成」を使用してください。"
+      >
+        <div className="grid grid-cols-2 gap-4">
+          <FormField
+            id="email"
+            label="メールアドレス"
+            required
+            type="email"
+            placeholder="example@email.com"
+            value={newMember.userEmail}
+            onChange={(e) => setNewMember({ ...newMember, userEmail: e.target.value })}
+          />
+          <FormField
+            id="name"
+            label="名前"
+            required
+            placeholder="山田太郎"
+            value={newMember.userName}
+            onChange={(e) => setNewMember({ ...newMember, userName: e.target.value })}
+          />
+          <FormSelect
+            id="role"
+            label="ロール"
+            value={newMember.role}
+            onChange={(e) => setNewMember({ ...newMember, role: e.target.value as Role })}
+          >
+            {Object.entries(ROLES)
+              .filter(([, value]) =>
+                [ROLES.CIRCLE_MANAGER, ROLES.CIRCLE_STAFF].includes(value as any),
+              )
+              .map(([, value]) => (
+                <option key={value} value={value}>
+                  {ROLE_NAMES[value]}
+                </option>
+              ))}
+          </FormSelect>
+          <FormField
+            id="pin"
+            label="PIN（オプション）"
+            type="password"
+            placeholder="4-6桁の数字"
+            value={newMember.pin}
+            onChange={(e) => setNewMember({ ...newMember, pin: e.target.value })}
+          />
+        </div>
 
-      {/* 招待リンク作成フォーム */}
-      {showInviteForm && (
-        <Card>
-          <CardHeader>
-            <CardTitle>招待リンク作成</CardTitle>
-            <CardDescription>
-              新しいメンバーを招待するためのリンクを生成します
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="invite-role">付与するロール</Label>
-                <select
-                  id="invite-role"
-                  className="w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"
-                  value={inviteSettings.role}
-                  onChange={(e) =>
-                    setInviteSettings({
-                      ...inviteSettings,
-                      role: e.target.value as Role,
-                    })
-                  }
-                >
-                  {Object.entries(ROLES)
-                    .filter(([key, value]) => {
-                      return [
-                        ROLES.CIRCLE_MANAGER,
-                        ROLES.CIRCLE_STAFF,
-                      ].includes(value as any);
-                    })
-                    .map(([key, value]) => (
-                    <option key={value} value={value}>
-                      {ROLE_NAMES[value]}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="max-uses">最大使用回数</Label>
-                <Input
-                  id="max-uses"
-                  type="number"
-                  min={1}
-                  max={100}
-                  value={inviteSettings.maxUses}
-                  onChange={(e) =>
-                    setInviteSettings({
-                      ...inviteSettings,
-                      maxUses: parseInt(e.target.value) || 1,
-                    })
-                  }
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="expires">有効期限（時間）</Label>
-                <Input
-                  id="expires"
-                  type="number"
-                  min={1}
-                  max={720}
-                  value={inviteSettings.expiresInHours}
-                  onChange={(e) =>
-                    setInviteSettings({
-                      ...inviteSettings,
-                      expiresInHours: parseInt(e.target.value) || 24,
-                    })
-                  }
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="target-email">相手のメールアドレス (直接通知を送る場合)</Label>
-                <Input
-                  id="target-email"
-                  type="email"
-                  placeholder="user@example.com (任意)"
-                  value={inviteSettings.targetEmail}
-                  onChange={(e) =>
-                    setInviteSettings({
-                      ...inviteSettings,
-                      targetEmail: e.target.value,
-                    })
-                  }
-                />
-              </div>
-            </div>
-            <div className="flex justify-end gap-2">
-              <Button
-                variant="outline"
-                onClick={() => setShowInviteForm(false)}
-              >
-                キャンセル
-              </Button>
-              <Button
-                onClick={handleCreateInvite}
-                disabled={createInviteMutation.isPending}
-              >
-                リンク生成
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      )}
+        <FormSubmitButton
+          onClick={handleAddMember}
+          disabled={!newMember.userEmail || !newMember.userName}
+          isPending={addMemberMutation.isPending}
+          icon={UserPlus}
+        >
+          追加する
+        </FormSubmitButton>
+      </Modal>
+
+      {/* 招待リンク作成モーダル */}
+      <Modal
+        isOpen={showInviteForm}
+        onClose={() => setShowInviteForm(false)}
+        title="[招待リンク作成]"
+        subtitle="新しいメンバーを招待するためのリンクを生成します。"
+      >
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <FormSelect
+            id="invite-role"
+            label="付与するロール"
+            value={inviteSettings.role}
+            onChange={(e) => setInviteSettings({ ...inviteSettings, role: e.target.value as Role })}
+          >
+            {Object.entries(ROLES)
+              .filter(([, value]) =>
+                [ROLES.CIRCLE_MANAGER, ROLES.CIRCLE_STAFF].includes(value as any),
+              )
+              .map(([, value]) => (
+                <option key={value} value={value}>
+                  {ROLE_NAMES[value]}
+                </option>
+              ))}
+          </FormSelect>
+          <FormField
+            id="max-uses"
+            label="最大使用回数"
+            type="number"
+            min={1}
+            max={100}
+            value={inviteSettings.maxUses}
+            onChange={(e) =>
+              setInviteSettings({ ...inviteSettings, maxUses: parseInt(e.target.value) || 1 })
+            }
+          />
+          <FormField
+            id="expires"
+            label="有効期限（時間）"
+            type="number"
+            min={1}
+            max={720}
+            value={inviteSettings.expiresInHours}
+            onChange={(e) =>
+              setInviteSettings({
+                ...inviteSettings,
+                expiresInHours: parseInt(e.target.value) || 24,
+              })
+            }
+          />
+          <FormField
+            id="target-email"
+            label="相手のメール (直接通知する場合)"
+            type="email"
+            placeholder="user@example.com (任意)"
+            value={inviteSettings.targetEmail}
+            onChange={(e) => setInviteSettings({ ...inviteSettings, targetEmail: e.target.value })}
+          />
+        </div>
+
+        <FormSubmitButton
+          onClick={handleCreateInvite}
+          isPending={createInviteMutation.isPending}
+          icon={LinkIcon}
+        >
+          リンクを生成
+        </FormSubmitButton>
+      </Modal>
 
       {/* アクティブな招待リンク */}
       {inviteTokens && inviteTokens.length > 0 && (
@@ -430,7 +367,7 @@ function MembersContent() {
               {inviteTokens.map((token) => (
                 <div
                   key={token.id}
-                  className="flex items-center justify-between p-3 rounded-lg border"
+                  className="flex items-center justify-between p-3 border-thin border-border"
                 >
                   <div className="flex items-center gap-3">
                     <Badge variant={getRoleBadgeVariant(token.role)}>
@@ -492,10 +429,10 @@ function MembersContent() {
               {members.map((member) => (
                 <div
                   key={member.id}
-                  className="flex items-center justify-between p-4 rounded-lg border"
+                  className="flex items-center justify-between p-4 border-thin border-border"
                 >
                   <div className="flex items-center gap-4">
-                    <div className="h-10 w-10 rounded-full bg-secondary flex items-center justify-center">
+                    <div className="h-10 w-10 border-thin border-border bg-secondary flex items-center justify-center">
                       <Shield className="h-5 w-5 text-muted-foreground" />
                     </div>
                     <div>
@@ -553,7 +490,7 @@ function MembersContent() {
               rolesData.map((roleInfo) => (
                 <div
                   key={roleInfo.role}
-                  className="p-4 rounded-lg border space-y-2"
+                  className="p-4 border-thin border-border space-y-2"
                 >
                   <div className="flex items-center gap-2">
                     <Badge variant={getRoleBadgeVariant(roleInfo.role)}>

@@ -3,6 +3,7 @@ import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { CircleAuthGuard } from "@/hooks/useCircleAuth";
 import { menuApi, toppingApi, orderApi, circleApi, wristbandApi } from "@/lib/api";
+import { extractIdFromCode } from "@/lib/utils";
 import { ModSandbox } from "@/components/ModSandbox";
 import { QrScannerModal } from "@/components/pos/qr-scanner-modal";
 import {
@@ -65,7 +66,8 @@ function RegisterPageContent() {
 
   const lookupCustomer = useMutation({
     mutationFn: async (code: string) => {
-      return await wristbandApi.lookup(code);
+      const parsedCode = extractIdFromCode(code);
+      return await wristbandApi.lookup(parsedCode);
     },
     onSuccess: (data) => {
       if (data.user) {
@@ -206,7 +208,7 @@ function RegisterPageContent() {
       {/* ===== メニュー一覧 ===== */}
       <div className="p-3 sm:p-4 pb-32">
         {/* ヘッダーバー */}
-        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 bg-primary p-3 sm:p-4 text-primary-foreground border-[3px] border-border mb-4">
+        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 bg-primary p-3 sm:p-4 text-primary-foreground border-thick border-border mb-4">
           <h1 className="font-mono text-lg sm:text-2xl font-black uppercase tracking-wider">
             [レジ - 注文入力]
           </h1>
@@ -253,7 +255,7 @@ function RegisterPageContent() {
         </div>
 
         {/* ===== 顧客特定スキャンパネル (2026-07-04 リストバンド/QR必須化) ===== */}
-        <Card className="mb-4 border-thick border-border bg-muted/40 rounded-none">
+        <Card className="mb-4 bg-muted/40 rounded-none">
           <CardContent className="p-3 sm:p-4 flex flex-col md:flex-row md:items-center justify-between gap-4 font-mono">
             <div className="space-y-1">
               <h3 className="text-xs sm:text-sm font-bold uppercase tracking-wider">
@@ -315,7 +317,7 @@ function RegisterPageContent() {
           {menus?.map((menu) => (
             <Card key={menu.id} className={menu.soldOut ? "opacity-60" : ""}>
               <CardHeader className="p-0">
-                <div className="relative h-32 sm:h-40 w-full overflow-hidden border-b-[3px] border-border">
+                <div className="relative h-32 sm:h-40 w-full overflow-hidden border-b-thick border-border">
                   {menu.imagePath ? (
                     <img src={menu.imagePath} alt={menu.name} className="object-cover absolute inset-0 h-full w-full" />
                   ) : (
@@ -337,7 +339,7 @@ function RegisterPageContent() {
                   <p className="text-xs font-mono text-muted-foreground">在庫: {menu.stockQuantity}個</p>
                 )}
                 <Button
-                  className="w-full h-10 sm:h-11 border-[3px] border-border bg-primary text-primary-foreground font-mono text-xs sm:text-sm font-bold uppercase rounded-none hover:bg-background hover:text-foreground transition-all"
+                  className="w-full h-10 sm:h-11 border-thick border-border bg-primary text-primary-foreground font-mono text-xs sm:text-sm font-bold uppercase rounded-none hover:bg-background hover:text-foreground transition-all"
                   onClick={() => addToCart(menu.id, menu.name, menu.price)}
                   disabled={menu.soldOut}
                 >
@@ -374,7 +376,7 @@ function RegisterPageContent() {
 
       {/* ===== モバイル固定カートフッターバー ===== */}
       {cart.length > 0 && (
-        <div className="fixed bottom-0 left-0 right-0 z-40 bg-primary text-primary-foreground border-t-[5px] border-border">
+        <div className="fixed bottom-0 left-0 right-0 z-40 bg-primary text-primary-foreground border-t-heavy border-border">
           <button
             onClick={() => setIsCartPanelOpen(true)}
             className="w-full flex items-center justify-between px-4 py-3 sm:py-4 font-mono"
@@ -387,7 +389,7 @@ function RegisterPageContent() {
                 ¥{getTotalPrice().toLocaleString()}
               </span>
             </div>
-            <span className="flex items-center gap-2 border-[3px] border-primary-foreground px-4 py-2 font-black uppercase text-sm tracking-wider hover:bg-primary-foreground hover:text-primary transition-all">
+            <span className="flex items-center gap-2 border-thick border-primary-foreground px-4 py-2 font-black uppercase text-sm tracking-wider hover:bg-primary-foreground hover:text-primary transition-all">
               <ShoppingCart className="h-4 w-4" />
               カートを見る
             </span>
@@ -404,13 +406,13 @@ function RegisterPageContent() {
             onClick={() => setIsCartPanelOpen(false)}
           />
           {/* パネル本体 */}
-          <div className="relative w-full sm:max-w-lg bg-background border-t-[5px] sm:border-[5px] border-border max-h-[90vh] flex flex-col font-mono">
+          <div className="relative w-full sm:max-w-lg bg-background border-t-heavy sm:border-heavy border-border max-h-[90vh] flex flex-col font-mono">
             {/* パネルヘッダー */}
-            <div className="flex items-center justify-between px-4 py-3 border-b-[3px] border-border bg-primary text-primary-foreground">
+            <div className="flex items-center justify-between px-4 py-3 border-b-thick border-border bg-primary text-primary-foreground">
               <h2 className="font-black text-lg uppercase">[カート確認]</h2>
               <button
                 onClick={() => setIsCartPanelOpen(false)}
-                className="w-10 h-10 border-[2px] border-primary-foreground flex items-center justify-center hover:bg-primary-foreground hover:text-primary transition-all"
+                className="w-10 h-10 border-thin border-primary-foreground flex items-center justify-center hover:bg-primary-foreground hover:text-primary transition-all"
               >
                 <X className="h-5 w-5" />
               </button>
@@ -419,7 +421,7 @@ function RegisterPageContent() {
             {/* カートアイテム一覧 */}
             <div className="flex-1 overflow-y-auto p-4 space-y-3">
               {cart.map((item) => (
-                <div key={item.menuId} className="border-[3px] border-border p-3 space-y-3">
+                <div key={item.menuId} className="border-thick border-border p-3 space-y-3">
                   <div className="flex justify-between items-start gap-2">
                     <div className="min-w-0">
                       <p className="font-bold text-sm truncate">{item.menuName}</p>
@@ -427,7 +429,7 @@ function RegisterPageContent() {
                     </div>
                     <button
                       onClick={() => removeFromCart(item.menuId)}
-                      className="w-8 h-8 border-[2px] border-border flex items-center justify-center hover:bg-error hover:text-white shrink-0 transition-all"
+                      className="w-8 h-8 border-thin border-border flex items-center justify-center hover:bg-error hover:text-white shrink-0 transition-all"
                     >
                       <Trash2 className="h-3 w-3" />
                     </button>
@@ -454,17 +456,17 @@ function RegisterPageContent() {
 
                   {/* 数量 */}
                   <div className="flex items-center justify-between">
-                    <div className="flex items-center border-[2px] border-border">
+                    <div className="flex items-center border-thin border-border">
                       <button
                         onClick={() => updateQuantity(item.menuId, -1)}
-                        className="w-10 h-10 flex items-center justify-center hover:bg-primary hover:text-primary-foreground transition-all border-r-[2px] border-border"
+                        className="w-10 h-10 flex items-center justify-center hover:bg-primary hover:text-primary-foreground transition-all border-r-thin border-border"
                       >
                         <Minus className="h-4 w-4" />
                       </button>
                       <span className="w-10 text-center font-black text-lg">{item.quantity}</span>
                       <button
                         onClick={() => updateQuantity(item.menuId, 1)}
-                        className="w-10 h-10 flex items-center justify-center hover:bg-primary hover:text-primary-foreground transition-all border-l-[2px] border-border"
+                        className="w-10 h-10 flex items-center justify-center hover:bg-primary hover:text-primary-foreground transition-all border-l-thin border-border"
                       >
                         <Plus className="h-4 w-4" />
                       </button>
@@ -478,7 +480,7 @@ function RegisterPageContent() {
             </div>
 
             {/* パネルフッター */}
-            <div className="p-4 border-t-[3px] border-border space-y-3 bg-background">
+            <div className="p-4 border-t-thick border-border space-y-3 bg-background">
               {/* 人数 */}
               <div className="flex items-center gap-3">
                 <Label htmlFor="peopleCount" className="font-mono text-xs uppercase tracking-wider whitespace-nowrap">来店人数</Label>
@@ -486,26 +488,26 @@ function RegisterPageContent() {
                   id="peopleCount"
                   type="number"
                   min="1"
-                  className="h-10 text-center font-bold border-[3px] border-border rounded-none"
+                  className="h-10 text-center font-bold border-thick border-border rounded-none"
                   value={peopleCount}
                   onChange={(e) => setPeopleCount(Number(e.target.value))}
                 />
               </div>
               {/* 合計 */}
-              <div className="flex justify-between items-center border-[3px] border-border px-4 py-3 bg-muted">
+              <div className="flex justify-between items-center border-thick border-border px-4 py-3 bg-muted">
                 <span className="font-mono text-sm uppercase tracking-wider">合計金額</span>
                 <span className="font-headline text-2xl sm:text-3xl font-black">¥{getTotalPrice().toLocaleString()}</span>
               </div>
               {/* 顧客情報サマリー */}
               {activeCustomer && (
-                <div className="border-[3px] border-border bg-muted/20 p-2 text-xs font-mono">
+                <div className="border-thick border-border bg-muted/20 p-2 text-xs font-mono">
                   選択中の顧客: [{activeCustomer.userId}]
                   {activeCustomer.wristbandId && ` (リストバンド: ${activeCustomer.wristbandId})`}
                 </div>
               )}
               {/* ボタン群 */}
               <Button
-                className="w-full h-14 border-[3px] border-border bg-primary text-primary-foreground font-mono text-base font-black uppercase rounded-none hover:bg-background hover:text-foreground transition-all"
+                className="w-full h-14 border-thick border-border bg-primary text-primary-foreground font-mono text-base font-black uppercase rounded-none hover:bg-background hover:text-foreground transition-all"
                 onClick={handleSubmitOrder}
                 disabled={cart.length === 0 || createOrder.isPending || !activeCustomer}
               >
@@ -513,7 +515,7 @@ function RegisterPageContent() {
               </Button>
               <Button
                 variant="outline"
-                className="w-full border-[3px] border-border rounded-none font-mono uppercase"
+                className="w-full border-thick border-border rounded-none font-mono uppercase"
                 onClick={clearCart}
               >
                 カートをクリア

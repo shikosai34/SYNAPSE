@@ -101,7 +101,7 @@ function CircleSettingsContent() {
   return (
     <DashboardLayout title={circleName} subtitle="サークル設定" type="circle">
       <div className="space-y-6">
-        <Card className="border-thick border-border rounded-none shadow-none">
+        <Card className=" rounded-none shadow-none">
           <CardHeader className="pb-3 border-b-thick border-border">
             <CardTitle className="text-sm font-bold uppercase">基本情報</CardTitle>
             <CardDescription className="text-xs text-muted-foreground">サークルの基本情報を編集できます</CardDescription>
@@ -164,7 +164,7 @@ function CircleSettingsContent() {
           </CardContent>
         </Card>
 
-        <Card className="border-thick border-border rounded-none shadow-none">
+        <Card className=" rounded-none shadow-none">
           <CardHeader className="pb-3 border-b-thick border-border">
             <CardTitle className="text-sm font-bold uppercase">サークルID</CardTitle>
             <CardDescription className="text-xs text-muted-foreground">このIDはシステム内で一意であり、変更できません</CardDescription>

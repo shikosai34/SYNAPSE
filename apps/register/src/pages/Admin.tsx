@@ -11,8 +11,8 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { Modal } from "@/components/ui/Modal";
+import { FormField, FormSubmitButton } from "@/components/ui/FormField";
 import {
   Plus,
   Calendar,
@@ -84,106 +84,68 @@ export default function AdminPage() {
       >
         <div className="space-y-6">
           {/* アクションバー */}
-          <div className="flex justify-between items-center border-b-[1px] border-border pb-3">
+          <div className="flex justify-between items-center border-b-thin border-border pb-3">
             <h2 className="text-sm font-bold flex items-center gap-2 uppercase tracking-wider">
               <Calendar className="h-4 w-4" />
               イベント一覧 ({events?.length || 0})
             </h2>
             <Button
-              onClick={() => setShowEventForm(!showEventForm)}
-              className="rounded-none border-[1px] border-primary bg-primary text-primary-foreground hover:bg-background hover:text-foreground h-8 text-[11px] uppercase font-bold transition-all shadow-none px-3"
+              onClick={() => setShowEventForm(true)}
+              className="rounded-none border-thin border-primary bg-primary text-primary-foreground hover:bg-background hover:text-foreground h-8 text-[11px] uppercase font-bold transition-all shadow-none px-3"
             >
               <Plus className="mr-1.5 h-3.5 w-3.5" />
               新規イベント開設
             </Button>
           </div>
 
-          {/* イベント作成フォーム */}
-          {showEventForm && (
-            <Card className="border-[1px] border-border rounded-none bg-background shadow-none p-2">
-              <CardHeader className="pb-3 border-b-[1px] border-border">
-                <CardTitle className="text-xs uppercase font-bold tracking-wider">[新規イベント作成]</CardTitle>
-                <CardDescription className="text-[10px] text-muted-foreground">新しい学園祭イベントを開設します。</CardDescription>
-              </CardHeader>
-              <CardContent className="pt-4 space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-1">
-                    <Label htmlFor="eventName" className="text-[10px] font-bold uppercase">イベント名 *</Label>
-                    <Input
-                      id="eventName"
-                      placeholder="例: 茨香祭 2026"
-                      className="border-[1px] border-border rounded-none focus-visible:ring-0 h-9 text-xs bg-background"
-                      value={eventForm.eventName}
-                      onChange={(e) =>
-                        setEventForm({
-                          ...eventForm,
-                          eventName: e.target.value,
-                        })
-                      }
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <Label htmlFor="eventDescription" className="text-[10px] font-bold uppercase">説明</Label>
-                    <Input
-                      id="eventDescription"
-                      placeholder="第34回 茨香祭 など"
-                      className="border-[1px] border-border rounded-none focus-visible:ring-0 h-9 text-xs bg-background"
-                      value={eventForm.description}
-                      onChange={(e) =>
-                        setEventForm({
-                          ...eventForm,
-                          description: e.target.value,
-                        })
-                      }
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <Label htmlFor="startDate" className="text-[10px] font-bold uppercase">開始日</Label>
-                    <Input
-                      id="startDate"
-                      type="date"
-                      className="border-[1px] border-border rounded-none focus-visible:ring-0 h-9 text-xs bg-background font-mono"
-                      value={eventForm.startDate}
-                      onChange={(e) =>
-                        setEventForm({
-                          ...eventForm,
-                          startDate: e.target.value,
-                        })
-                      }
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <Label htmlFor="endDate" className="text-[10px] font-bold uppercase">終了日</Label>
-                    <Input
-                      id="endDate"
-                      type="date"
-                      className="border-[1px] border-border rounded-none focus-visible:ring-0 h-9 text-xs bg-background font-mono"
-                      value={eventForm.endDate}
-                      onChange={(e) =>
-                        setEventForm({ ...eventForm, endDate: e.target.value })
-                      }
-                    />
-                  </div>
-                </div>
-                <div className="flex justify-end gap-2 pt-2">
-                  <Button
-                    variant="outline"
-                    className="border-[1px] border-border rounded-none h-8 text-[11px] font-bold hover:bg-neutral-100 px-3"
-                    onClick={() => setShowEventForm(false)}
-                  >
-                    キャンセル
-                  </Button>
-                  <Button
-                    onClick={handleCreateEvent}
-                    disabled={!eventForm.eventName || createEventMutation.isPending}
-                    className="border-[1px] border-primary bg-primary text-primary-foreground hover:bg-background hover:text-foreground h-8 text-[11px] font-bold rounded-none transition-all shadow-none px-3"
-                  >
-                    イベントを開設
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          )}
+          {/* イベント作成モーダル */}
+          <Modal
+            isOpen={showEventForm}
+            onClose={() => setShowEventForm(false)}
+            title="[新規イベント作成]"
+            subtitle="新しい学園祭イベントを開設します。"
+          >
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <FormField
+                id="eventName"
+                label="イベント名"
+                required
+                placeholder="例: 茨香祭 2026"
+                value={eventForm.eventName}
+                onChange={(e) => setEventForm({ ...eventForm, eventName: e.target.value })}
+              />
+              <FormField
+                id="eventDescription"
+                label="説明"
+                placeholder="第34回 茨香祭 など"
+                value={eventForm.description}
+                onChange={(e) => setEventForm({ ...eventForm, description: e.target.value })}
+              />
+              <FormField
+                id="startDate"
+                label="開始日"
+                type="date"
+                value={eventForm.startDate}
+                onChange={(e) => setEventForm({ ...eventForm, startDate: e.target.value })}
+              />
+              <FormField
+                id="endDate"
+                label="終了日"
+                type="date"
+                value={eventForm.endDate}
+                onChange={(e) => setEventForm({ ...eventForm, endDate: e.target.value })}
+              />
+            </div>
+
+            <FormSubmitButton
+              onClick={handleCreateEvent}
+              disabled={!eventForm.eventName}
+              isPending={createEventMutation.isPending}
+              icon={Plus}
+            >
+              イベントを開設
+            </FormSubmitButton>
+          </Modal>
 
           {/* イベント一覧グリッド */}
           {eventsLoading ? (
@@ -193,9 +155,9 @@ export default function AdminPage() {
               {events.map((evt) => (
                 <Card
                   key={evt.id}
-                  className="border-[1px] border-border hover:border-neutral-800 rounded-none bg-background flex flex-col justify-between shadow-none transition-all p-3"
+                  className="border-thin border-border hover:border-neutral-800 rounded-none bg-background flex flex-col justify-between shadow-none transition-all p-3"
                 >
-                  <CardHeader className="p-0 border-b-[1px] border-muted pb-2 mb-2">
+                  <CardHeader className="p-0 border-b-thin border-muted pb-2 mb-2">
                     <CardTitle className="text-xs font-bold uppercase tracking-wide flex items-center gap-1.5">
                       <Calendar className="h-4 w-4 shrink-0 text-muted-foreground" />
                       {evt.eventName}
@@ -219,7 +181,7 @@ export default function AdminPage() {
               ))}
             </div>
           ) : (
-            <Card className="border-[1px] border-dashed border-border rounded-none p-12 text-center text-muted-foreground bg-background shadow-none">
+            <Card className="border-thin border-dashed border-border rounded-none p-12 text-center text-muted-foreground bg-background shadow-none">
               <Calendar className="h-8 w-8 mx-auto mb-4 opacity-40 text-foreground" />
               <p className="text-xs uppercase tracking-widest font-bold font-headline">イベントがありません</p>
             </Card>

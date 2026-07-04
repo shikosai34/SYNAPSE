@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { toast } from "sonner";
 import { Save, Sparkles, Plus, Trash2, Globe, Upload, ToggleRight as ToggleOn, ToggleLeft as ToggleOff } from "lucide-react";
 
@@ -57,6 +58,8 @@ function ModsSettingsContent() {
   const [installedMods, setInstalledMods] = useState<Record<string, InstalledModState>>({});
   const [manifestUrl, setManifestUrl] = useState("");
   const [isUrlImportOpen, setIsUrlImportOpen] = useState(false);
+  // アンインストール確認 (native confirm を廃止しアプリ内ダイアログで確認 2026-07-04)
+  const [pendingUninstall, setPendingUninstall] = useState<{ id: string; name: string } | null>(null);
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -182,14 +185,18 @@ function ModsSettingsContent() {
     }
   };
 
-  // アンインストール
+  // アンインストール (確認ダイアログ経由で実行)
   const uninstallMod = (id: string, name: string) => {
-    if (confirm(`拡張機能「${name}」をアンインストールしますか？ 設定データも削除されます。`)) {
-      const updated = { ...installedMods };
-      delete updated[id];
-      setInstalledMods(updated);
-      toast.success("アンインストールしました。設定を保存すると反映されます。");
-    }
+    setPendingUninstall({ id, name });
+  };
+
+  const confirmUninstall = () => {
+    if (!pendingUninstall) return;
+    const updated = { ...installedMods };
+    delete updated[pendingUninstall.id];
+    setInstalledMods(updated);
+    toast.success("アンインストールしました。設定を保存すると反映されます。");
+    setPendingUninstall(null);
   };
 
   // 設定値の更新
@@ -281,7 +288,7 @@ function ModsSettingsContent() {
 
         {/* URLインポートパネル */}
         {isUrlImportOpen && (
-          <Card className="border-thick border-border rounded-none p-4 bg-muted space-y-3">
+          <Card className=" rounded-none p-4 bg-muted space-y-3">
             <form onSubmit={handleUrlImport} className="flex flex-col sm:flex-row gap-2">
               <div className="flex-1">
                 <Label htmlFor="manifestUrl" className="sr-only">マニフェストURL</Label>
@@ -328,7 +335,7 @@ function ModsSettingsContent() {
               {Object.entries(installedMods).map(([modId, modState]) => {
                 const { manifest, enabled, settings } = modState;
                 return (
-                  <Card key={modId} className="border-thick border-border rounded-none shadow-none">
+                  <Card key={modId} className=" rounded-none shadow-none">
                     <CardHeader className="border-b-thick border-border bg-accent text-accent-foreground p-4">
                       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
                         <div>
@@ -430,6 +437,15 @@ function ModsSettingsContent() {
           </div>
         </div>
       </div>
+
+      <ConfirmDialog
+        isOpen={!!pendingUninstall}
+        title="[拡張機能のアンインストール]"
+        description={`拡張機能「${pendingUninstall?.name ?? ""}」をアンインストールしますか？ 設定データも削除されます。`}
+        confirmLabel="アンインストール"
+        onConfirm={confirmUninstall}
+        onCancel={() => setPendingUninstall(null)}
+      />
     </DashboardLayout>
   );
 }

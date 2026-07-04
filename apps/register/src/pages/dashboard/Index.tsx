@@ -123,7 +123,7 @@ function DashboardContent() {
         </div>
 
         <div className="grid gap-4 md:grid-cols-2">
-          <Card className="border-thick border-border rounded-none shadow-none">
+          <Card className=" rounded-none shadow-none">
             <CardHeader className="p-4 pb-2">
               <CardTitle className="text-xs uppercase font-bold">[クイックアクション]</CardTitle>
             </CardHeader>
@@ -157,7 +157,7 @@ function DashboardContent() {
             </CardContent>
           </Card>
 
-          <Card className="border-thick border-border rounded-none shadow-none">
+          <Card className=" rounded-none shadow-none">
             <CardHeader className="p-4 pb-2">
               <CardTitle className="text-xs uppercase font-bold">[お知らせ]</CardTitle>
             </CardHeader>

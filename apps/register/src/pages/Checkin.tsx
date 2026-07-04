@@ -87,8 +87,8 @@ function CheckinContent() {
 
   return (
     <div className="max-w-md mx-auto p-4 pt-12 font-mono text-center space-y-6">
-      <div className="border-[6px] border-border bg-primary text-primary-foreground p-8 space-y-6 shadow-[8px_8px_0px_0px_var(--border)]">
-        <div className="bg-background text-foreground p-4 inline-block border-[3px] border-border">
+      <div className="border-heavy border-border bg-primary text-primary-foreground p-8 space-y-6 shadow-[8px_8px_0px_0px_var(--border)]">
+        <div className="bg-background text-foreground p-4 inline-block border-thick border-border">
           <UserCheck className="h-16 w-16 text-foreground" />
         </div>
 
@@ -104,7 +104,7 @@ function CheckinContent() {
           </p>
         </div>
 
-        <div className="bg-background/10 p-4 border-[2px] border-border/20 text-xs text-left space-y-2">
+        <div className="bg-background/10 p-4 border-thin border-border/20 text-xs text-left space-y-2">
           <div className="flex items-center gap-2 text-primary-foreground font-bold">
             <ShieldCheck className="h-4 w-4 text-success" />
             セキュリティ保護有効

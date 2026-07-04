@@ -117,9 +117,9 @@ function BackyardPageContent() {
 
   return (
     <div className="container mx-auto p-3 sm:p-4 space-y-4 sm:space-y-6">
-      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 border-b-[3px] border-border pb-3">
+      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 border-b-thick border-border pb-3">
         <h1 className="text-2xl sm:text-3xl font-headline uppercase tracking-tight">厨房管理</h1>
-        <Button onClick={() => refetch()} variant="outline" className="w-full sm:w-auto border-[3px] border-border rounded-none font-mono uppercase">
+        <Button onClick={() => refetch()} variant="outline" className="w-full sm:w-auto border-thick border-border rounded-none font-mono uppercase">
           更新
         </Button>
       </div>
@@ -129,28 +129,28 @@ function BackyardPageContent() {
         <Button
           variant={selectedStatus === "pending" ? "default" : "outline"}
           onClick={() => setSelectedStatus("pending")}
-          className="border-[3px] border-border rounded-none font-mono uppercase text-xs sm:text-sm"
+          className="border-thick border-border rounded-none font-mono uppercase text-xs sm:text-sm"
         >
           未着手
         </Button>
         <Button
           variant={selectedStatus === "preparing" ? "default" : "outline"}
           onClick={() => setSelectedStatus("preparing")}
-          className="border-[3px] border-border rounded-none font-mono uppercase text-xs sm:text-sm"
+          className="border-thick border-border rounded-none font-mono uppercase text-xs sm:text-sm"
         >
           調理中
         </Button>
         <Button
           variant={selectedStatus === "completed" ? "default" : "outline"}
           onClick={() => setSelectedStatus("completed")}
-          className="border-[3px] border-border rounded-none font-mono uppercase text-xs sm:text-sm"
+          className="border-thick border-border rounded-none font-mono uppercase text-xs sm:text-sm"
         >
           完成
         </Button>
         <Button
           variant={selectedStatus === undefined ? "default" : "outline"}
           onClick={() => setSelectedStatus(undefined)}
-          className="border-[3px] border-border rounded-none font-mono uppercase text-xs sm:text-sm"
+          className="border-thick border-border rounded-none font-mono uppercase text-xs sm:text-sm"
         >
           すべて
         </Button>
@@ -160,7 +160,7 @@ function BackyardPageContent() {
       <div className="grid gap-3 sm:gap-4">
         {orders && orders.length > 0 ? (
           orders.map((order) => (
-            <Card key={order.id} className="border-[3px] border-border rounded-none">
+            <Card key={order.id} className=" rounded-none">
               <CardHeader className="pb-3">
                 <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-2">
                   <div>
@@ -185,7 +185,7 @@ function BackyardPageContent() {
                 {/* 注文アイテム */}
                 <div className="space-y-2">
                   {order.items.map((item) => (
-                    <div key={item.id} className="border-[2px] border-border p-2 sm:p-3 space-y-1">
+                    <div key={item.id} className="border-thin border-border p-2 sm:p-3 space-y-1">
                       <div className="flex justify-between gap-2">
                         <span className="font-bold text-sm sm:text-base">
                           {item.menuName} x{item.quantity}
@@ -208,7 +208,7 @@ function BackyardPageContent() {
                   ))}
                 </div>
                 {/* 合計 */}
-                <div className="border-t-[3px] border-border pt-3 flex justify-between font-headline text-xl sm:text-2xl">
+                <div className="border-t-thick border-border pt-3 flex justify-between font-headline text-xl sm:text-2xl">
                   <span>合計</span>
                   <span>¥{(order.totalPrice ?? 0).toLocaleString()}</span>
                 </div>
@@ -216,7 +216,7 @@ function BackyardPageContent() {
               <CardFooter className="flex gap-2 flex-wrap pt-0 px-4 pb-4">
                 {order.status === "pending" && (
                   <Button
-                    className="flex-1 min-w-[120px] h-12 border-[3px] border-border rounded-none font-mono uppercase font-bold"
+                    className="flex-1 min-w-[120px] h-12 border-thick border-border rounded-none font-mono uppercase font-bold"
                     onClick={() => handleStartPreparing(order.id)}
                     disabled={updateStatus.isPending}
                   >
@@ -225,7 +225,7 @@ function BackyardPageContent() {
                 )}
                 {order.status === "preparing" && (
                   <Button
-                    className="flex-1 min-w-[120px] h-12 border-[3px] border-border rounded-none font-mono uppercase font-bold"
+                    className="flex-1 min-w-[120px] h-12 border-thick border-border rounded-none font-mono uppercase font-bold"
                     onClick={() => handleComplete(order.id)}
                     disabled={completeOrder.isPending}
                   >
@@ -233,7 +233,7 @@ function BackyardPageContent() {
                   </Button>
                 )}
                 {order.status === "completed" && (
-                  <Button className="flex-1 min-w-[120px] h-12 border-[3px] border-border rounded-none font-mono uppercase" disabled variant="outline">
+                  <Button className="flex-1 min-w-[120px] h-12 border-thick border-border rounded-none font-mono uppercase" disabled variant="outline">
                     <CheckCircle className="mr-2 h-4 w-4" />完了済み
                   </Button>
                 )}

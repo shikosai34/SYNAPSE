@@ -21,7 +21,13 @@ async function nextDisplayId(eventId: string): Promise<number> {
 
 // コード (リストバンドID、ユーザーID) によるユーザー照会
 wristbandRoutes.get("/lookup/:code", async (c) => {
-  const code = c.req.param("code");
+  let code = c.req.param("code");
+
+  // 2026-07-04: QRコードスキャン等で URL (例: https://.../w/usr_xxx) が入ってきた場合に対応
+  const urlMatch = code.match(/\/w\/([a-zA-Z0-9_\-]+)/);
+  if (urlMatch && urlMatch[1]) {
+    code = urlMatch[1];
+  }
 
   // 2026-07-04: D1 の外部キー制約エラーを避けるため、DB内の最初のイベントIDを取得してデフォルトとして使用する
   const eventsList = await db.select().from(event).limit(1);
