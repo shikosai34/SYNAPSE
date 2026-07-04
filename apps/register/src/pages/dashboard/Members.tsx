@@ -27,13 +27,14 @@ import {
   Link as LinkIcon,
   Copy,
   Check,
-  Trash2,
   Shield,
+  Trash2,
   Users,
 } from "lucide-react";
+import { toast } from "sonner";
 
 function MembersContent() {
-  const { circleId, role } = useAuth();
+  const { circleId, role, userEmail } = useAuth();
   const queryClient = useQueryClient();
   const [showAddForm, setShowAddForm] = useState(false);
   const [showInviteForm, setShowInviteForm] = useState(false);
@@ -52,6 +53,7 @@ function MembersContent() {
     role: "viewer" as Role,
     maxUses: 1,
     expiresInHours: 24,
+    targetEmail: "",
   });
 
   // API呼び出し
@@ -101,9 +103,13 @@ function MembersContent() {
       role: Role;
       expiresInHours?: number;
       maxUses?: number;
+      createdBy: string;
+      targetEmail?: string;
     }) => membershipApi.createInvite(input),
     onSuccess: () => {
       refetchTokens();
+      toast.success("招待を作成しました");
+      setInviteSettings((prev) => ({ ...prev, targetEmail: "" }));
     },
   });
 
@@ -141,6 +147,8 @@ function MembersContent() {
       role: inviteSettings.role,
       maxUses: inviteSettings.maxUses,
       expiresInHours: inviteSettings.expiresInHours,
+      createdBy: userEmail || "",
+      targetEmail: inviteSettings.targetEmail || undefined,
     });
   };
 
@@ -295,7 +303,7 @@ function MembersContent() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="invite-role">付与するロール</Label>
                 <select
@@ -351,6 +359,21 @@ function MembersContent() {
                     setInviteSettings({
                       ...inviteSettings,
                       expiresInHours: parseInt(e.target.value) || 24,
+                    })
+                  }
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="target-email">相手のメールアドレス (直接通知を送る場合)</Label>
+                <Input
+                  id="target-email"
+                  type="email"
+                  placeholder="user@example.com (任意)"
+                  value={inviteSettings.targetEmail}
+                  onChange={(e) =>
+                    setInviteSettings({
+                      ...inviteSettings,
+                      targetEmail: e.target.value,
                     })
                   }
                 />

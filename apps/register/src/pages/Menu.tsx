@@ -152,7 +152,6 @@ function MenuPageContent() {
     } else {
       setCart([...cart, { menuId, menuName, menuPrice, quantity: 1 }]);
     }
-    toast.success(`${menuName}をカートに追加しました`);
   };
 
   const updateQuantity = (menuId: string, delta: number) => {

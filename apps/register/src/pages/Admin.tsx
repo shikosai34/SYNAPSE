@@ -1,8 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { eventApi } from "@/lib/api";
-import { SystemAdminGuard, getAuthInfo, saveAuthInfo } from "@/hooks/useCircleAuth";
-import { useNavigate } from "react-router-dom";
+import { SystemAdminGuard } from "@/hooks/useCircleAuth";
 import {
   Card,
   CardContent,
@@ -13,7 +12,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Badge } from "@/components/ui/badge";
 import {
   Plus,
   Calendar,
@@ -22,9 +20,7 @@ import {
 import { toast } from "sonner";
 
 export default function AdminPage() {
-  const navigate = useNavigate();
   const queryClient = useQueryClient();
-
   const [showEventForm, setShowEventForm] = useState(false);
 
   // イベントフォーム
@@ -76,181 +72,162 @@ export default function AdminPage() {
     });
   };
 
-  const handleManageEvent = (evt: any) => {
-    const authInfo = getAuthInfo();
-    if (authInfo) {
-      saveAuthInfo({
-        ...authInfo,
-        circleId: null, // イベント管理時はサークルIDをクリア
-        circleName: null,
-        eventId: evt.id,
-        role: "event_manager", // イベント管理コンテキストへ切り替え
-      });
-      toast.success(`イベント「${evt.eventName}」の管理画面へ移動します`);
-      navigate("/event/dashboard");
-    }
-  };
-
   return (
     <SystemAdminGuard>
-      <div className="container mx-auto p-6 space-y-8 font-mono">
-        <div className="flex items-center justify-between border-b-[3px] border-border pb-4">
+      <div className="container mx-auto p-6 space-y-8 font-mono bg-background text-foreground max-w-7xl">
+        {/* ヘッダーセクション */}
+        <div className="flex items-center justify-between border-b-[1px] border-neutral-200 pb-4">
           <div>
-            <h1 className="text-2xl sm:text-4xl font-headline uppercase font-black tracking-tight flex items-center gap-3">
-              <Shield className="h-8 w-8 sm:h-10 sm:w-10" />
-              システム最高管理
+            <h1 className="text-2xl sm:text-3xl font-headline font-black uppercase tracking-tight flex items-center gap-2">
+              <Shield className="h-6 w-6 text-foreground" />
+              [SYSTEM ADMIN]
             </h1>
-            <p className="text-sm text-muted-foreground mt-1">学園祭イベント一覧の管理と新規イベント開設</p>
+            <p className="text-xs text-muted-foreground mt-1">学園祭イベント一覧の管理と新規イベント開設</p>
           </div>
         </div>
 
-        {/* イベント管理セクション */}
-        <div className="space-y-6">
-          <div className="flex justify-between items-center">
-            <h2 className="text-xl sm:text-2xl font-bold flex items-center gap-2">
-              <Calendar className="h-6 w-6" />
-              イベント一覧
-            </h2>
-            <Button onClick={() => setShowEventForm(!showEventForm)}>
-              <Plus className="mr-2 h-4 w-4" />
-              新規イベント開設
-            </Button>
-          </div>
+        {/* アクションバー */}
+        <div className="flex justify-between items-center">
+          <h2 className="text-lg font-bold flex items-center gap-2 uppercase tracking-wider">
+            <Calendar className="h-4 w-4" />
+            イベント一覧
+          </h2>
+          <Button
+            onClick={() => setShowEventForm(!showEventForm)}
+            className="rounded-none border-[1px] border-primary bg-primary text-primary-foreground hover:bg-background hover:text-foreground h-9 text-xs uppercase font-bold transition-all shadow-none"
+          >
+            <Plus className="mr-2 h-4 w-4" />
+            新規イベント開設
+          </Button>
+        </div>
 
-          {/* イベント作成フォーム */}
-          {showEventForm && (
-            <Card className="border-thick border-border rounded-none bg-muted/20">
-              <CardHeader className="border-b border-border/20">
-                <CardTitle className="text-base uppercase">[新規イベント作成]</CardTitle>
-                <CardDescription>新しい学園祭イベントを開設します。</CardDescription>
-              </CardHeader>
-              <CardContent className="p-4 sm:p-6 space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="eventName">イベント名 *</Label>
-                    <Input
-                      id="eventName"
-                      placeholder="例: 茨香祭 2026"
-                      className="border-thick border-border rounded-none focus-visible:ring-0"
-                      value={eventForm.eventName}
-                      onChange={(e) =>
-                        setEventForm({
-                          ...eventForm,
-                          eventName: e.target.value,
-                        })
-                      }
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="eventDescription">説明</Label>
-                    <Input
-                      id="eventDescription"
-                      placeholder="第34回 茨香祭 など"
-                      className="border-thick border-border rounded-none focus-visible:ring-0"
-                      value={eventForm.description}
-                      onChange={(e) =>
-                        setEventForm({
-                          ...eventForm,
-                          description: e.target.value,
-                        })
-                      }
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="startDate">開始日</Label>
-                    <Input
-                      id="startDate"
-                      type="date"
-                      className="border-thick border-border rounded-none focus-visible:ring-0"
-                      value={eventForm.startDate}
-                      onChange={(e) =>
-                        setEventForm({
-                          ...eventForm,
-                          startDate: e.target.value,
-                        })
-                      }
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="endDate">終了日</Label>
-                    <Input
-                      id="endDate"
-                      type="date"
-                      className="border-thick border-border rounded-none focus-visible:ring-0"
-                      value={eventForm.endDate}
-                      onChange={(e) =>
-                        setEventForm({ ...eventForm, endDate: e.target.value })
-                      }
-                    />
-                  </div>
+        {/* イベント作成フォーム (1px ボーダー, シャープエッジ, フラットカラー) */}
+        {showEventForm && (
+          <Card className="border-[1px] border-neutral-200 rounded-none bg-background shadow-none p-2">
+            <CardHeader className="border-b-[1px] border-neutral-100 pb-3">
+              <CardTitle className="text-sm uppercase font-bold tracking-wider">[新規イベント作成]</CardTitle>
+              <CardDescription className="text-xs text-muted-foreground">新しい学園祭イベントを開設します。</CardDescription>
+            </CardHeader>
+            <CardContent className="pt-4 space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="eventName" className="text-xs font-bold uppercase">イベント名 *</Label>
+                  <Input
+                    id="eventName"
+                    placeholder="例: 茨香祭 2026"
+                    className="border-[1px] border-neutral-300 rounded-none focus-visible:ring-0 h-9 text-sm focus:border-neutral-900 bg-background"
+                    value={eventForm.eventName}
+                    onChange={(e) =>
+                      setEventForm({
+                        ...eventForm,
+                        eventName: e.target.value,
+                      })
+                    }
+                  />
                 </div>
-                <div className="flex justify-end gap-2 pt-2">
-                  <Button
-                    variant="outline"
-                    className="border-thick border-border rounded-none"
-                    onClick={() => setShowEventForm(false)}
-                  >
-                    キャンセル
-                  </Button>
-                  <Button
-                    onClick={handleCreateEvent}
-                    disabled={!eventForm.eventName || createEventMutation.isPending}
-                    className="border-thick border-border rounded-none bg-primary text-primary-foreground hover:bg-background hover:text-foreground transition-all"
-                  >
-                    {createEventMutation.isPending ? "作成中..." : "イベントを開設"}
-                  </Button>
+                <div className="space-y-2">
+                  <Label htmlFor="eventDescription" className="text-xs font-bold uppercase">説明</Label>
+                  <Input
+                    id="eventDescription"
+                    placeholder="第34回 茨香祭 など"
+                    className="border-[1px] border-neutral-300 rounded-none focus-visible:ring-0 h-9 text-sm focus:border-neutral-900 bg-background"
+                    value={eventForm.description}
+                    onChange={(e) =>
+                      setEventForm({
+                        ...eventForm,
+                        description: e.target.value,
+                      })
+                    }
+                  />
                 </div>
-              </CardContent>
-            </Card>
-          )}
-
-          {/* イベント一覧 */}
-          {eventsLoading ? (
-            <div className="text-center py-8 text-muted-foreground">読み込み中...</div>
-          ) : events && events.length > 0 ? (
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-              {events.map((evt) => (
-                <Card
-                  key={evt.id}
-                  className="border-thick border-border rounded-none bg-background flex flex-col justify-between"
+                <div className="space-y-2">
+                  <Label htmlFor="startDate" className="text-xs font-bold uppercase">開始日</Label>
+                  <Input
+                    id="startDate"
+                    type="date"
+                    className="border-[1px] border-neutral-300 rounded-none focus-visible:ring-0 h-9 text-sm focus:border-neutral-900 bg-background"
+                    value={eventForm.startDate}
+                    onChange={(e) =>
+                      setEventForm({
+                        ...eventForm,
+                        startDate: e.target.value,
+                      })
+                    }
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="endDate" className="text-xs font-bold uppercase">終了日</Label>
+                  <Input
+                    id="endDate"
+                    type="date"
+                    className="border-[1px] border-neutral-300 rounded-none focus-visible:ring-0 h-9 text-sm focus:border-neutral-900 bg-background"
+                    value={eventForm.endDate}
+                    onChange={(e) =>
+                      setEventForm({ ...eventForm, endDate: e.target.value })
+                    }
+                  />
+                </div>
+              </div>
+              <div className="flex justify-end gap-2 pt-2">
+                <Button
+                  variant="outline"
+                  className="border-[1px] border-neutral-300 rounded-none h-9 text-xs font-bold hover:bg-neutral-100"
+                  onClick={() => setShowEventForm(false)}
                 >
-                  <CardHeader className="border-b border-border/20 p-4">
-                    <CardTitle className="text-base truncate flex items-center gap-2">
-                      <Calendar className="h-5 w-5 shrink-0" />
-                      {evt.eventName}
-                    </CardTitle>
-                    {evt.description && (
-                      <CardDescription className="text-xs truncate">{evt.description}</CardDescription>
+                  キャンセル
+                </Button>
+                <Button
+                  onClick={handleCreateEvent}
+                  disabled={!eventForm.eventName || createEventMutation.isPending}
+                  className="border-[1px] border-primary bg-primary text-primary-foreground hover:bg-background hover:text-foreground h-9 text-xs font-bold rounded-none transition-all shadow-none"
+                >
+                  {createEventMutation.isPending ? "作成中..." : "イベントを開設"}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* イベント一覧グリッド (StudioBlank デザインルール準拠のフラットスタイル) */}
+        {eventsLoading ? (
+          <div className="text-center py-12 text-muted-foreground text-xs uppercase tracking-wider">Loading...</div>
+        ) : events && events.length > 0 ? (
+          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+            {events.map((evt) => (
+              <Card
+                key={evt.id}
+                className="border-[1px] border-neutral-200 hover:border-neutral-800 rounded-none bg-background flex flex-col justify-between shadow-none transition-all p-2"
+              >
+                <CardHeader className="border-b-[1px] border-neutral-100 p-4 pb-3">
+                  <CardTitle className="text-sm font-bold uppercase tracking-wide flex items-center gap-2">
+                    <Calendar className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    {evt.eventName}
+                  </CardTitle>
+                  {evt.description && (
+                    <CardDescription className="text-xs text-muted-foreground truncate">{evt.description}</CardDescription>
+                  )}
+                </CardHeader>
+                <CardContent className="p-4 pt-3 space-y-3">
+                  <div className="text-[11px] text-muted-foreground space-y-1">
+                    {evt.startDate && (
+                      <p>開始: {new Date(evt.startDate).toLocaleDateString("ja-JP")}</p>
                     )}
-                  </CardHeader>
-                  <CardContent className="p-4 space-y-4">
-                    <div className="text-xs text-muted-foreground space-y-1">
-                      {evt.startDate && (
-                        <p>開始: {new Date(evt.startDate).toLocaleDateString("ja-JP")}</p>
-                      )}
-                      {evt.endDate && (
-                        <p>終了: {new Date(evt.endDate).toLocaleDateString("ja-JP")}</p>
-                      )}
-                    </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="w-full border-thick border-border rounded-none uppercase font-black tracking-wider text-xs"
-                      onClick={() => handleManageEvent(evt)}
-                    >
-                      このイベントを管理
-                    </Button>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          ) : (
-            <Card className="border-thick border-dashed border-border rounded-none p-8 text-center text-muted-foreground bg-muted/10">
-              <Calendar className="h-12 w-12 mx-auto mb-4 opacity-50" />
-              <p>開設済みのイベントがありません。</p>
-            </Card>
-          )}
-        </div>
+                    {evt.endDate && (
+                      <p>終了: {new Date(evt.endDate).toLocaleDateString("ja-JP")}</p>
+                    )}
+                    <p className="text-[9px] font-mono text-muted-foreground/60 pt-1">ID: {evt.id}</p>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        ) : (
+          <Card className="border-[1px] border-dashed border-neutral-300 rounded-none p-12 text-center text-muted-foreground bg-background shadow-none">
+            <Calendar className="h-8 w-8 mx-auto mb-4 opacity-40 text-foreground" />
+            <p className="text-xs uppercase tracking-widest font-bold">No active events found.</p>
+            <p className="text-[11px] text-muted-foreground mt-1">新規イベントを作成してください。</p>
+          </Card>
+        )}
       </div>
     </SystemAdminGuard>
   );

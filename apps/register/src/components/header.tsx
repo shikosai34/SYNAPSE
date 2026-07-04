@@ -2,8 +2,10 @@ import { useState } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { Button } from "./ui/button";
 import { toast } from "sonner";
-import { Menu, X, ChevronDown, User, LogOut, Shield, Calendar, Building2, Globe } from "lucide-react";
+import { Menu, X, ChevronDown, User, LogOut, Shield, Calendar, Building2, Globe, Bell } from "lucide-react";
 import { PRODUCT_NAME } from "@fesflow/config";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { eventApi, notificationApi } from "@/lib/api";
 import {
   useAuth,
   clearAuthInfo,
@@ -15,11 +17,47 @@ import {
 export default function Header() {
   const navigate = useNavigate();
   const pathname = useLocation().pathname;
+  const queryClient = useQueryClient();
   const { role, userName, circleName, isLoading, isAuthenticated, isEventAdmin, userEmail } =
     useAuth();
   const { data: spaces } = useMySpaces();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [profileModalOpen, setProfileModalOpen] = useState(false);
+  const [notifPopoverOpen, setNotifPopoverOpen] = useState(false);
+
+  // 通知一覧取得 (2026-07-04 SaaS通知機能)
+  const { data: notifications } = useQuery({
+    queryKey: ["notifications"],
+    queryFn: () => notificationApi.list(),
+    enabled: isAuthenticated && !!userEmail,
+    refetchInterval: 15000, // 15秒おきに自動更新
+  });
+
+  // 全イベント取得 (super_admin用)
+  const { data: allEvents } = useQuery({
+    queryKey: ["allEvents"],
+    queryFn: () => eventApi.list(),
+    enabled: isAuthenticated && role === "super_admin",
+  });
+
+  // 招待回答ミューテーション
+  const respondMutation = useMutation({
+    mutationFn: async ({ notifId, action }: { notifId: string; action: "accept" | "decline" }) => {
+      return await notificationApi.respond(notifId, { action });
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["notifications"] });
+      queryClient.invalidateQueries({ queryKey: ["mySpaces"] });
+      if (variables.action === "accept") {
+        toast.success("招待を承認しました。スペース一覧から切り替えられます。");
+      } else {
+        toast.success("招待を辞退しました");
+      }
+    },
+    onError: (err: any) => {
+      toast.error(err.message || "処理に失敗しました");
+    },
+  });
 
   const handleLogout = () => {
     clearAuthInfo();
@@ -27,12 +65,12 @@ export default function Header() {
     localStorage.removeItem("eventName");
     toast.success("ログアウトしました");
     setProfileModalOpen(false);
+    setNotifPopoverOpen(false);
     setMobileOpen(false);
     navigate("/login");
   };
 
   const getAvailableSpaces = () => {
-    if (!spaces) return [];
     const list: Array<{
       id: string;
       type: "system" | "event" | "circle";
@@ -42,33 +80,59 @@ export default function Header() {
       eventId?: string | null;
     }> = [];
 
-    spaces.forEach((m: any) => {
-      if (["super_admin"].includes(m.role)) {
-        list.push({
-          id: m.id,
-          type: "system",
-          name: "システム管理",
-          role: m.role,
-        });
-      } else if (m.eventId && !m.circleId) {
-        list.push({
-          id: m.id,
-          type: "event",
-          name: m.event?.eventName || `イベント: ${m.eventId}`,
-          role: m.role,
-          eventId: m.eventId,
-        });
-      } else if (m.circleId) {
-        list.push({
-          id: m.id,
-          type: "circle",
-          name: m.circle?.name || `サークル: ${m.circleId}`,
-          role: m.role,
-          circleId: m.circleId,
-          eventId: m.eventId,
-        });
-      }
-    });
+    // 1. システム管理 (super_admin の場合)
+    if (role === "super_admin") {
+      list.push({
+        id: "super_admin_system",
+        type: "system",
+        name: "システム管理",
+        role: "super_admin",
+      });
+    }
+
+    // 2. 所属スペースを走査
+    if (spaces) {
+      spaces.forEach((m: any) => {
+        if (m.eventId && !m.circleId) {
+          if (!list.some(x => x.type === "event" && x.eventId === m.eventId)) {
+            list.push({
+              id: m.id,
+              type: "event",
+              name: m.event?.eventName || `イベント: ${m.eventId}`,
+              role: m.role,
+              eventId: m.eventId,
+            });
+          }
+        } else if (m.circleId) {
+          if (!list.some(x => x.type === "circle" && x.circleId === m.circleId)) {
+            list.push({
+              id: m.id,
+              type: "circle",
+              name: m.circle?.name || `サークル: ${m.circleId}`,
+              role: m.role,
+              circleId: m.circleId,
+              eventId: m.eventId,
+            });
+          }
+        }
+      });
+    }
+
+    // 3. 全イベントを管理 (super_admin の場合の特別追加)
+    if (role === "super_admin" && allEvents) {
+      allEvents.forEach((evt: any) => {
+        if (!list.some(x => x.type === "event" && x.eventId === evt.id)) {
+          list.push({
+            id: `super_event_${evt.id}`,
+            type: "event",
+            name: evt.eventName,
+            role: "event_manager",
+            eventId: evt.id,
+          });
+        }
+      });
+    }
+
     return list;
   };
 
@@ -117,16 +181,15 @@ export default function Header() {
       navigate("/circle/dashboard");
     }
     setProfileModalOpen(false);
+    setNotifPopoverOpen(false);
     setMobileOpen(false);
   };
 
-  // 表示中パスに基づく名前空間の特定
   const isVisitorView = pathname.startsWith("/visitor");
   const isCircleView = pathname.startsWith("/circle");
   const isEventView = pathname.startsWith("/event");
   const isAdminView = pathname.startsWith("/admin");
 
-  // デフォルトナビゲーションリンクの決定
   let links: Array<{ to: string; label: string }> = [];
 
   if (isVisitorView || (!isAuthenticated && !role)) {
@@ -202,11 +265,86 @@ export default function Header() {
         {/* アカウント制御セクション */}
         <div className="flex items-center gap-2 shrink-0">
           {isAuthenticated && !isLoading ? (
-            <div className="relative">
-              {/* プロフィールボタン (ログアウトは隠してここをクリックするとモーダル表示) */}
+            <div className="flex items-center gap-2 relative">
+              {/* 通知ベルアイコン */}
+              <div className="relative">
+                <button
+                  onClick={() => {
+                    setNotifPopoverOpen(!notifPopoverOpen);
+                    setProfileModalOpen(false);
+                  }}
+                  className="p-2 border-[2.5px] border-border bg-background hover:bg-muted select-none cursor-pointer flex items-center justify-center relative h-9 w-9 rounded-none"
+                >
+                  <Bell className="h-4 w-4" />
+                  {notifications && notifications.length > 0 && (
+                    <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-destructive rounded-none" />
+                  )}
+                </button>
+
+                {/* 通知ポップオーバー (StudioBlank デザインルール準拠のフラットスタイル) */}
+                {notifPopoverOpen && (
+                  <div className="absolute right-0 top-11 z-50 w-72 sm:w-80 border-[1px] border-border bg-background p-4 shadow-none rounded-none text-left">
+                    <div className="flex items-center justify-between border-b border-border/20 pb-2 mb-3">
+                      <span className="text-[11px] font-black uppercase tracking-wider">[お知らせ・通知]</span>
+                      <button
+                        onClick={() => setNotifPopoverOpen(false)}
+                        className="text-[10px] underline hover:text-primary cursor-pointer"
+                      >
+                        閉じる
+                      </button>
+                    </div>
+
+                    <div className="max-h-60 overflow-y-auto space-y-3">
+                      {notifications && notifications.length > 0 ? (
+                        notifications.map((notif: any) => (
+                          <div key={notif.id} className="text-xs border-[1px] border-border p-3 bg-muted/10 space-y-2">
+                            <div className="font-bold flex items-center justify-between">
+                              <span className="font-headline font-bold">{notif.title}</span>
+                              <span className="text-[9px] text-muted-foreground">
+                                {new Date(notif.createdAt).toLocaleDateString("ja-JP")}
+                              </span>
+                            </div>
+                            <p className="text-[11px] leading-[1.4] text-foreground/80">{notif.message}</p>
+                            {notif.type === "invite" && (
+                              <div className="flex gap-2 pt-1.5">
+                                <Button
+                                  size="sm"
+                                  className="h-7 text-[10px] flex-1 rounded-none border-[1px] border-border bg-primary text-primary-foreground hover:bg-background hover:text-foreground"
+                                  onClick={() => respondMutation.mutate({ notifId: notif.id, action: "accept" })}
+                                  disabled={respondMutation.isPending}
+                                >
+                                  承認
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="destructive"
+                                  className="h-7 text-[10px] flex-1 rounded-none bg-destructive text-destructive-foreground hover:bg-background hover:text-foreground"
+                                  onClick={() => respondMutation.mutate({ notifId: notif.id, action: "decline" })}
+                                  disabled={respondMutation.isPending}
+                                >
+                                  辞退
+                                </Button>
+                              </div>
+                            )}
+                          </div>
+                        ))
+                      ) : (
+                        <div className="text-center py-6 text-muted-foreground text-xs">
+                          通知はありません
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* プロフィールボタン */}
               <button
-                onClick={() => setProfileModalOpen(!profileModalOpen)}
-                className="flex items-center gap-2 bg-muted border-[2.5px] border-border px-3 py-1.5 font-mono text-[11px] font-bold hover:bg-muted/80 select-none cursor-pointer"
+                onClick={() => {
+                  setProfileModalOpen(!profileModalOpen);
+                  setNotifPopoverOpen(false);
+                }}
+                className="flex items-center gap-2 bg-muted border-[2.5px] border-border px-3 py-1.5 font-mono text-[11px] font-bold hover:bg-muted/80 select-none cursor-pointer h-9 rounded-none"
               >
                 <User className="h-3.5 w-3.5" />
                 <span className="hidden sm:inline truncate max-w-[80px]">
@@ -223,7 +361,7 @@ export default function Header() {
               variant="outline"
               size="sm"
               onClick={() => navigate("/login")}
-              className="h-8 text-xs font-mono px-3"
+              className="h-8 text-xs font-mono px-3 rounded-none"
             >
               ログイン
             </Button>
@@ -232,7 +370,7 @@ export default function Header() {
           {/* ハンバーガーメニュー (モバイルのみ) */}
           {links.length > 0 && (
             <button
-              className="md:hidden flex items-center justify-center w-10 h-10 border-[3px] border-border bg-background text-foreground hover:bg-primary hover:text-primary-foreground transition-all"
+              className="md:hidden flex items-center justify-center w-10 h-10 border-[3px] border-border bg-background text-foreground hover:bg-primary hover:text-primary-foreground transition-all rounded-none"
               onClick={() => setMobileOpen((prev) => !prev)}
               aria-label={mobileOpen ? "メニューを閉じる" : "メニューを開く"}
             >
@@ -264,27 +402,26 @@ export default function Header() {
         </div>
       )}
 
-      {/* ===== プロフィール ＆ スペース切り替えポップアップモーダル (2026-07-04) ===== */}
+      {/* ===== プロフィール ＆ スペース切り替えポップアップモーダル ===== */}
       {profileModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/75 p-4 backdrop-blur-sm">
-          {/* モーダルコンテナ */}
-          <div className="relative w-full max-w-md border-heavy border-border bg-background p-6 shadow-none font-mono">
+          <div className="relative w-full max-w-md border-[1px] border-border bg-background p-6 shadow-none font-mono rounded-none">
             {/* クローズボタン */}
             <button
               onClick={() => setProfileModalOpen(false)}
-              className="absolute right-4 top-4 w-8 h-8 border-thick border-border flex items-center justify-center hover:bg-primary hover:text-primary-foreground transition-all"
+              className="absolute right-4 top-4 w-8 h-8 border-[1px] border-border flex items-center justify-center hover:bg-primary hover:text-primary-foreground transition-all rounded-none cursor-pointer"
             >
               <X className="h-4 w-4" />
             </button>
 
             {/* ヘッダー */}
-            <div className="mb-6 border-b-thick border-border pb-3 flex items-center gap-2">
+            <div className="mb-6 border-b-[1px] border-border pb-3 flex items-center gap-2">
               <User className="h-5 w-5 text-primary" />
               <h2 className="text-lg font-black uppercase tracking-wider">[アカウント管理]</h2>
             </div>
 
             {/* ユーザー情報 */}
-            <div className="space-y-4 mb-6 bg-muted/30 p-4 border-thick border-border">
+            <div className="space-y-4 mb-6 bg-muted/30 p-4 border-[1px] border-border rounded-none">
               <div className="space-y-1">
                 <span className="text-[10px] text-muted-foreground uppercase font-bold tracking-wider">ログインユーザー</span>
                 <p className="font-bold text-sm">{userName || "スタッフ"}</p>
@@ -293,12 +430,12 @@ export default function Header() {
 
               <div className="space-y-1 pt-2 border-t border-border/10 flex items-center justify-between">
                 <div>
-                  <span className="text-[10px] text-muted-foreground uppercase font-bold tracking-wider">現在のアクティブロール</span>
+                  <span className="text-[10px] text-muted-foreground uppercase font-bold tracking-wider">現在のアクティブスペース</span>
                   <p className="font-bold text-xs">
                     {circleName ? `店舗管理者 [${circleName}]` : role === "super_admin" ? "システム最高管理者" : role === "event_manager" ? "イベント管理者" : "一般スタッフ"}
                   </p>
                 </div>
-                <span className="bg-primary text-primary-foreground text-[9px] font-black px-2 py-0.5 uppercase shrink-0">
+                <span className="bg-primary text-primary-foreground text-[9px] font-black px-2 py-0.5 uppercase shrink-0 rounded-none">
                   {getRoleTag()}
                 </span>
               </div>
@@ -308,12 +445,12 @@ export default function Header() {
             {getAvailableSpaces().length > 1 && (
               <div className="space-y-3 mb-6">
                 <h3 className="text-xs font-black uppercase tracking-wider text-muted-foreground">[スペースを切り替える]</h3>
-                <div className="max-h-48 overflow-y-auto space-y-1 border-thick border-border p-2 bg-background">
+                <div className="max-h-48 overflow-y-auto space-y-1 border-[1px] border-border p-2 bg-background rounded-none">
                   {getAvailableSpaces().map((space) => (
                     <button
                       key={space.id}
                       onClick={() => handleSwitchSpace(space)}
-                      className="w-full text-left p-2 hover:bg-primary hover:text-primary-foreground transition-all block border-b border-border/10 last:border-b-0 cursor-pointer"
+                      className="w-full text-left p-2 hover:bg-primary hover:text-primary-foreground transition-all block border-b border-border/10 last:border-b-0 cursor-pointer rounded-none"
                     >
                       <div className="flex items-center gap-1.5 text-[9px] text-muted-foreground font-black uppercase tracking-wider">
                         {space.type === "system" && <Shield className="h-3 w-3" />}
@@ -332,7 +469,7 @@ export default function Header() {
             <div className="space-y-2 border-t border-border/20 pt-4">
               <Button
                 variant="destructive"
-                className="w-full h-12 border-thick border-border rounded-none flex items-center justify-center gap-2 uppercase font-black"
+                className="w-full h-12 border-[1px] border-border rounded-none flex items-center justify-center gap-2 uppercase font-black bg-destructive text-destructive-foreground hover:bg-background hover:text-foreground"
                 onClick={handleLogout}
               >
                 <LogOut className="h-4 w-4" />

@@ -273,6 +273,17 @@ export const membershipApi = {
     fetchApi<any[]>(`/api/memberships/my?userEmail=${encodeURIComponent(userEmail)}`),
 };
 
+// 通知管理 (2026-07-04 SaaS通知対応)
+export const notificationApi = {
+  list: () => fetchApi<any[]>("/api/memberships/notifications/list"),
+  read: (id: string) => fetchApi<{ success: boolean }>(`/api/memberships/notifications/${id}/read`, { method: "POST" }),
+  respond: (id: string, data: { action: "accept" | "decline"; userName?: string; pin?: string }) =>
+    fetchApi<{ success: boolean }>(`/api/memberships/notifications/${id}/respond`, {
+      method: "POST",
+      body: data,
+    }),
+};
+
 // 画像アップロード
 export const uploadImage = async (
   file: File
@@ -586,6 +597,8 @@ export interface CreateInviteInput {
   role: Role;
   expiresInHours?: number;
   maxUses?: number;
+  createdBy: string;
+  targetEmail?: string;
 }
 
 export interface AcceptInviteInput {

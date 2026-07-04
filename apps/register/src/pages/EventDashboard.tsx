@@ -13,7 +13,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Badge } from "@/components/ui/badge";
 import {
   Plus,
   Calendar,
@@ -170,7 +169,7 @@ export default function EventDashboard() {
         ...authInfo,
         circleId: cir.id,
         circleName: cir.name,
-        role: "circle_manager", // サークル管理コンテキストに切り替え
+        role: "circle_manager",
       });
       toast.success(`「${cir.name}」のダッシュボードに切り替えました`);
       navigate("/circle/dashboard");
@@ -181,7 +180,7 @@ export default function EventDashboard() {
     return (
       <EventAdminGuard>
         <div className="container mx-auto p-6 text-center">
-          <p className="text-muted-foreground font-mono">アクティブなイベントが選択されていません。システム管理で選択してください。</p>
+          <p className="text-muted-foreground font-mono">アクティブなイベントが選択されていません。スペース切り替えから選択してください。</p>
         </div>
       </EventAdminGuard>
     );
@@ -189,25 +188,29 @@ export default function EventDashboard() {
 
   return (
     <EventAdminGuard>
-      <div className="container mx-auto p-6 space-y-8 font-mono">
-        <div className="flex items-center justify-between border-b-[3px] border-border pb-4">
+      <div className="container mx-auto p-6 space-y-8 font-mono bg-background text-foreground max-w-7xl">
+        {/* ヘッダー */}
+        <div className="flex items-center justify-between border-b-[1px] border-neutral-200 pb-4">
           <div>
-            <h1 className="text-2xl sm:text-4xl font-headline uppercase font-black tracking-tight flex items-center gap-3">
-              <Calendar className="h-8 w-8 sm:h-10 sm:w-10" />
-              {eventLoading ? "イベント読み込み中..." : eventData?.eventName || "イベント管理"}
+            <h1 className="text-2xl sm:text-3xl font-headline font-black uppercase tracking-tight flex items-center gap-2">
+              <Calendar className="h-6 w-6 text-foreground" />
+              {eventLoading ? "LOADING..." : `[EVENT: ${eventData?.eventName}]`}
             </h1>
-            <p className="text-sm text-muted-foreground mt-1">イベント内サークルの作成・管理・各種設定</p>
+            <p className="text-xs text-muted-foreground mt-1">イベント内サークルの作成・管理・各種設定</p>
           </div>
         </div>
 
         {/* サークル管理セクション */}
         <div className="space-y-6">
           <div className="flex justify-between items-center">
-            <h2 className="text-xl sm:text-2xl font-bold flex items-center gap-2">
-              <Building2 className="h-6 w-6" />
+            <h2 className="text-lg font-bold flex items-center gap-2 uppercase tracking-wider">
+              <Building2 className="h-4 w-4" />
               サークル一覧
             </h2>
-            <Button onClick={() => { setShowCircleForm(!showCircleForm); setShowEditForm(false); }}>
+            <Button
+              onClick={() => { setShowCircleForm(!showCircleForm); setShowEditForm(false); }}
+              className="rounded-none border-[1px] border-primary bg-primary text-primary-foreground hover:bg-background hover:text-foreground h-9 text-xs uppercase font-bold transition-all shadow-none"
+            >
               <Plus className="mr-2 h-4 w-4" />
               新規サークル追加
             </Button>
@@ -215,74 +218,78 @@ export default function EventDashboard() {
 
           {/* 新規サークル作成フォーム */}
           {showCircleForm && (
-            <Card className="border-thick border-border rounded-none bg-muted/20">
-              <CardHeader className="border-b border-border/20">
-                <CardTitle className="text-base uppercase">[新規サークル登録]</CardTitle>
-                <CardDescription>イベントにサークルを追加し、代表者アカウントを登録します。</CardDescription>
+            <Card className="border-[1px] border-neutral-200 rounded-none bg-background shadow-none p-2">
+              <CardHeader className="border-b-[1px] border-neutral-100 pb-3">
+                <CardTitle className="text-sm uppercase font-bold tracking-wider">[新規サークル登録]</CardTitle>
+                <CardDescription className="text-xs text-muted-foreground">イベントにサークルを追加し、代表者アカウントを登録します。</CardDescription>
               </CardHeader>
-              <CardContent className="p-4 sm:p-6 space-y-4">
+              <CardContent className="pt-4 space-y-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <Label htmlFor="circleName">サークル名 *</Label>
+                    <Label htmlFor="circleName" className="text-xs font-bold uppercase">サークル名 *</Label>
                     <Input
                       id="circleName"
                       placeholder="例: たこ焼き 茨香庵"
-                      className="border-thick border-border rounded-none focus-visible:ring-0"
+                      className="border-[1px] border-neutral-300 rounded-none focus-visible:ring-0 h-9 text-sm focus:border-neutral-900 bg-background"
                       value={circleForm.name}
                       onChange={(e) => setCircleForm({ ...circleForm, name: e.target.value })}
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="circlePin">代表者一時PINコード (4〜6桁)</Label>
+                    <Label htmlFor="circlePin" className="text-xs font-bold uppercase">代表者一時PINコード (4〜6桁)</Label>
                     <Input
                       id="circlePin"
                       type="password"
                       placeholder="例: 1234"
-                      className="border-thick border-border rounded-none focus-visible:ring-0"
+                      className="border-[1px] border-neutral-300 rounded-none focus-visible:ring-0 h-9 text-sm focus:border-neutral-900 bg-background"
                       value={circleForm.managerPin}
                       onChange={(e) => setCircleForm({ ...circleForm, managerPin: e.target.value })}
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="managerEmail">代表者メールアドレス *</Label>
+                    <Label htmlFor="managerEmail" className="text-xs font-bold uppercase">代表者メールアドレス *</Label>
                     <Input
                       id="managerEmail"
                       type="email"
                       placeholder="leader@example.com"
-                      className="border-thick border-border rounded-none focus-visible:ring-0"
+                      className="border-[1px] border-neutral-300 rounded-none focus-visible:ring-0 h-9 text-sm focus:border-neutral-900 bg-background"
                       value={circleForm.managerEmail}
                       onChange={(e) => setCircleForm({ ...circleForm, managerEmail: e.target.value })}
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="managerName">代表者名</Label>
+                    <Label htmlFor="managerName" className="text-xs font-bold uppercase">代表者名</Label>
                     <Input
                       id="managerName"
                       placeholder="代表者の名前 (省略時はサークル代表)"
-                      className="border-thick border-border rounded-none focus-visible:ring-0"
+                      className="border-[1px] border-neutral-300 rounded-none focus-visible:ring-0 h-9 text-sm focus:border-neutral-900 bg-background"
                       value={circleForm.managerName}
                       onChange={(e) => setCircleForm({ ...circleForm, managerName: e.target.value })}
                     />
                   </div>
                   <div className="md:col-span-2 space-y-2">
-                    <Label htmlFor="circleDescription">説明</Label>
+                    <Label htmlFor="circleDescription" className="text-xs font-bold uppercase">説明</Label>
                     <Input
                       id="circleDescription"
                       placeholder="出店ジャンルや販売メニュー等の説明"
-                      className="border-thick border-border rounded-none focus-visible:ring-0"
+                      className="border-[1px] border-neutral-300 rounded-none focus-visible:ring-0 h-9 text-sm focus:border-neutral-900 bg-background"
                       value={circleForm.description}
                       onChange={(e) => setCircleForm({ ...circleForm, description: e.target.value })}
                     />
                   </div>
                 </div>
                 <div className="flex justify-end gap-2 pt-2">
-                  <Button variant="outline" className="border-thick border-border rounded-none" onClick={() => setShowCircleForm(false)}>
+                  <Button
+                    variant="outline"
+                    className="border-[1px] border-neutral-300 rounded-none h-9 text-xs font-bold hover:bg-neutral-100"
+                    onClick={() => setShowCircleForm(false)}
+                  >
                     キャンセル
                   </Button>
                   <Button
                     onClick={handleCreateCircle}
                     disabled={!circleForm.name || !circleForm.managerEmail || createCircleMutation.isPending}
-                    className="border-thick border-border rounded-none bg-primary text-primary-foreground hover:bg-background hover:text-foreground transition-all"
+                    className="border-[1px] border-primary bg-primary text-primary-foreground hover:bg-background hover:text-foreground h-9 text-xs font-bold rounded-none transition-all shadow-none"
                   >
                     {createCircleMutation.isPending ? "追加中..." : "サークルを追加"}
                   </Button>
@@ -293,74 +300,78 @@ export default function EventDashboard() {
 
           {/* サークル編集フォーム */}
           {showEditForm && editingCircleId && (
-            <Card className="border-thick border-border rounded-none bg-muted/20">
-              <CardHeader className="border-b border-border/20">
-                <CardTitle className="text-base uppercase">[サークル情報の編集]</CardTitle>
-                <CardDescription>サークルの詳細や代表者メールを更新します。一時PINを変更しない場合は空欄にしてください。</CardDescription>
+            <Card className="border-[1px] border-neutral-200 rounded-none bg-background shadow-none p-2">
+              <CardHeader className="border-b-[1px] border-neutral-100 pb-3">
+                <CardTitle className="text-sm uppercase font-bold tracking-wider">[サークル情報の編集]</CardTitle>
+                <CardDescription className="text-xs text-muted-foreground">サークルの詳細や代表者メールを更新します。</CardDescription>
               </CardHeader>
-              <CardContent className="p-4 sm:p-6 space-y-4">
+              <CardContent className="pt-4 space-y-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <Label htmlFor="editCircleName">サークル名 *</Label>
+                    <Label htmlFor="editCircleName" className="text-xs font-bold uppercase">サークル名 *</Label>
                     <Input
                       id="editCircleName"
                       placeholder="例: たこ焼き 茨香庵"
-                      className="border-thick border-border rounded-none focus-visible:ring-0"
+                      className="border-[1px] border-neutral-300 rounded-none focus-visible:ring-0 h-9 text-sm focus:border-neutral-900 bg-background"
                       value={editForm.name}
                       onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="editCirclePin">代表者一時PINコード (変更時のみ入力)</Label>
+                    <Label htmlFor="editCirclePin" className="text-xs font-bold uppercase">代表者一時PINコード (変更時のみ入力)</Label>
                     <Input
                       id="editCirclePin"
                       type="password"
                       placeholder="新しい一時PIN"
-                      className="border-thick border-border rounded-none focus-visible:ring-0"
+                      className="border-[1px] border-neutral-300 rounded-none focus-visible:ring-0 h-9 text-sm focus:border-neutral-900 bg-background"
                       value={editForm.managerPin}
                       onChange={(e) => setEditForm({ ...editForm, managerPin: e.target.value })}
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="editManagerEmail">代表者メールアドレス *</Label>
+                    <Label htmlFor="editManagerEmail" className="text-xs font-bold uppercase">代表者メールアドレス *</Label>
                     <Input
                       id="editManagerEmail"
                       type="email"
                       placeholder="leader@example.com"
-                      className="border-thick border-border rounded-none focus-visible:ring-0"
+                      className="border-[1px] border-neutral-300 rounded-none focus-visible:ring-0 h-9 text-sm focus:border-neutral-900 bg-background"
                       value={editForm.managerEmail}
                       onChange={(e) => setEditForm({ ...editForm, managerEmail: e.target.value })}
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="editManagerName">代表者名</Label>
+                    <Label htmlFor="editManagerName" className="text-xs font-bold uppercase">代表者名</Label>
                     <Input
                       id="editManagerName"
                       placeholder="代表者の名前"
-                      className="border-thick border-border rounded-none focus-visible:ring-0"
+                      className="border-[1px] border-neutral-300 rounded-none focus-visible:ring-0 h-9 text-sm focus:border-neutral-900 bg-background"
                       value={editForm.managerName}
                       onChange={(e) => setEditForm({ ...editForm, managerName: e.target.value })}
                     />
                   </div>
                   <div className="md:col-span-2 space-y-2">
-                    <Label htmlFor="editCircleDescription">説明</Label>
+                    <Label htmlFor="editCircleDescription" className="text-xs font-bold uppercase">説明</Label>
                     <Input
                       id="editCircleDescription"
                       placeholder="サークルの説明"
-                      className="border-thick border-border rounded-none focus-visible:ring-0"
+                      className="border-[1px] border-neutral-300 rounded-none focus-visible:ring-0 h-9 text-sm focus:border-neutral-900 bg-background"
                       value={editForm.description}
                       onChange={(e) => setEditForm({ ...editForm, description: e.target.value })}
                     />
                   </div>
                 </div>
                 <div className="flex justify-end gap-2 pt-2">
-                  <Button variant="outline" className="border-thick border-border rounded-none" onClick={() => { setShowEditForm(false); setEditingCircleId(null); }}>
+                  <Button
+                    variant="outline"
+                    className="border-[1px] border-neutral-300 rounded-none h-9 text-xs font-bold hover:bg-neutral-100"
+                    onClick={() => { setShowEditForm(false); setEditingCircleId(null); }}
+                  >
                     キャンセル
                   </Button>
                   <Button
                     onClick={handleEditCircle}
                     disabled={!editForm.name || !editForm.managerEmail || updateCircleMutation.isPending}
-                    className="border-thick border-border rounded-none bg-primary text-primary-foreground hover:bg-background hover:text-foreground transition-all"
+                    className="border-[1px] border-primary bg-primary text-primary-foreground hover:bg-background hover:text-foreground h-9 text-xs font-bold rounded-none transition-all shadow-none"
                   >
                     {updateCircleMutation.isPending ? "保存中..." : "変更を保存"}
                   </Button>
@@ -371,19 +382,23 @@ export default function EventDashboard() {
 
           {/* サークル一覧表示 */}
           {circlesLoading ? (
-            <div className="text-center py-8 text-muted-foreground">読み込み中...</div>
+            <div className="text-center py-12 text-muted-foreground text-xs uppercase tracking-wider">Loading...</div>
           ) : circles && circles.length > 0 ? (
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+            <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
               {circles.map((cir) => (
-                <Card key={cir.id} className="border-thick border-border rounded-none bg-background flex flex-col justify-between">
-                  <CardHeader className="border-b border-border/20 p-4">
-                    <CardTitle className="flex items-center justify-between text-base">
-                      <span className="truncate">{cir.name}</span>
+                <Card
+                  key={cir.id}
+                  className="border-[1px] border-neutral-200 rounded-none bg-background flex flex-col justify-between shadow-none hover:border-neutral-800 transition-all p-2"
+                >
+                  <CardHeader className="border-b-[1px] border-neutral-100 p-4">
+                    <CardTitle className="flex items-center justify-between text-sm font-bold">
+                      <span className="truncate flex items-center gap-1.5">
+                        <Users className="h-4 w-4 text-muted-foreground" />
+                        {cir.name}
+                      </span>
                       <div className="flex gap-1 shrink-0">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8 text-muted-foreground hover:text-primary"
+                        <button
+                          className="p-1 text-muted-foreground hover:text-primary transition-all rounded-none cursor-pointer"
                           onClick={() => {
                             setEditingCircleId(cir.id);
                             setEditForm({
@@ -398,11 +413,9 @@ export default function EventDashboard() {
                           }}
                         >
                           <Edit className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8 text-destructive hover:text-destructive"
+                        </button>
+                        <button
+                          className="p-1 text-destructive hover:text-neutral-800 transition-all rounded-none cursor-pointer"
                           onClick={() => {
                             if (confirm(`サークル「${cir.name}」を削除してよろしいですか？`)) {
                               deleteCircleMutation.mutate({ id: cir.id });
@@ -410,22 +423,23 @@ export default function EventDashboard() {
                           }}
                         >
                           <Trash2 className="h-4 w-4" />
-                        </Button>
+                        </button>
                       </div>
                     </CardTitle>
                     {cir.description && (
-                      <CardDescription className="text-xs truncate">{cir.description}</CardDescription>
+                      <CardDescription className="text-xs text-muted-foreground truncate">{cir.description}</CardDescription>
                     )}
                   </CardHeader>
-                  <CardContent className="p-4 space-y-4">
-                    <div className="text-xs text-muted-foreground space-y-1">
+                  <CardContent className="p-4 pt-3 space-y-4">
+                    <div className="text-[11px] text-muted-foreground space-y-1">
                       <p>代表者: {cir.managerName || "未設定"}</p>
                       <p className="truncate">メール: {cir.managerEmail}</p>
+                      <p className="text-[9px] font-mono text-muted-foreground/60 pt-1">ID: {cir.id}</p>
                     </div>
                     <Button
                       variant="outline"
                       size="sm"
-                      className="w-full border-thick border-border rounded-none uppercase font-black tracking-wider text-xs"
+                      className="w-full border-[1px] border-neutral-300 hover:bg-neutral-100 rounded-none uppercase font-bold tracking-wider text-xs h-9 shadow-none"
                       onClick={() => handleManageCircle(cir)}
                     >
                       このサークルを管理
@@ -435,9 +449,10 @@ export default function EventDashboard() {
               ))}
             </div>
           ) : (
-            <Card className="border-thick border-dashed border-border rounded-none p-8 text-center text-muted-foreground bg-muted/10">
-              <Users className="h-12 w-12 mx-auto mb-4 opacity-50" />
-              <p>このイベントにはまだサークルがありません。</p>
+            <Card className="border-[1px] border-dashed border-neutral-300 rounded-none p-12 text-center text-muted-foreground bg-background shadow-none">
+              <Users className="h-8 w-8 mx-auto mb-4 opacity-40 text-foreground" />
+              <p className="text-xs uppercase tracking-widest font-bold font-headline">No circles active.</p>
+              <p className="text-[11px] text-muted-foreground mt-1">新規サークルを追加してください。</p>
             </Card>
           )}
         </div>

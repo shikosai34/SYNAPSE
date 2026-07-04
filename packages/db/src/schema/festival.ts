@@ -482,6 +482,7 @@ export const inviteToken = sqliteTable(
     // 有効期限
     expiresAt: integer("expires_at", { mode: "timestamp_ms" }).notNull(),
     createdBy: text("created_by").notNull(), // 作成者のメールアドレス
+    targetEmail: text("target_email"), // 招待相手のメールアドレス (特定の人に送る場合)
     createdAt: integer("created_at", { mode: "timestamp_ms" })
       .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
       .notNull(),
@@ -876,5 +877,29 @@ export const lotteryWinner = sqliteTable(
   (table) => [
     index("lottery_winner_lottery_idx").on(table.lotteryId),
     index("lottery_winner_user_idx").on(table.eventUserId),
+  ]
+);
+
+// 通知テーブル (2026-07-04 SaaS通知対応)
+export const notification = sqliteTable(
+  "notification",
+  {
+    id: text("id").primaryKey(),
+    userEmail: text("user_email").notNull(), // 受信者のメールアドレス
+    title: text("title").notNull(),
+    message: text("message").notNull(),
+    type: text("type").notNull(), // "invite" | "info" など
+    status: text("status").default("unread").notNull(), // "unread" | "read"
+    circleName: text("circle_name"),
+    eventName: text("event_name"),
+    token: text("token"), // 招待の場合のトークン値
+    role: text("role"), // 招待の場合の付与ロール
+    createdAt: integer("created_at", { mode: "timestamp_ms" })
+      .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+      .notNull(),
+  },
+  (table) => [
+    index("notification_user_idx").on(table.userEmail),
+    index("notification_status_idx").on(table.status),
   ]
 );

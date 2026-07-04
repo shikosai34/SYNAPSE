@@ -131,7 +131,6 @@ function RegisterPageContent() {
       if (existing) return prev.map((i) => i.menuId === menuId ? { ...i, quantity: i.quantity + 1 } : i);
       return [...prev, { menuId, menuName, menuPrice, quantity: 1, toppings: [] }];
     });
-    toast.success(`${menuName}をカートに追加`);
   };
 
   const removeFromCart = (menuId: string) => setCart((prev) => prev.filter((i) => i.menuId !== menuId));

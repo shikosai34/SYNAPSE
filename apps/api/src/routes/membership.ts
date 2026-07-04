@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
-import { db, membership, inviteToken, circle, event, user, getEnv } from "@fesflow/db";
+import { db, membership, inviteToken, circle, event, user, getEnv, notification } from "@fesflow/db";
 import { eq, and, inArray, gt } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import bcrypt from "bcryptjs";
@@ -478,6 +478,7 @@ membershipRoutes.post(
       expiresInHours: z.number().min(1).max(168).default(24), // 1時間〜7日
       maxUses: z.number().min(1).max(100).optional(),
       createdBy: z.string(), // 作成者のメールアドレス
+      targetEmail: z.string().optional(), // 招待相手のメールアドレス
     })
   ),
   async (c) => {
@@ -491,6 +492,7 @@ membershipRoutes.post(
     const expiresAt = new Date();
     expiresAt.setHours(expiresAt.getHours() + input.expiresInHours);
 
+    // トークン作成
     await db.insert(inviteToken).values({
       id,
       token,
@@ -501,7 +503,40 @@ membershipRoutes.post(
       maxUses: input.maxUses,
       usedCount: 0,
       createdBy: input.createdBy,
+      targetEmail: input.targetEmail ? input.targetEmail.toLowerCase() : null,
     });
+
+    // 宛先メールアドレス（targetEmail）があれば通知を作成
+    if (input.targetEmail) {
+      let circleName: string | null = null;
+      let eventName: string | null = null;
+
+      if (input.circleId) {
+        const circles = await db.select().from(circle).where(eq(circle.id, input.circleId));
+        if (circles.length > 0) circleName = circles[0]!.name;
+      }
+      if (input.eventId) {
+        const events = await db.select().from(event).where(eq(event.id, input.eventId));
+        if (events.length > 0) eventName = events[0]!.eventName;
+      }
+
+      const spaceName = circleName || eventName || "新しいスペース";
+      const displayRole = input.role === "circle_manager" ? "管理者" : input.role === "circle_staff" ? "スタッフ" : input.role === "event_manager" ? "イベントマネージャー" : "メンバー";
+
+      await db.insert(notification).values({
+        id: nanoid(),
+        userEmail: input.targetEmail.toLowerCase(),
+        title: `${spaceName} からの招待`,
+        message: `${spaceName} から ${displayRole} として招待されました。`,
+        type: "invite",
+        status: "unread",
+        circleName,
+        eventName,
+        token,
+        role: input.role,
+        createdAt: new Date(),
+      });
+    }
 
     return c.json({ token, expiresAt }, 201);
   }
@@ -765,6 +800,151 @@ membershipRoutes.patch(
       .update(membership)
       .set({ pin: pinHash })
       .where(eq(membership.id, id));
+
+    return c.json({ success: true });
+  }
+);
+
+// 通知一覧取得 (2026-07-04 SaaS通知対応)
+membershipRoutes.get("/notifications/list", async (c) => {
+  const session = await auth.api.getSession({ headers: c.req.raw.headers });
+  if (!session || !session.user) {
+    return c.json({ error: "認証されていません" }, 401);
+  }
+  const email = session.user.email.toLowerCase();
+
+  const list = await db
+    .select()
+    .from(notification)
+    .where(and(eq(notification.userEmail, email), eq(notification.status, "unread")));
+
+  // JS側で作成日時順に降順ソート
+  list.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+
+  return c.json(list);
+});
+
+// 通知を既読にする
+membershipRoutes.post("/notifications/:id/read", async (c) => {
+  const id = c.req.param("id");
+  const session = await auth.api.getSession({ headers: c.req.raw.headers });
+  if (!session || !session.user) {
+    return c.json({ error: "認証されていません" }, 401);
+  }
+
+  await db
+    .update(notification)
+    .set({ status: "read" })
+    .where(and(eq(notification.id, id), eq(notification.userEmail, session.user.email.toLowerCase())));
+
+  return c.json({ success: true });
+});
+
+// 招待に対する回答 (承認 / 拒否)
+membershipRoutes.post(
+  "/notifications/:id/respond",
+  zValidator(
+    "json",
+    z.object({
+      action: z.enum(["accept", "decline"]),
+      userName: z.string().optional(),
+      pin: z.string().optional(),
+    })
+  ),
+  async (c) => {
+    const id = c.req.param("id");
+    const input = c.req.valid("json");
+    const session = await auth.api.getSession({ headers: c.req.raw.headers });
+    if (!session || !session.user) {
+      return c.json({ error: "認証されていません" }, 401);
+    }
+    const email = session.user.email.toLowerCase();
+
+    // 通知を検索
+    const notifications = await db
+      .select()
+      .from(notification)
+      .where(and(eq(notification.id, id), eq(notification.userEmail, email)));
+
+    if (notifications.length === 0) {
+      return c.json({ error: "通知が見つかりません" }, 404);
+    }
+
+    const notif = notifications[0]!;
+
+    if (input.action === "accept") {
+      if (!notif.token) {
+        return c.json({ error: "無効な招待です" }, 400);
+      }
+
+      // トークンを検索
+      const tokens = await db
+        .select()
+        .from(inviteToken)
+        .where(
+          and(
+            eq(inviteToken.token, notif.token),
+            gt(inviteToken.expiresAt, new Date())
+          )
+        );
+
+      if (tokens.length === 0) {
+        return c.json({ error: "無効または期限切れの招待トークンです" }, 400);
+      }
+
+      const foundToken = tokens[0]!;
+
+      // 使用上限チェック
+      if (foundToken.maxUses !== null && foundToken.usedCount >= foundToken.maxUses) {
+        return c.json({ error: "招待の上限に達しています" }, 400);
+      }
+
+      // 既存のメンバーシップがあるかチェック
+      const existing = await db
+        .select()
+        .from(membership)
+        .where(
+          and(
+            eq(membership.userEmail, email),
+            foundToken.circleId ? eq(membership.circleId, foundToken.circleId) : undefined,
+            foundToken.eventId ? eq(membership.eventId, foundToken.eventId) : undefined
+          )
+        );
+
+      if (existing.length > 0) {
+        return c.json({ error: "既にメンバーとして登録されています" }, 400);
+      }
+
+      // PINハッシュ化
+      let pinHash: string | null = null;
+      if (input.pin) {
+        pinHash = await bcrypt.hash(input.pin, 4);
+      }
+
+      // メンバーシップ作成
+      await db.insert(membership).values({
+        id: nanoid(),
+        userEmail: email,
+        userName: input.userName || session.user.name || "メンバー",
+        circleId: foundToken.circleId,
+        eventId: foundToken.eventId,
+        role: foundToken.role,
+        pin: pinHash,
+        isActive: true,
+      });
+
+      // トークン使用回数増加
+      await db
+        .update(inviteToken)
+        .set({ usedCount: foundToken.usedCount + 1 })
+        .where(eq(inviteToken.id, foundToken.id));
+    }
+
+    // 通知を既読（回答済）にする
+    await db
+      .update(notification)
+      .set({ status: "read" })
+      .where(eq(notification.id, id));
 
     return c.json({ success: true });
   }
