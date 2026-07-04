@@ -2,17 +2,18 @@ import { useState, useMemo } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { Button } from "./ui/button";
 import { toast } from "sonner";
-import { Menu, X, ChevronDown, User, Bell } from "lucide-react";
+import { Menu, X, ChevronDown, User, Bell, Shield, Calendar, Building2, LogOut as LeaveIcon } from "lucide-react";
 import AccountModal from "./account-modal";
 import { PRODUCT_NAME } from "@fesflow/config";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { eventApi, notificationApi } from "@/lib/api";
+import { eventApi, notificationApi, accountApi } from "@/lib/api";
 import {
   useAuth,
   clearAuthInfo,
   hasPermission,
   useMySpaces,
   saveAuthInfo,
+  getAuthInfo,
 } from "@/hooks/useCircleAuth";
 
 // register はスタッフ/管理で別サブドメイン配信 (staff. / admin.)。権限スイッチで
@@ -30,6 +31,9 @@ function toOrigin(url: string): string {
     return window.location.origin;
   }
 }
+
+// 実メンバーシップのみ退出可能
+const isRealMembership = (id: string) => !id.startsWith("super_");
 
 export default function Header() {
   const navigate = useNavigate();
@@ -51,6 +55,61 @@ export default function Header() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [profileModalOpen, setProfileModalOpen] = useState(false);
   const [notifPopoverOpen, setNotifPopoverOpen] = useState(false);
+  const [spacePopoverOpen, setSpacePopoverOpen] = useState(false);
+
+  // ログインユーザーのアカウント情報を取得 (アバター画像用)
+  const { data: me } = useQuery({
+    queryKey: ["accountMe"],
+    queryFn: () => accountApi.me(),
+    enabled: isAuthenticated && !!userEmail,
+  });
+
+  // 退出ミューテーション
+  const leaveMutation = useMutation({
+    mutationFn: (membershipId: string) => accountApi.leaveSpace(membershipId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["mySpaces"] });
+      toast.success("このスペースから退出しました");
+    },
+    onError: (e: any) => toast.error(e.message || "退出に失敗しました"),
+  });
+
+  // ロール名マッピング
+  const ROLE_NAMES = {
+    super_admin: "システム最高管理者",
+    event_manager: "イベント管理者",
+    circle_manager: "店舗管理者",
+    circle_staff: "一般スタッフ",
+  } as const;
+
+  // 現在のアクティブなスペース名
+  const currentSpaceName = useMemo(() => {
+    if (pathname.startsWith("/admin")) {
+      return "システム管理";
+    }
+    if (pathname.startsWith("/event")) {
+      const info = getAuthInfo();
+      const eventId = info?.eventId;
+      const space = (spaces ?? []).find((m: any) => m.eventId === eventId && !m.circleId);
+      return space?.event?.eventName || localStorage.getItem("eventName") || "イベント管理";
+    }
+    if (pathname.startsWith("/circle")) {
+      return circleName || "店舗";
+    }
+    return "スペース選択";
+  }, [pathname, spaces, circleName]);
+
+  // 現在のアクティブな権限
+  const currentSpaceRole = useMemo(() => {
+    if (!role) return "";
+    switch (role) {
+      case "super_admin": return "SUPER ADMIN";
+      case "event_manager": return "EVENT MGR";
+      case "circle_manager": return "CIRCLE MGR";
+      case "circle_staff": return "STAFF";
+      default: return "USER";
+    }
+  }, [role]);
 
   // 通知一覧取得 (2026-07-04 SaaS通知機能)
   const { data: notifications } = useQuery({
@@ -325,6 +384,7 @@ export default function Header() {
                   onClick={() => {
                     setNotifPopoverOpen(!notifPopoverOpen);
                     setProfileModalOpen(false);
+                    setSpacePopoverOpen(false);
                   }}
                   className="p-2 border-[2.5px] border-border bg-background hover:bg-muted select-none cursor-pointer flex items-center justify-center relative h-9 w-9 rounded-none"
                 >
@@ -391,22 +451,104 @@ export default function Header() {
                 )}
               </div>
 
-              {/* プロフィールボタン */}
+              {/* スペース切り替えボタン */}
+              <div className="relative">
+                <button
+                  onClick={() => {
+                    setSpacePopoverOpen(!spacePopoverOpen);
+                    setNotifPopoverOpen(false);
+                    setProfileModalOpen(false);
+                  }}
+                  className="flex items-center gap-2 bg-muted border-[2.5px] border-border px-3 py-1.5 font-mono text-[11px] font-bold hover:bg-muted/80 select-none cursor-pointer h-9 rounded-none"
+                >
+                  {pathname.startsWith("/admin") && <Shield className="h-3.5 w-3.5" />}
+                  {pathname.startsWith("/event") && <Calendar className="h-3.5 w-3.5" />}
+                  {pathname.startsWith("/circle") && <Building2 className="h-3.5 w-3.5" />}
+                  <span className="hidden sm:inline truncate max-w-[120px]">
+                    {currentSpaceName}
+                  </span>
+                  <span className="bg-primary text-primary-foreground px-1 py-0.5 text-[8px] font-black scale-90 shrink-0">
+                    {currentSpaceRole}
+                  </span>
+                  <ChevronDown className="h-3.5 w-3.5 shrink-0" />
+                </button>
+
+                {/* スペース切り替えポップオーバー */}
+                {spacePopoverOpen && (
+                  <div className="absolute right-0 top-11 z-50 w-72 sm:w-80 border-[1px] border-border bg-background p-4 shadow-none rounded-none text-left">
+                    <div className="flex items-center justify-between border-b border-border/20 pb-2 mb-3">
+                      <span className="text-[11px] font-black uppercase tracking-wider">[スペース切り替え]</span>
+                      <button
+                        onClick={() => setSpacePopoverOpen(false)}
+                        className="text-[10px] underline hover:text-primary cursor-pointer"
+                      >
+                        閉じる
+                      </button>
+                    </div>
+
+                    <div className="max-h-60 overflow-y-auto space-y-1">
+                      {availableSpaces.length > 0 ? (
+                        availableSpaces.map((space) => (
+                          <div key={space.id} className="flex items-center gap-1 border-b border-border/10 last:border-b-0">
+                            <button
+                              onClick={() => {
+                                handleSwitchSpace(space);
+                                setSpacePopoverOpen(false);
+                              }}
+                              className="flex-1 text-left p-2 hover:bg-primary hover:text-primary-foreground transition-all cursor-pointer rounded-none"
+                            >
+                              <div className="flex items-center gap-1.5 text-[9px] text-muted-foreground font-black uppercase tracking-wider">
+                                {space.type === "system" && <Shield className="h-3 w-3" />}
+                                {space.type === "event" && <Calendar className="h-3 w-3" />}
+                                {space.type === "circle" && <Building2 className="h-3 w-3" />}
+                                {space.type.toUpperCase()} | {ROLE_NAMES[space.role as keyof typeof ROLE_NAMES] ?? space.role}
+                              </div>
+                              <div className="text-xs font-bold truncate mt-0.5">{space.name}</div>
+                            </button>
+                            {isRealMembership(space.id) && (
+                              <button
+                                title="このスペースから退出"
+                                onClick={() => {
+                                  if (confirm(`[${space.name}] から退出しますか？この権限は削除されます。`)) {
+                                    leaveMutation.mutate(space.id);
+                                  }
+                                }}
+                                disabled={leaveMutation.isPending}
+                                className="p-2 text-muted-foreground hover:text-destructive shrink-0 cursor-pointer"
+                              >
+                                <LeaveIcon className="h-3.5 w-3.5" />
+                              </button>
+                            )}
+                          </div>
+                        ))
+                      ) : (
+                        <div className="text-center py-6 text-muted-foreground text-xs">
+                          利用可能なスペースがありません
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* アカウント管理ボタン */}
               <button
                 onClick={() => {
-                  setProfileModalOpen(!profileModalOpen);
+                  setProfileModalOpen(true);
                   setNotifPopoverOpen(false);
+                  setSpacePopoverOpen(false);
                 }}
                 className="flex items-center gap-2 bg-muted border-[2.5px] border-border px-3 py-1.5 font-mono text-[11px] font-bold hover:bg-muted/80 select-none cursor-pointer h-9 rounded-none"
               >
-                <User className="h-3.5 w-3.5" />
+                {me?.image ? (
+                  <img src={me.image} alt="Avatar" className="w-5 h-5 rounded-none border border-border object-cover shrink-0" />
+                ) : (
+                  <User className="h-3.5 w-3.5 shrink-0" />
+                )}
                 <span className="hidden sm:inline truncate max-w-[80px]">
-                  {circleName || userName || "スタッフ"}
+                  {userName || "アカウント"}
                 </span>
-                <span className="bg-primary text-primary-foreground px-1 py-0.5 text-[8px] font-black scale-90">
-                  {getRoleTag()}
-                </span>
-                <ChevronDown className="h-3.5 w-3.5" />
+                <ChevronDown className="h-3.5 w-3.5 shrink-0" />
               </button>
             </div>
           ) : (
@@ -455,12 +597,10 @@ export default function Header() {
         </div>
       )}
 
-      {/* ===== アカウント管理モーダル (プロフィール編集/メール変更/スペース切替・退出/削除) ===== */}
+      {/* ===== アカウント管理モーダル (プロフィール編集/メール変更/削除) ===== */}
       <AccountModal
         open={profileModalOpen}
         onClose={() => setProfileModalOpen(false)}
-        availableSpaces={availableSpaces}
-        onSwitch={handleSwitchSpace}
         onLogout={handleLogout}
       />
     </header>

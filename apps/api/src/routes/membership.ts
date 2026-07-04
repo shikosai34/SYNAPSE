@@ -389,7 +389,7 @@ membershipRoutes.post(
 
     await db.insert(membership).values({
       id,
-      userEmail: input.userEmail,
+      userEmail: input.userEmail.toLowerCase(),
       userName: input.userName,
       circleId: input.circleId,
       eventId: input.eventId,
@@ -612,7 +612,7 @@ membershipRoutes.post(
     const membershipId = nanoid();
     await db.insert(membership).values({
       id: membershipId,
-      userEmail: input.userEmail,
+      userEmail: input.userEmail.toLowerCase(),
       userName: input.userName,
       circleId: foundToken.circleId,
       eventId: foundToken.eventId,

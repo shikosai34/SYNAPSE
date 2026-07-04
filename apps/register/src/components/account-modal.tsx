@@ -5,14 +5,10 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   X,
   User,
-  Shield,
-  Calendar,
-  Building2,
   LogOut,
   Upload,
   Loader2,
   Trash2,
-  LogOut as LeaveIcon,
 } from "lucide-react";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
@@ -41,14 +37,10 @@ const isRealMembership = (id: string) => !id.startsWith("super_");
 export default function AccountModal({
   open,
   onClose,
-  availableSpaces,
-  onSwitch,
   onLogout,
 }: {
   open: boolean;
   onClose: () => void;
-  availableSpaces: Space[];
-  onSwitch: (space: Space) => void;
   onLogout: () => void;
 }) {
   const navigate = useNavigate();
@@ -106,15 +98,6 @@ export default function AccountModal({
       toast.success("メールアドレスを変更しました");
     },
     onError: (e: any) => toast.error(e.message || "変更に失敗しました"),
-  });
-
-  const leaveMutation = useMutation({
-    mutationFn: (membershipId: string) => accountApi.leaveSpace(membershipId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["mySpaces"] });
-      toast.success("このスペースから退出しました");
-    },
-    onError: (e: any) => toast.error(e.message || "退出に失敗しました"),
   });
 
   const deleteMutation = useMutation({
@@ -262,44 +245,6 @@ export default function AccountModal({
           </Button>
         </section>
 
-        {/* スペース切り替え / 退出 */}
-        {availableSpaces.length > 0 && (
-          <section className="space-y-3 mb-6">
-            <h3 className="text-xs font-black uppercase tracking-wider text-muted-foreground">[スペース]</h3>
-            <div className="max-h-48 overflow-y-auto space-y-1 border-[1px] border-border p-2 bg-background rounded-none">
-              {availableSpaces.map((space) => (
-                <div key={space.id} className="flex items-center gap-1 border-b border-border/10 last:border-b-0">
-                  <button
-                    onClick={() => onSwitch(space)}
-                    className="flex-1 text-left p-2 hover:bg-primary hover:text-primary-foreground transition-all cursor-pointer rounded-none"
-                  >
-                    <div className="flex items-center gap-1.5 text-[9px] text-muted-foreground font-black uppercase tracking-wider">
-                      {space.type === "system" && <Shield className="h-3 w-3" />}
-                      {space.type === "event" && <Calendar className="h-3 w-3" />}
-                      {space.type === "circle" && <Building2 className="h-3 w-3" />}
-                      {space.type.toUpperCase()} | {ROLE_NAMES[space.role as RoleType] ?? space.role}
-                    </div>
-                    <div className="text-xs font-bold truncate mt-0.5">{space.name}</div>
-                  </button>
-                  {isRealMembership(space.id) && (
-                    <button
-                      title="このスペースから退出"
-                      onClick={() => {
-                        if (confirm(`[${space.name}] から退出しますか？この権限は削除されます。`)) {
-                          leaveMutation.mutate(space.id);
-                        }
-                      }}
-                      disabled={leaveMutation.isPending}
-                      className="p-2 text-muted-foreground hover:text-destructive shrink-0 cursor-pointer"
-                    >
-                      <LeaveIcon className="h-3.5 w-3.5" />
-                    </button>
-                  )}
-                </div>
-              ))}
-            </div>
-          </section>
-        )}
 
         {/* アクション */}
         <div className="space-y-2 border-t border-border/20 pt-4">

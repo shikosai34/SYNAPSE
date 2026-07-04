@@ -42,7 +42,7 @@ export async function getAdminSession(c: Context) {
       // super_admin としてメンバーシップを自動作成
       await db.insert(membership).values({
         id: nanoid(),
-        userEmail: email,
+        userEmail: email.toLowerCase(),
         userName: session.user.name || "Super Admin",
         role: "super_admin",
         isActive: true,

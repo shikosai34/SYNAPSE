@@ -162,7 +162,7 @@ export const membershipRouter = router({
 
       await db.insert(membership).values({
         id,
-        userEmail: input.userEmail,
+        userEmail: input.userEmail.toLowerCase(),
         userName: input.userName,
         circleId: input.circleId,
         eventId: input.eventId,
@@ -310,7 +310,7 @@ export const membershipRouter = router({
 
       await db.insert(membership).values({
         id,
-        userEmail: input.userEmail,
+        userEmail: input.userEmail.toLowerCase(),
         userName: input.userName,
         circleId: tokenData.circleId,
         eventId: tokenData.eventId,
