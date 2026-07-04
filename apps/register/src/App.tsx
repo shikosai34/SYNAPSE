@@ -4,6 +4,8 @@ import Header from "@/components/header";
 import Home from "@/pages/Home";
 import Login from "@/pages/Login";
 import CircleLogin from "@/pages/CircleLogin";
+import Register from "@/pages/Register";
+import Backyard from "@/pages/Backyard";
 import Placeholder from "@/pages/Placeholder";
 
 /**
@@ -22,8 +24,10 @@ export default function App() {
 						<Route path="/" element={<Home />} />
 						<Route path="/login" element={<Login />} />
 						<Route path="/circle-login" element={<CircleLogin />} />
-						{/* 以下は Phase3 で順次移植: /register(POS) /menu /my-order
-						    /backyard /dashboard/* /admin など */}
+						<Route path="/register" element={<Register />} />
+						<Route path="/backyard" element={<Backyard />} />
+						{/* 以下は Phase3 で順次移植: /menu /my-order
+						    /dashboard/* /admin など */}
 						<Route path="*" element={<Placeholder />} />
 					</Routes>
 				</main>
