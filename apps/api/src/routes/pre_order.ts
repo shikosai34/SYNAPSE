@@ -11,6 +11,7 @@ import {
   wristband,
   eventUser,
   userStamp,
+  circle,
 } from "@fesflow/db";
 import { eq, and, inArray, desc, sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
@@ -69,6 +70,32 @@ preOrderRoutes.post(
     try {
       const { userId, circleId, items } = c.req.valid("json");
       const preOrderId = nanoid();
+
+      // 2026-07-04: 新規スマホユーザーの外部キーエラー回避のため、サークルの eventId を取得し、
+      // 必要に応じて eventUser を自動シード挿入する。
+      const circles = await db
+        .select()
+        .from(circle)
+        .where(eq(circle.id, circleId));
+      if (circles.length === 0) {
+        return c.json({ error: `サークル ${circleId} が存在しません` }, 404);
+      }
+      const eventId = circles[0]!.eventId;
+
+      const existingUser = await db
+        .select()
+        .from(eventUser)
+        .where(eq(eventUser.id, userId));
+
+      if (existingUser.length === 0) {
+        const newDisplayId = Math.floor(100 + Math.random() * 900);
+        await db.insert(eventUser).values({
+          id: userId,
+          eventId: eventId,
+          displayId: newDisplayId,
+          status: "available",
+        });
+      }
 
       // メニュー取得
       const menuIds = items.map((i) => i.menuId);

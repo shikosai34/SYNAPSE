@@ -7,32 +7,50 @@ import {
   uniqueIndex,
 } from "drizzle-orm/sqlite-core";
 
-// ロール定義
+// ロール定義 (SaaS対応 - 2026-07-04)
+// システム管理、イベント管理、サークル管理の3階層へ統合再構築。
 export const ROLES = {
-  // イベント管理者: イベント全体を管理できる
-  EVENT_ADMIN: "event_admin",
-  // サークルマネージャー: サークルの設定、メニュー、スタッフを管理できる
+  // システム権限 (グローバルSaaS管理者)
+  SUPER_ADMIN: "super_admin",
+  // イベント権限 (イベント/文化祭単位の管理者)
+  EVENT_MANAGER: "event_manager",
+  // サークル権限 (模擬店/ブース単位の管理者・スタッフ)
   CIRCLE_MANAGER: "circle_manager",
-  // レジ担当: 注文の作成と管理ができる
-  CASHIER: "cashier",
-  // 厨房スタッフ: 注文の確認と完了操作ができる
-  KITCHEN_STAFF: "kitchen_staff",
-  // ウェイター: 注文の提供確認ができる
-  WAITER: "waiter",
-  // 在庫管理: 在庫の確認と更新ができる
-  STOCK_MANAGER: "stock_manager",
-  // 閲覧者: メニューと注文状況の閲覧のみ
-  VIEWER: "viewer",
+  CIRCLE_STAFF: "circle_staff",
 } as const;
 
 export type RoleType = (typeof ROLES)[keyof typeof ROLES];
 
-// ロールの権限定義
+// ロールの権限定義 (2026-07-04 簡易化)
 export const ROLE_PERMISSIONS = {
-  [ROLES.EVENT_ADMIN]: [
+  [ROLES.SUPER_ADMIN]: [
+    "system:read",
+    "system:write",
     "event:read",
     "event:write",
     "event:delete",
+    "circle:read",
+    "circle:write",
+    "circle:delete",
+    "menu:read",
+    "menu:write",
+    "menu:delete",
+    "order:read",
+    "order:write",
+    "order:delete",
+    "staff:read",
+    "staff:write",
+    "staff:delete",
+    "stock:read",
+    "stock:write",
+    "sales:read",
+    "member:read",
+    "member:write",
+    "member:delete",
+  ],
+  [ROLES.EVENT_MANAGER]: [
+    "event:read",
+    "event:write",
     "circle:read",
     "circle:write",
     "circle:delete",
@@ -69,28 +87,15 @@ export const ROLE_PERMISSIONS = {
     "member:read",
     "member:write",
   ],
-  [ROLES.CASHIER]: [
+  [ROLES.CIRCLE_STAFF]: [
     "circle:read",
     "menu:read",
     "order:read",
     "order:write",
-    "stock:read",
-  ],
-  [ROLES.KITCHEN_STAFF]: [
-    "circle:read",
-    "menu:read",
-    "order:read",
-    "order:write",
-    "stock:read",
-  ],
-  [ROLES.WAITER]: ["circle:read", "menu:read", "order:read", "order:write"],
-  [ROLES.STOCK_MANAGER]: [
-    "circle:read",
-    "menu:read",
     "stock:read",
     "stock:write",
+    "staff:read",
   ],
-  [ROLES.VIEWER]: ["circle:read", "menu:read", "order:read"],
 } as const;
 
 export type Permission = (typeof ROLE_PERMISSIONS)[RoleType][number];

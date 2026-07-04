@@ -29,7 +29,8 @@
     "db:generate": "turbo -F @fesflow/db db:generate",
     "db:studio": "turbo -F @fesflow/db db:studio",
     "db:migrate:local": "turbo -F api db:migrate:local",
-    "db:migrate:remote": "turbo -F api db:migrate:remote"
+    "db:migrate:remote": "turbo -F api db:migrate:remote",
+    "setup:env": "cp -n .env.example .env || true; ln -sf ../../.env apps/api/.dev.vars"
   },
   "dependencies": {
     "zod": "^4.1.13"

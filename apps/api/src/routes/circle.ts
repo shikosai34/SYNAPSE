@@ -120,35 +120,37 @@ circleRoutes.post(
     }
 
     // 後方互換性のためにランダムなサークルパスワードを生成しハッシュ化
+    // 2026-07-04: Cloudflare Workers の CPU 時間制限（最大50ms）超過による 500 エラーを避けるため、
+    // ストレッチングコスト（ソルトラウンド）を 10 から 4 に引き下げ。
     const randomPassword = nanoid(16);
-    const hashedPassword = await bcrypt.hash(randomPassword, 10);
+    const hashedPassword = await bcrypt.hash(randomPassword, 4);
 
     // PINをハッシュ化
     let pinHash: string | null = null;
     if (input.managerPin) {
-      pinHash = await bcrypt.hash(input.managerPin, 10);
+      pinHash = await bcrypt.hash(input.managerPin, 4);
     }
 
-    // トランザクションでサークルと代表者メンバーシップを作成
-    await db.transaction(async (tx) => {
-      await tx.insert(circle).values({
-        id,
-        eventId: input.eventId,
-        name: input.name,
-        password: hashedPassword,
-        description: input.description,
-      });
+    // サークルと代表者メンバーシップを作成
+    // 2026-07-04: Cloudflare D1 は HTTP 経由の対話的トランザクション (BEGIN TRANSACTION) をサポートしておらず、
+    // db.transaction() を実行すると "Failed query: begin" エラーで 500 になるため、順次実行に変更。
+    await db.insert(circle).values({
+      id,
+      eventId: input.eventId,
+      name: input.name,
+      password: hashedPassword,
+      description: input.description,
+    });
 
-      const membershipId = nanoid();
-      await tx.insert(membership).values({
-        id: membershipId,
-        userEmail: input.managerEmail.toLowerCase(), // メールアドレスは小文字で保存
-        userName: input.managerName || `${input.name} 代表者`,
-        circleId: id,
-        role: "circle_manager",
-        pin: pinHash,
-        isActive: true,
-      });
+    const membershipId = nanoid();
+    await db.insert(membership).values({
+      id: membershipId,
+      userEmail: input.managerEmail.toLowerCase(), // メールアドレスは小文字で保存
+      userName: input.managerName || `${input.name} 代表者`,
+      circleId: id,
+      role: "circle_manager",
+      pin: pinHash,
+      isActive: true,
     });
 
     return c.json({ id }, 201);
@@ -193,58 +195,58 @@ circleRoutes.put(
       updates.description = input.description;
 
     // PINをハッシュ化
+    // 2026-07-04: Cloudflare Workers の CPU 時間制限超過防止のため、ソルトラウンドを 4 に設定。
     let pinHash: string | null = null;
     if (input.managerPin) {
-      pinHash = await bcrypt.hash(input.managerPin, 10);
+      pinHash = await bcrypt.hash(input.managerPin, 4);
     }
 
-    // トランザクションでサークルと代表者メンバーシップを更新
-    await db.transaction(async (tx) => {
-      if (Object.keys(updates).length > 0) {
-        await tx.update(circle).set(updates).where(eq(circle.id, id));
-      }
+    // サークルと代表者メンバーシップを更新
+    // 2026-07-04: D1 の制限回避のため db.transaction を廃止し、順次実行に変更。
+    if (Object.keys(updates).length > 0) {
+      await db.update(circle).set(updates).where(eq(circle.id, id));
+    }
 
-      if (input.managerEmail || pinHash || input.managerName) {
-        const managers = await tx
-          .select()
-          .from(membership)
-          .where(
-            and(
-              eq(membership.circleId, id),
-              eq(membership.role, "circle_manager")
-            )
-          );
+    if (input.managerEmail || pinHash || input.managerName) {
+      const managers = await db
+        .select()
+        .from(membership)
+        .where(
+          and(
+            eq(membership.circleId, id),
+            eq(membership.role, "circle_manager")
+          )
+        );
 
-        const manager = managers[0];
-        if (manager) {
-          // 既存の代表者を更新
-          const setValues: any = {};
-          if (input.managerEmail) setValues.userEmail = input.managerEmail.toLowerCase();
-          if (input.managerName !== undefined) setValues.userName = input.managerName || manager.userName;
-          if (pinHash) setValues.pin = pinHash;
+      const manager = managers[0];
+      if (manager) {
+        // 既存の代表者を更新
+        const setValues: any = {};
+        if (input.managerEmail) setValues.userEmail = input.managerEmail.toLowerCase();
+        if (input.managerName !== undefined) setValues.userName = input.managerName || manager.userName;
+        if (pinHash) setValues.pin = pinHash;
 
-          if (Object.keys(setValues).length > 0) {
-            await tx
-              .update(membership)
-              .set(setValues)
-              .where(eq(membership.id, manager.id));
-          }
-        } else {
-          // 既存の代表者がいない場合は新規作成
-          const currentCircle = existingCircle[0];
-          const membershipId = nanoid();
-          await tx.insert(membership).values({
-            id: membershipId,
-            userEmail: (input.managerEmail || "").toLowerCase(),
-            userName: input.managerName || `${input.name || (currentCircle ? currentCircle.name : "サークル")} 代表者`,
-            circleId: id,
-            role: "circle_manager",
-            pin: pinHash,
-            isActive: true,
-          });
+        if (Object.keys(setValues).length > 0) {
+          await db
+            .update(membership)
+            .set(setValues)
+            .where(eq(membership.id, manager.id));
         }
+      } else {
+        // 既存の代表者がいない場合は新規作成
+        const currentCircle = existingCircle[0];
+        const membershipId = nanoid();
+        await db.insert(membership).values({
+          id: membershipId,
+          userEmail: (input.managerEmail || "").toLowerCase(),
+          userName: input.managerName || `${input.name || (currentCircle ? currentCircle.name : "サークル")} 代表者`,
+          circleId: id,
+          role: "circle_manager",
+          pin: pinHash,
+          isActive: true,
+        });
       }
-    });
+    }
 
     return c.json({ success: true });
   }

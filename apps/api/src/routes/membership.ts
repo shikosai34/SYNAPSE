@@ -10,22 +10,66 @@ import { Context } from "hono";
 
 const membershipRoutes = new Hono();
 
-// ロール定義
+// ロール定義 (SaaS対応 - 2026-07-04)
 const ROLES = [
-  "event_admin",
+  "super_admin",
+  "system_manager",
+  "system_staff",
+  "event_manager",
+  "event_staff",
   "circle_manager",
-  "cashier",
-  "kitchen_staff",
-  "waiter",
-  "stock_manager",
-  "viewer",
+  "circle_staff",
 ] as const;
 
 type Role = (typeof ROLES)[number];
 
 // ロールの権限マッピング
 const ROLE_PERMISSIONS: Record<Role, string[]> = {
-  event_admin: ["*"], // 全権限
+  super_admin: ["*"], // 全権限
+  system_manager: [
+    "system:read",
+    "system:write",
+    "event:read",
+    "event:write",
+    "circle:read",
+    "circle:write",
+    "menu:read",
+    "order:read",
+    "sales:read",
+  ],
+  system_staff: [
+    "system:read",
+    "event:read",
+    "circle:read",
+  ],
+  event_manager: [
+    "event:read",
+    "event:write",
+    "circle:read",
+    "circle:write",
+    "circle:delete",
+    "menu:read",
+    "menu:write",
+    "menu:delete",
+    "order:read",
+    "order:write",
+    "order:delete",
+    "staff:read",
+    "staff:write",
+    "staff:delete",
+    "stock:read",
+    "stock:write",
+    "sales:read",
+    "member:read",
+    "member:write",
+    "member:delete",
+  ],
+  event_staff: [
+    "event:read",
+    "circle:read",
+    "order:read",
+    "member:read",
+  ],
   circle_manager: [
     "circle:read",
     "circle:write",
@@ -43,36 +87,14 @@ const ROLE_PERMISSIONS: Record<Role, string[]> = {
     "member:read",
     "member:write",
   ],
-  cashier: [
+  circle_staff: [
     "circle:read",
     "menu:read",
     "order:read",
     "order:write",
-    "stock:read",
-  ],
-  kitchen_staff: [
-    "circle:read",
-    "menu:read",
-    "order:read",
-    "order:write",
-    "stock:read",
-  ],
-  waiter: [
-    "circle:read",
-    "menu:read",
-    "order:read",
-    "order:write",
-  ],
-  stock_manager: [
-    "circle:read",
-    "menu:read",
     "stock:read",
     "stock:write",
-  ],
-  viewer: [
-    "circle:read",
-    "menu:read",
-    "order:read",
+    "staff:read",
   ],
 };
 
@@ -83,12 +105,13 @@ function hasPermission(role: Role, permission: string): boolean {
   return permissions.includes("*") || permissions.includes(permission);
 }
 
-// 管理者権限チェック（権限の序列チェック）
+// 管理者権限チェック（権限の序列チェック - 2026-07-04 SaaS対応）
 async function checkMemberWritePermission(
   c: Context,
   targetCircleId: string | null,
   targetCurrentRole: string,
-  targetNewRole?: string
+  targetNewRole?: string,
+  targetEventId?: string | null
 ) {
   const session = await auth.api.getSession({
     headers: c.req.raw.headers,
@@ -101,36 +124,85 @@ async function checkMemberWritePermission(
   const email = session.user.email.toLowerCase();
   const initialAdminEmail = getEnv().INITIAL_SUPER_ADMIN_EMAIL;
 
-  let isEventAdmin = false;
+  // 1. super_admin / system_manager (システムレベルの管理者) は何でも可能
+  let isSystemAdmin = false;
   if (initialAdminEmail && email === initialAdminEmail.toLowerCase()) {
-    isEventAdmin = true;
+    isSystemAdmin = true;
   } else {
-    const adminMemberships = await db
+    const systemMembers = await db
       .select()
       .from(membership)
       .where(
         and(
           eq(membership.userEmail, email),
-          eq(membership.role, "event_admin"),
           eq(membership.isActive, true)
         )
       );
-    if (adminMemberships.length > 0) isEventAdmin = true;
+    if (systemMembers.some((m) => m.role === "super_admin" || m.role === "system_manager")) {
+      isSystemAdmin = true;
+    }
   }
 
-  if (isEventAdmin) return null; // event_adminは何でも可能
+  if (isSystemAdmin) return null;
 
-  // event_adminへの昇格、またはevent_adminの変更はevent_adminのみ可能
-  if (targetCurrentRole === "event_admin" || targetNewRole === "event_admin") {
-    return { error: "event_admin権限を操作する権限がありません", status: 403 as const };
+  // 2. システムロールの操作はシステム管理者のみ可能
+  const isSystemRole = (role: string) => ["super_admin", "system_manager", "system_staff"].includes(role);
+  if (isSystemRole(targetCurrentRole) || (targetNewRole && isSystemRole(targetNewRole))) {
+    return { error: "システム管理者権限を操作する権限がありません", status: 403 as const };
   }
 
-  // イベントレベルのメンバー（circleIdなし）はevent_adminのみ操作可能
-  if (!targetCircleId) {
-    return { error: "イベントレベルのメンバーを操作する権限がありません", status: 403 as const };
+  // 3. イベントレベル (event_manager / event_staff) の操作は、そのイベントの event_manager のみ可能
+  const isEventRole = (role: string) => ["event_manager", "event_staff"].includes(role);
+  if (!targetCircleId || isEventRole(targetCurrentRole) || (targetNewRole && isEventRole(targetNewRole))) {
+    let checkEventId = targetEventId;
+    if (!checkEventId && targetCircleId) {
+      const circles = await db.select().from(circle).where(eq(circle.id, targetCircleId));
+      checkEventId = circles[0]?.eventId;
+    }
+    if (!checkEventId) {
+      return { error: "イベントレベルのメンバーを操作する権限がありません", status: 403 as const };
+    }
+    const eventManagerMemberships = await db
+      .select()
+      .from(membership)
+      .where(
+        and(
+          eq(membership.userEmail, email),
+          eq(membership.eventId, checkEventId),
+          eq(membership.role, "event_manager"),
+          eq(membership.isActive, true)
+        )
+      );
+    if (eventManagerMemberships.length === 0) {
+      return { error: "このイベントのメンバーを管理する権限がありません", status: 403 as const };
+    }
+    return null;
   }
 
-  // circle_manager権限の確認
+  // 4. サークルレベルの操作 (circle_manager / circle_staff) の確認
+  const circles = await db.select().from(circle).where(eq(circle.id, targetCircleId));
+  if (circles.length === 0) {
+    return { error: "対象のサークルが存在しません", status: 404 as const };
+  }
+  const eventId = circles[0]!.eventId;
+
+  // イベントマネージャーであればサークルのメンバーも操作可能
+  const eventManagerMemberships = await db
+    .select()
+    .from(membership)
+    .where(
+      and(
+        eq(membership.userEmail, email),
+        eq(membership.eventId, eventId),
+        eq(membership.role, "event_manager"),
+        eq(membership.isActive, true)
+      )
+    );
+  if (eventManagerMemberships.length > 0) {
+    return null;
+  }
+
+  // サークルマネージャーか確認
   const managerMemberships = await db
     .select()
     .from(membership)
@@ -147,9 +219,9 @@ async function checkMemberWritePermission(
     return { error: "このサークルのメンバーを管理する権限がありません", status: 403 as const };
   }
 
-  // circle_managerは一般店員のみ管理可能（circle_manager自身の権限付与や他circle_managerの操作は不可）
+  // サークルマネージャーは一般スタッフ (circle_staff) のみ管理可能
   if (targetCurrentRole === "circle_manager" || targetNewRole === "circle_manager") {
-    return { error: "circle_manager権限を操作する権限がありません", status: 403 as const };
+    return { error: "サークルマネージャー権限を操作する権限がありません", status: 403 as const };
   }
 
   return null;
@@ -181,7 +253,7 @@ membershipRoutes.get("/my", async (c) => {
       .where(
         and(
           eq(membership.userEmail, userEmail.toLowerCase()),
-          eq(membership.role, "event_admin"),
+          eq(membership.role, "super_admin"),
           eq(membership.isActive, true)
         )
       );
@@ -191,7 +263,7 @@ membershipRoutes.get("/my", async (c) => {
         id: nanoid(),
         userEmail: userEmail.toLowerCase(),
         userName: "Super Admin",
-        role: "event_admin",
+        role: "super_admin",
         isActive: true,
       });
     }
@@ -329,13 +401,15 @@ membershipRoutes.post(
     const input = c.req.valid("json");
     const id = nanoid();
 
-    const err = await checkMemberWritePermission(c, input.circleId || null, "viewer", input.role);
+    const err = await checkMemberWritePermission(c, input.circleId || null, "viewer", input.role, input.eventId);
     if (err) return c.json({ error: err.error }, err.status);
 
     // PINをハッシュ化
+    // 2026-07-04: Cloudflare Workers の CPU 時間制限（最大50ms）超過による 500 エラーを避けるため、
+    // ストレッチングコスト（ソルトラウンド）を 10 から 4 に引き下げ。
     let pinHash: string | null = null;
     if (input.pin) {
-      pinHash = await bcrypt.hash(input.pin, 10);
+      pinHash = await bcrypt.hash(input.pin, 4);
     }
 
     await db.insert(membership).values({
@@ -370,7 +444,7 @@ membershipRoutes.patch(
     if (targets.length === 0) return c.json({ error: "メンバーが見つかりません" }, 404);
     
     const target = targets[0]!;
-    const err = await checkMemberWritePermission(c, target.circleId, target.role, input.role);
+    const err = await checkMemberWritePermission(c, target.circleId, target.role, input.role, target.eventId);
     if (err) return c.json({ error: err.error }, err.status);
 
     await db
@@ -390,7 +464,7 @@ membershipRoutes.patch("/:id/deactivate", async (c) => {
   if (targets.length === 0) return c.json({ error: "メンバーが見つかりません" }, 404);
   
   const target = targets[0]!;
-  const err = await checkMemberWritePermission(c, target.circleId, target.role);
+  const err = await checkMemberWritePermission(c, target.circleId, target.role, undefined, target.eventId);
   if (err) return c.json({ error: err.error }, err.status);
 
   await db
@@ -409,7 +483,7 @@ membershipRoutes.delete("/:id", async (c) => {
   if (targets.length === 0) return c.json({ error: "メンバーが見つかりません" }, 404);
   
   const target = targets[0]!;
-  const err = await checkMemberWritePermission(c, target.circleId, target.role);
+  const err = await checkMemberWritePermission(c, target.circleId, target.role, undefined, target.eventId);
   if (err) return c.json({ error: err.error }, err.status);
 
   await db.delete(membership).where(eq(membership.id, id));
@@ -436,7 +510,7 @@ membershipRoutes.post(
     const id = nanoid();
     const token = nanoid(32);
 
-    const err = await checkMemberWritePermission(c, input.circleId || null, "viewer", input.role);
+    const err = await checkMemberWritePermission(c, input.circleId || null, "viewer", input.role, input.eventId);
     if (err) return c.json({ error: err.error }, err.status);
 
     const expiresAt = new Date();
@@ -518,9 +592,10 @@ membershipRoutes.post(
     }
 
     // PINをハッシュ化
+    // 2026-07-04: Cloudflare Workers の CPU 時間制限超過防止のため、ソルトラウンドを 4 に設定。
     let pinHash: string | null = null;
     if (input.pin) {
-      pinHash = await bcrypt.hash(input.pin, 10);
+      pinHash = await bcrypt.hash(input.pin, 4);
     }
 
     // メンバーシップを作成
@@ -582,7 +657,7 @@ membershipRoutes.delete("/invite/:id", async (c) => {
   if (tokens.length === 0) return c.json({ error: "トークンが見つかりません" }, 404);
 
   const targetToken = tokens[0]!;
-  const err = await checkMemberWritePermission(c, targetToken.circleId, "viewer");
+  const err = await checkMemberWritePermission(c, targetToken.circleId, "viewer", undefined, targetToken.eventId);
   if (err) return c.json({ error: err.error }, err.status);
 
   await db.delete(inviteToken).where(eq(inviteToken.id, id));
@@ -704,11 +779,12 @@ membershipRoutes.patch(
     const isSelf = session.user.email.toLowerCase() === target.userEmail.toLowerCase();
     
     if (!isSelf) {
-      const err = await checkMemberWritePermission(c, target.circleId, target.role);
+      const err = await checkMemberWritePermission(c, target.circleId, target.role, undefined, target.eventId);
       if (err) return c.json({ error: err.error }, err.status);
     }
 
-    const pinHash = await bcrypt.hash(input.pin, 10);
+    // 2026-07-04: Cloudflare Workers の CPU 時間制限超過防止のため、ソルトラウンドを 4 に設定。
+    const pinHash = await bcrypt.hash(input.pin, 4);
 
     await db
       .update(membership)

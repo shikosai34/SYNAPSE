@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
-import { db, wristband, eventUser, getEnv } from "@fesflow/db";
+import { db, wristband, eventUser, event, getEnv } from "@fesflow/db";
 import { eq, and, desc } from "drizzle-orm";
 
 
@@ -10,6 +10,10 @@ const wristbandRoutes = new Hono();
 // コード (リストバンドID、ユーザーID) によるユーザー照会
 wristbandRoutes.get("/lookup/:code", async (c) => {
   const code = c.req.param("code");
+
+  // 2026-07-04: D1 の外部キー制約エラーを避けるため、DB内の最初のイベントIDを取得してデフォルトとして使用する
+  const eventsList = await db.select().from(event).limit(1);
+  const defaultEventId = eventsList[0]?.id || "evt_default";
 
   // 固定の管理者/テスト用リストバンドの自動シード補完
   if (code.startsWith("wb_admin") || code.startsWith("wb_test")) {
@@ -28,7 +32,7 @@ wristbandRoutes.get("/lookup/:code", async (c) => {
       if (existingUser.length === 0) {
         await db.insert(eventUser).values({
           id: targetUserId,
-          eventId: "evt_default",
+          eventId: defaultEventId,
           displayId: code.startsWith("wb_admin") ? 999 : Math.floor(100 + Math.random() * 800),
           status: "available",
         });
@@ -77,7 +81,7 @@ wristbandRoutes.get("/lookup/:code", async (c) => {
     const newDisplayId = code === adminEmail || code === "lTkBEJtn1G88NFZ2bsLdATuSrjjLuaTG" ? 999 : Math.floor(100 + Math.random() * 900);
     await db.insert(eventUser).values({
       id: code,
-      eventId: "evt_default",
+      eventId: defaultEventId,
       displayId: newDisplayId,
       status: "available",
     });
@@ -115,7 +119,7 @@ wristbandRoutes.get("/lookup/:code", async (c) => {
   const newDisplayId = Math.floor(100 + Math.random() * 900);
   await db.insert(eventUser).values({
     id: code,
-    eventId: "evt_default",
+    eventId: defaultEventId,
     displayId: newDisplayId,
     status: "available",
   });
@@ -147,6 +151,10 @@ wristbandRoutes.post(
   async (c) => {
     const { userId, wristbandId } = c.req.valid("json");
 
+    // 2026-07-04: D1 の外部キー制約エラーを避けるため、DB内の最初のイベントIDを取得してデフォルトとして使用する
+    const eventsList = await db.select().from(event).limit(1);
+    const defaultEventId = eventsList[0]?.id || "evt_default";
+
     // ユーザー存在チェック、なければ自動作成
     let users = await db
       .select()
@@ -158,7 +166,7 @@ wristbandRoutes.post(
       const newDisplayId = Math.floor(100 + Math.random() * 900);
       await db.insert(eventUser).values({
         id: userId,
-        eventId: "evt_default",
+        eventId: defaultEventId,
         displayId: newDisplayId,
         status: "available",
       });

@@ -2,34 +2,38 @@
 import { useNavigate } from "react-router-dom";
 import { useEffect, useState, useCallback } from "react";
 import Loader from "@/components/loader";
+import { useQuery } from "@tanstack/react-query";
+import { membershipApi } from "@/lib/api";
 
 // ロール定義（バックエンドと同期）
 export const ROLES = {
-  EVENT_ADMIN: "event_admin",
+  SUPER_ADMIN: "super_admin",
+  SYSTEM_MANAGER: "system_manager",
+  SYSTEM_STAFF: "system_staff",
+  EVENT_MANAGER: "event_manager",
+  EVENT_STAFF: "event_staff",
   CIRCLE_MANAGER: "circle_manager",
-  CASHIER: "cashier",
-  KITCHEN_STAFF: "kitchen_staff",
-  WAITER: "waiter",
-  STOCK_MANAGER: "stock_manager",
-  VIEWER: "viewer",
+  CIRCLE_STAFF: "circle_staff",
 } as const;
 
 export type RoleType = (typeof ROLES)[keyof typeof ROLES];
 
 // ロールの日本語名
 export const ROLE_NAMES: Record<RoleType, string> = {
-  [ROLES.EVENT_ADMIN]: "イベント管理者",
+  [ROLES.SUPER_ADMIN]: "システム最高管理者",
+  [ROLES.SYSTEM_MANAGER]: "システムマネージャー",
+  [ROLES.SYSTEM_STAFF]: "システムスタッフ",
+  [ROLES.EVENT_MANAGER]: "イベントマネージャー",
+  [ROLES.EVENT_STAFF]: "イベントスタッフ",
   [ROLES.CIRCLE_MANAGER]: "サークルマネージャー",
-  [ROLES.CASHIER]: "レジ担当",
-  [ROLES.KITCHEN_STAFF]: "厨房スタッフ",
-  [ROLES.WAITER]: "ウェイター",
-  [ROLES.STOCK_MANAGER]: "在庫管理",
-  [ROLES.VIEWER]: "閲覧者",
+  [ROLES.CIRCLE_STAFF]: "サークルスタッフ",
 };
 
 // 権限定義
 export const ROLE_PERMISSIONS = {
-  [ROLES.EVENT_ADMIN]: [
+  [ROLES.SUPER_ADMIN]: [
+    "system:read",
+    "system:write",
     "event:read",
     "event:write",
     "event:delete",
@@ -52,6 +56,50 @@ export const ROLE_PERMISSIONS = {
     "member:write",
     "member:delete",
   ],
+  [ROLES.SYSTEM_MANAGER]: [
+    "system:read",
+    "system:write",
+    "event:read",
+    "event:write",
+    "circle:read",
+    "circle:write",
+    "menu:read",
+    "order:read",
+    "sales:read",
+  ],
+  [ROLES.SYSTEM_STAFF]: [
+    "system:read",
+    "event:read",
+    "circle:read",
+  ],
+  [ROLES.EVENT_MANAGER]: [
+    "event:read",
+    "event:write",
+    "circle:read",
+    "circle:write",
+    "circle:delete",
+    "menu:read",
+    "menu:write",
+    "menu:delete",
+    "order:read",
+    "order:write",
+    "order:delete",
+    "staff:read",
+    "staff:write",
+    "staff:delete",
+    "stock:read",
+    "stock:write",
+    "sales:read",
+    "member:read",
+    "member:write",
+    "member:delete",
+  ],
+  [ROLES.EVENT_STAFF]: [
+    "event:read",
+    "circle:read",
+    "order:read",
+    "member:read",
+  ],
   [ROLES.CIRCLE_MANAGER]: [
     "circle:read",
     "circle:write",
@@ -69,28 +117,15 @@ export const ROLE_PERMISSIONS = {
     "member:read",
     "member:write",
   ],
-  [ROLES.CASHIER]: [
+  [ROLES.CIRCLE_STAFF]: [
     "circle:read",
     "menu:read",
     "order:read",
     "order:write",
-    "stock:read",
-  ],
-  [ROLES.KITCHEN_STAFF]: [
-    "circle:read",
-    "menu:read",
-    "order:read",
-    "order:write",
-    "stock:read",
-  ],
-  [ROLES.WAITER]: ["circle:read", "menu:read", "order:read", "order:write"],
-  [ROLES.STOCK_MANAGER]: [
-    "circle:read",
-    "menu:read",
     "stock:read",
     "stock:write",
+    "staff:read",
   ],
-  [ROLES.VIEWER]: ["circle:read", "menu:read", "order:read"],
 } as const;
 
 export type Permission = (typeof ROLE_PERMISSIONS)[RoleType][number];
@@ -239,10 +274,10 @@ export function useCircleAuth() {
     const authInfo = getAuthInfo();
     if (!authInfo?.circleId) {
       // event_admin で circleId がない場合はサークル選択に誘導せずダッシュボードを表示
-      if (authInfo?.isEventAdmin || authInfo?.role === "event_admin") {
+      if (authInfo?.isEventAdmin || authInfo?.role === "event_manager" || authInfo?.role === "super_admin") {
         setCircleId(null);
       } else {
-        navigate("/circle-login");
+        navigate("/login");
       }
     } else {
       setCircleId(authInfo.circleId);
@@ -291,11 +326,14 @@ export function useAuth() {
   const logout = useCallback(() => {
     clearAuthInfo();
     setAuthInfo(null);
-    navigate("/circle-login");
+    navigate("/login");
   }, [navigate]);
 
-  // event_adminフラグを考慮した権限チェック
-  const effectiveIsEventAdmin = authInfo?.isEventAdmin || authInfo?.role === "event_admin";
+  // event_manager / super_admin はイベント管理者扱い
+  const effectiveIsEventAdmin =
+    authInfo?.isEventAdmin ||
+    authInfo?.role === "event_manager" ||
+    authInfo?.role === "super_admin";
 
   const checkPermission = useCallback(
     (permission: Permission) => {
@@ -311,12 +349,12 @@ export function useAuth() {
     [authInfo?.role, effectiveIsEventAdmin]
   );
 
-  // 表示用のロール名: event_admin + circle_manager の場合は両方表示
+  // 表示用のロール名: event_manager + circle_manager の場合は両方表示
   let displayRoleName: string | null = null;
   if (authInfo?.role) {
     displayRoleName = ROLE_NAMES[authInfo.role];
-    if (authInfo.isEventAdmin && authInfo.role !== "event_admin") {
-      displayRoleName = `${ROLE_NAMES["event_admin"]} / ${displayRoleName}`;
+    if (authInfo.isEventAdmin && authInfo.role !== "event_manager") {
+      displayRoleName = `${ROLE_NAMES["event_manager"]} / ${displayRoleName}`;
     }
   }
 
@@ -383,17 +421,20 @@ export function CircleAuthGuard({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     const authInfo = getAuthInfo();
-    const effectiveAdmin = authInfo?.isEventAdmin || authInfo?.role === "event_admin";
+    const effectiveAdmin =
+      authInfo?.isEventAdmin ||
+      authInfo?.role === "event_manager" ||
+      authInfo?.role === "super_admin";
 
     if (authInfo?.circleId) {
       setCircleId(authInfo.circleId);
       setIsEventAdmin(!!effectiveAdmin);
     } else if (effectiveAdmin) {
-      // event_admin は circleId がなくてもアクセス可能
+      // event_manager / super_admin は circleId がなくてもアクセス可能
       setCircleId(null);
       setIsEventAdmin(true);
     } else {
-      navigate("/circle-login");
+      navigate("/login");
     }
     setIsLoading(false);
   }, [navigate]);
@@ -471,11 +512,26 @@ export function AdminAuthGuard({ children }: { children: React.ReactNode }) {
           アクセス権限がありません
         </h2>
         <p className="font-body text-[14px] leading-[1.5]">
-          イベント管理機能を利用するには、全体システム管理者（event_admin）アカウントでログインする必要があります。
+          イベント管理機能を利用するには、イベント管理者（event_manager）アカウントでログインする必要があります。
         </p>
       </div>
     );
   }
 
   return <>{children}</>;
+}
+
+// 所属スペース一覧取得用フック (2026-07-04)
+export function useMySpaces() {
+  const authInfo = getAuthInfo();
+  const email = authInfo?.userEmail;
+
+  return useQuery({
+    queryKey: ["mySpaces", email],
+    queryFn: async () => {
+      if (!email) return [];
+      return await membershipApi.listMy(email);
+    },
+    enabled: !!email,
+  });
 }

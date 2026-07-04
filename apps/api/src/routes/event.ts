@@ -1,17 +1,54 @@
 import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
-import { db, event, circle } from "@fesflow/db";
-import { eq, and } from "drizzle-orm";
+import { db, event, circle, membership } from "@fesflow/db";
+import { eq, and, inArray } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import bcrypt from "bcryptjs";
-import { getAdminSession } from "../utils/auth";
+import { getAdminSession, getSession } from "../utils/auth";
 
 const eventRoutes = new Hono();
 
-// イベント一覧取得
+// イベント一覧取得 (2026-07-04 SaaSマルチテナント制限)
 eventRoutes.get("/", async (c) => {
-  const events = await db.select().from(event);
+  const session = await getSession(c);
+  if (!session || !session.user) {
+    return c.json({ error: "認証が必要です" }, 401);
+  }
+  const email = session.user.email.toLowerCase();
+
+  const userMemberships = await db
+    .select()
+    .from(membership)
+    .where(
+      and(
+        eq(membership.userEmail, email),
+        eq(membership.isActive, true)
+      )
+    );
+
+  const isSystemAdmin = userMemberships.some(
+    (m) => m.role === "super_admin" || m.role === "system_manager" || m.role === "system_staff"
+  );
+
+  if (isSystemAdmin) {
+    const events = await db.select().from(event);
+    return c.json(events);
+  }
+
+  const myEventIds = userMemberships
+    .filter((m) => (m.role === "event_manager" || m.role === "event_staff") && m.eventId)
+    .map((m) => m.eventId) as string[];
+
+  if (myEventIds.length === 0) {
+    return c.json([]);
+  }
+
+  const events = await db
+    .select()
+    .from(event)
+    .where(inArray(event.id, myEventIds));
+
   return c.json(events);
 });
 

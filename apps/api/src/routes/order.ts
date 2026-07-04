@@ -9,6 +9,8 @@ import {
   menu,
   topping,
   userStamp,
+  circle,
+  eventUser,
 } from "@fesflow/db";
 import { eq, and, desc, sql, inArray } from "drizzle-orm";
 import { nanoid } from "nanoid";
@@ -178,7 +180,7 @@ orderRoutes.post(
     z.object({
       circleId: z.string(),
       cashierId: z.string().optional(),
-      userId: z.string().optional(), // ゲストID
+      userId: z.string(), // ゲストID (2026-07-04: リストバンド/QR必須化のため必須化)
       peopleCount: z.number().min(1).default(1),
       items: z.array(
         z.object({
@@ -193,6 +195,30 @@ orderRoutes.post(
     try {
       const input = c.req.valid("json");
       const orderId = nanoid();
+
+      // 2026-07-04: D1 の外部キー制約エラー回避のため、必要に応じて eventUser を自動作成する
+      const circles = await db
+        .select()
+        .from(circle)
+        .where(eq(circle.id, input.circleId));
+      if (circles.length === 0) {
+        return c.json({ error: `サークル ${input.circleId} が存在しません` }, 404);
+      }
+      const eventId = circles[0]!.eventId;
+
+      const existingUser = await db
+        .select()
+        .from(eventUser)
+        .where(eq(eventUser.id, input.userId));
+      if (existingUser.length === 0) {
+        const newDisplayId = Math.floor(100 + Math.random() * 900);
+        await db.insert(eventUser).values({
+          id: input.userId,
+          eventId: eventId,
+          displayId: newDisplayId,
+          status: "available",
+        });
+      }
 
       // 注文番号を生成
       const orderNumber = await generateOrderNumber(input.circleId);

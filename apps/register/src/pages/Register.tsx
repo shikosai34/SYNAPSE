@@ -2,7 +2,7 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { CircleAuthGuard } from "@/hooks/useCircleAuth";
-import { menuApi, toppingApi, orderApi, circleApi } from "@/lib/api";
+import { menuApi, toppingApi, orderApi, circleApi, wristbandApi } from "@/lib/api";
 import { ModSandbox } from "@/components/ModSandbox";
 import { QrScannerModal } from "@/components/pos/qr-scanner-modal";
 import {
@@ -35,7 +35,10 @@ function RegisterPageContent() {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [peopleCount, setPeopleCount] = useState(1);
   const [isQrModalOpen, setIsQrModalOpen] = useState(false);
+  const [isCustomerQrModalOpen, setIsCustomerQrModalOpen] = useState(false);
   const [isCartPanelOpen, setIsCartPanelOpen] = useState(false);
+  const [scannedCode, setScannedCode] = useState("");
+  const [activeCustomer, setActiveCustomer] = useState<{ userId: string; wristbandId: string | null } | null>(null);
 
   useEffect(() => {
     const storedCircleId = localStorage.getItem("circleId");
@@ -60,9 +63,31 @@ function RegisterPageContent() {
     enabled: !!circleId,
   });
 
+  const lookupCustomer = useMutation({
+    mutationFn: async (code: string) => {
+      return await wristbandApi.lookup(code);
+    },
+    onSuccess: (data) => {
+      if (data.user) {
+        setActiveCustomer({
+          userId: data.user.id,
+          wristbandId: data.wristband?.id || null,
+        });
+        toast.success(`顧客を特定しました: ${data.wristband?.id || data.user.id}`);
+        setScannedCode("");
+      } else {
+        toast.error("ユーザーが見つかりませんでした");
+      }
+    },
+    onError: (error: any) => {
+      toast.error(error.message || "照会に失敗しました");
+    },
+  });
+
   const createOrder = useMutation({
     mutationFn: async (input: {
       circleId: string;
+      userId: string;
       peopleCount: number;
       items: { menuId: string; quantity: number; toppingIds?: string[] }[];
     }) => orderApi.create(input),
@@ -70,6 +95,7 @@ function RegisterPageContent() {
       toast.success(`注文完了！注文番号: ${data.orderNumber}`);
       setCart([]);
       setPeopleCount(1);
+      setActiveCustomer(null); // 会計完了後に顧客情報をクリア
       setIsCartPanelOpen(false);
     },
     onError: (error: any) => {
@@ -143,8 +169,10 @@ function RegisterPageContent() {
 
   const handleSubmitOrder = async () => {
     if (cart.length === 0) { toast.error("カートが空です"); return; }
+    if (!activeCustomer) { toast.error("顧客が特定されていません。リストバンド/QRをスキャンしてください"); return; }
     await createOrder.mutateAsync({
       circleId,
+      userId: activeCustomer.userId,
       peopleCount,
       items: cart.map((i) => ({ menuId: i.menuId, quantity: i.quantity, toppingIds: i.toppings.map((t) => t.toppingId) })),
     });
@@ -168,6 +196,13 @@ function RegisterPageContent() {
   return (
     <div className="relative">
       <QrScannerModal circleId={circleId} isOpen={isQrModalOpen} onClose={() => setIsQrModalOpen(false)} />
+      <QrScannerModal
+        circleId={circleId}
+        isOpen={isCustomerQrModalOpen}
+        onClose={() => setIsCustomerQrModalOpen(false)}
+        mode="customer"
+        onCustomerScanned={(userId, wristbandId) => setActiveCustomer({ userId, wristbandId })}
+      />
 
       {/* ===== メニュー一覧 ===== */}
       <div className="p-3 sm:p-4 pb-32">
@@ -177,14 +212,22 @@ function RegisterPageContent() {
             [レジ - 注文入力]
           </h1>
           <div className="flex gap-2 flex-wrap">
+            <Button
+              variant="accent"
+              onClick={() => setIsCustomerQrModalOpen(true)}
+              className="h-10 sm:h-12 text-xs sm:text-sm uppercase tracking-wider"
+            >
+              <QrCode className="mr-1 sm:mr-2 h-4 w-4 sm:h-5 sm:w-5" />
+              [顧客スキャン(カメラ)]
+            </Button>
             {preOrderActive && (
               <Button
-                variant="accent"
+                variant="outline"
                 onClick={() => setIsQrModalOpen(true)}
-                className="h-10 sm:h-12 text-xs sm:text-sm uppercase tracking-wider"
+                className="h-10 sm:h-12 text-xs sm:text-sm uppercase tracking-wider bg-background text-foreground"
               >
                 <QrCode className="mr-1 sm:mr-2 h-4 w-4 sm:h-5 sm:w-5" />
-                [QR照会]
+                [QR受取 (事前注文)]
               </Button>
             )}
             {getActiveMods().map((mod: any) => {
@@ -209,6 +252,64 @@ function RegisterPageContent() {
             })}
           </div>
         </div>
+
+        {/* ===== 顧客特定スキャンパネル (2026-07-04 リストバンド/QR必須化) ===== */}
+        <Card className="mb-4 border-thick border-border bg-muted/40 rounded-none">
+          <CardContent className="p-3 sm:p-4 flex flex-col md:flex-row md:items-center justify-between gap-4 font-mono">
+            <div className="space-y-1">
+              <h3 className="text-xs sm:text-sm font-bold uppercase tracking-wider">
+                [顧客特定スキャン]
+              </h3>
+              {activeCustomer ? (
+                <div className="flex items-center gap-2 text-success font-black text-xs sm:text-sm">
+                  <span className="w-2.5 h-2.5 bg-success rounded-full animate-pulse" />
+                  スキャン完了: ゲストID [{activeCustomer.userId}]
+                  {activeCustomer.wristbandId && ` (リストバンド: ${activeCustomer.wristbandId})`}
+                </div>
+              ) : (
+                <p className="text-destructive font-black text-xs sm:text-sm animate-pulse">
+                  【警告: 顧客未スキャン】 注文を確定するには、お客様のリストバンドまたはスマホQRコードのスキャンが必要です。
+                </p>
+              )}
+            </div>
+
+            <div className="flex items-center gap-2 w-full md:w-auto">
+              <Input
+                type="text"
+                placeholder="QR / リストバンドIDを入力..."
+                className="h-10 border-thick border-border font-mono text-xs rounded-none bg-background focus-visible:ring-0 flex-1 md:w-60"
+                value={scannedCode}
+                onChange={(e) => setScannedCode(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    if (scannedCode.trim()) lookupCustomer.mutate(scannedCode.trim());
+                  }
+                }}
+              />
+              <Button
+                variant="outline"
+                disabled={lookupCustomer.isPending || !scannedCode.trim()}
+                onClick={() => lookupCustomer.mutate(scannedCode.trim())}
+                className="h-10 border-thick border-border font-mono text-xs rounded-none bg-background hover:bg-primary hover:text-primary-foreground shrink-0"
+              >
+                特定
+              </Button>
+              {activeCustomer && (
+                <Button
+                  variant="destructive"
+                  onClick={() => {
+                    setActiveCustomer(null);
+                    toast.info("顧客情報をクリアしました");
+                  }}
+                  className="h-10 border-thick border-border font-mono text-xs rounded-none shrink-0"
+                >
+                  クリア
+                </Button>
+              )}
+            </div>
+          </CardContent>
+        </Card>
 
         {/* メニューグリッド */}
         <div className="grid gap-3 sm:gap-4 grid-cols-2 sm:grid-cols-2 lg:grid-cols-3">
@@ -396,13 +497,20 @@ function RegisterPageContent() {
                 <span className="font-mono text-sm uppercase tracking-wider">合計金額</span>
                 <span className="font-headline text-2xl sm:text-3xl font-black">¥{getTotalPrice().toLocaleString()}</span>
               </div>
+              {/* 顧客情報サマリー */}
+              {activeCustomer && (
+                <div className="border-[3px] border-border bg-muted/20 p-2 text-xs font-mono">
+                  選択中の顧客: [{activeCustomer.userId}]
+                  {activeCustomer.wristbandId && ` (リストバンド: ${activeCustomer.wristbandId})`}
+                </div>
+              )}
               {/* ボタン群 */}
               <Button
                 className="w-full h-14 border-[3px] border-border bg-primary text-primary-foreground font-mono text-base font-black uppercase rounded-none hover:bg-background hover:text-foreground transition-all"
                 onClick={handleSubmitOrder}
-                disabled={cart.length === 0 || createOrder.isPending}
+                disabled={cart.length === 0 || createOrder.isPending || !activeCustomer}
               >
-                {createOrder.isPending ? "注文中..." : "注文を確定する"}
+                {!activeCustomer ? "【顧客を特定してください】" : createOrder.isPending ? "注文中..." : "注文を確定する"}
               </Button>
               <Button
                 variant="outline"

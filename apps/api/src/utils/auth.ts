@@ -1,5 +1,5 @@
 import { auth } from "@fesflow/auth";
-import { db, membership, getEnv } from "@fesflow/db";
+import { db, membership, circle, getEnv } from "@fesflow/db";
 import { eq, and } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { Context } from "hono";
@@ -33,37 +33,37 @@ export async function getAdminSession(c: Context) {
       .where(
         and(
           eq(membership.userEmail, email),
-          eq(membership.role, "event_admin"),
+          eq(membership.role, "super_admin"),
           eq(membership.isActive, true)
         )
       );
 
     if (existing.length === 0) {
-      // event_admin としてメンバーシップを自動作成
+      // super_admin としてメンバーシップを自動作成
       await db.insert(membership).values({
         id: nanoid(),
         userEmail: email,
         userName: session.user.name || "Super Admin",
-        role: "event_admin",
+        role: "super_admin",
         isActive: true,
       });
     }
     return session;
   }
 
-  // データベースから event_admin 権限を持っているかチェック
+  // データベースから super_admin 権限を持っているかチェック (2026-07-04 SaaS簡素化)
   const adminMembership = await db
     .select()
     .from(membership)
     .where(
       and(
         eq(membership.userEmail, email),
-        eq(membership.role, "event_admin"),
         eq(membership.isActive, true)
       )
     );
 
-  if (adminMembership.length === 0) {
+  const hasSystemAdmin = adminMembership.some((m) => m.role === "super_admin");
+  if (!hasSystemAdmin) {
     return null;
   }
 
@@ -72,38 +72,80 @@ export async function getAdminSession(c: Context) {
 
 export async function hasPermission(
   c: Context,
-  circleId: string,
-  requiredPermission: Permission
+  circleId: string | null,
+  requiredPermission: Permission,
+  eventId?: string
 ): Promise<boolean> {
   const session = await getSession(c);
   if (!session || !session.user) return false;
 
-  const email = session.user.email;
+  const email = session.user.email.toLowerCase();
+  const activeMembershipId = c.req.header("X-Active-Membership-Id");
 
-  // Check if they are event_admin (either via INITIAL_SUPER_ADMIN_EMAIL or db)
-  const adminSession = await getAdminSession(c);
-  if (adminSession) {
-    return true; // event_admin has all permissions
+  let memberships = [];
+  if (activeMembershipId) {
+    // アクティブなメンバーシップが明示されている場合は、そのメンバーシップのみを対象に評価する (SaaSコンテキスト分離)
+    memberships = await db
+      .select()
+      .from(membership)
+      .where(
+        and(
+          eq(membership.id, activeMembershipId),
+          eq(membership.userEmail, email),
+          eq(membership.isActive, true)
+        )
+      );
+  } else {
+    // 互換性維持: 明示されない場合は、ユーザーのすべてのアクティブメンバーシップを取得
+    memberships = await db
+      .select()
+      .from(membership)
+      .where(
+        and(
+          eq(membership.userEmail, email),
+          eq(membership.isActive, true)
+        )
+      );
   }
 
-  // Check specific circle membership
-  const members = await db
-    .select()
-    .from(membership)
-    .where(
-      and(
-        eq(membership.userEmail, email),
-        eq(membership.circleId, circleId),
-        eq(membership.isActive, true)
-      )
-    );
+  if (memberships.length === 0) return false;
 
-  if (members.length === 0) return false;
+  // 1. super_admin のチェック
+  const superAdminM = memberships.find((m) => m.role === "super_admin");
+  if (superAdminM) {
+    return true;
+  }
 
-  // Check permissions based on role
-  const role = members[0]!.role as keyof typeof ROLE_PERMISSIONS;
-  if (!role || !ROLE_PERMISSIONS[role]) return false;
+  // 2. event_manager のチェック (イベント内のすべてのサークル/設定に対して権限を持つ)
+  let resolvedEventId = eventId;
+  if (!resolvedEventId && circleId) {
+    const circles = await db.select().from(circle).where(eq(circle.id, circleId));
+    if (circles.length > 0) {
+      resolvedEventId = circles[0]!.eventId;
+    }
+  }
 
-  const permissions = ROLE_PERMISSIONS[role];
-  return (permissions as readonly string[]).includes(requiredPermission);
+  const eventM = memberships.find((m) => m.role === "event_manager");
+  if (eventM && eventM.eventId) {
+    if (!resolvedEventId || eventM.eventId === resolvedEventId) {
+      const permissions = ROLE_PERMISSIONS["event_manager"];
+      if (permissions && (permissions as readonly string[]).includes(requiredPermission)) {
+        return true;
+      }
+    }
+  }
+
+  // 3. circle_manager / circle_staff のチェック
+  if (circleId) {
+    const circleM = memberships.find((m) => m.circleId === circleId);
+    if (circleM) {
+      const role = circleM.role as keyof typeof ROLE_PERMISSIONS;
+      const permissions = ROLE_PERMISSIONS[role];
+      if (permissions && (permissions as readonly string[]).includes(requiredPermission)) {
+        return true;
+      }
+    }
+  }
+
+  return false;
 }

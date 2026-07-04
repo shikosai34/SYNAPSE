@@ -1,7 +1,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import { useMutation } from "@tanstack/react-query";
-import { preOrderApi, type PreOrderWithDetails } from "@/lib/api";
+import { preOrderApi, wristbandApi, type PreOrderWithDetails } from "@/lib/api";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -14,6 +14,8 @@ interface QrScannerModalProps {
   isOpen: boolean;
   onClose: () => void;
   onOrderClaimed?: (orderNumber: string) => void;
+  mode?: "pre_order" | "customer";
+  onCustomerScanned?: (userId: string, wristbandId: string | null) => void;
 }
 
 export function QrScannerModal({
@@ -21,6 +23,8 @@ export function QrScannerModal({
   isOpen,
   onClose,
   onOrderClaimed,
+  mode = "pre_order",
+  onCustomerScanned,
 }: QrScannerModalProps) {
   const [scannedCode, setScannedCode] = useState("");
   const [preOrders, setPreOrders] = useState<PreOrderWithDetails[]>([]);
@@ -65,6 +69,27 @@ export function QrScannerModal({
     }
     setIsCameraActive(false);
   };
+
+  // 顧客情報ルックアップ (2026-07-04)
+  const lookupCustomerMutation = useMutation({
+    mutationFn: async (code: string) => {
+      return await wristbandApi.lookup(code);
+    },
+    onSuccess: (data) => {
+      if (data.user) {
+        toast.success(`顧客を特定しました: ${data.wristband?.id || data.user.id}`);
+        if (onCustomerScanned) {
+          onCustomerScanned(data.user.id, data.wristband?.id || null);
+        }
+        onClose();
+      } else {
+        toast.error("ユーザーが見つかりませんでした");
+      }
+    },
+    onError: (error: any) => {
+      toast.error(error.message || "照会に失敗しました");
+    },
+  });
 
   // 事前オーダー検索
   const searchMutation = useMutation({
@@ -112,7 +137,11 @@ export function QrScannerModal({
   const handleSearch = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (!scannedCode.trim()) return;
-    searchMutation.mutate(scannedCode.trim());
+    if (mode === "customer") {
+      lookupCustomerMutation.mutate(scannedCode.trim());
+    } else {
+      searchMutation.mutate(scannedCode.trim());
+    }
   };
 
   if (!isOpen) return null;
@@ -128,7 +157,7 @@ export function QrScannerModal({
               <QrCode className="h-5 w-5 sm:h-6 sm:w-6" />
             </div>
             <h2 className="font-mono text-lg sm:text-2xl font-black uppercase tracking-wider">
-              [QR / リストバンド照会]
+              {mode === "customer" ? "[顧客特定 - QR / リストバンド]" : "[QR / リストバンド照会]"}
             </h2>
           </div>
           <button
@@ -192,15 +221,17 @@ export function QrScannerModal({
 
         {/* 検索結果リスト */}
         <div className="max-h-[350px] overflow-y-auto space-y-4 pr-1">
-          {searchMutation.isPending && (
+          {(searchMutation.isPending || lookupCustomerMutation.isPending) && (
             <div className="py-8 text-center font-mono font-bold uppercase">
-              照会中...
+              {mode === "customer" ? "特定中..." : "照会中..."}
             </div>
           )}
 
-          {!searchMutation.isPending && preOrders.length === 0 && (
+          {!searchMutation.isPending && !lookupCustomerMutation.isPending && preOrders.length === 0 && (
             <div className="border-thick border-dashed border-border p-8 text-center font-mono text-muted-foreground">
-              リストバンドQRコードをスキャンするか、IDを入力して「照会」を押してください。
+              {mode === "customer"
+                ? "顧客のリストバンドQRコードをカメラにかざすか、コードを入力して「照会」してください。"
+                : "リストバンドQRコードをスキャンするか、IDを入力して「照会」を押してください。"}
             </div>
           )}
 

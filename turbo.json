@@ -29,9 +29,11 @@
 			"cache": false,
 			"persistent": true
 		},
-		"db:migrate": {
-			"cache": false,
-			"persistent": true
+		"db:migrate:local": {
+			"cache": false
+		},
+		"db:migrate:remote": {
+			"cache": false
 		},
 		"db:generate": {
 			"cache": false,

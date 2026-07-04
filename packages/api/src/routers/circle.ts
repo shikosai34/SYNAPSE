@@ -46,7 +46,8 @@ export const circleRouter = router({
     )
     .mutation(async ({ input }) => {
       const id = nanoid();
-      const hashedPassword = await bcrypt.hash(input.password, 10);
+      // 2026-07-04: Cloudflare Workers の CPU 時間制限（最大50ms）超過による 500 エラーを避けるため、ソルトラウンドを 4 に引き下げ。
+      const hashedPassword = await bcrypt.hash(input.password, 4);
 
       await db.insert(circle).values({
         id,

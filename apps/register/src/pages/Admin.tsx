@@ -2,7 +2,8 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { eventApi, circleApi } from "@/lib/api";
-import { AdminAuthGuard } from "@/hooks/useCircleAuth";
+import { AdminAuthGuard, getAuthInfo, saveAuthInfo, useAuth } from "@/hooks/useCircleAuth";
+import { useNavigate } from "react-router-dom";
 import {
   Card,
   CardContent,
@@ -29,7 +30,11 @@ import { toast } from "sonner";
 import Link from "@/components/link";
 
 export default function AdminPage() {
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { role } = useAuth();
+  const isSystemAdmin = role === "super_admin" || role === "system_manager" || role === "system_staff";
+
   const [showEventForm, setShowEventForm] = useState(false);
   const [showCircleForm, setShowCircleForm] = useState(false);
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
@@ -235,10 +240,12 @@ export default function AdminPage() {
             <Calendar className="h-6 w-6" />
             イベント選択
           </h2>
-          <Button onClick={() => setShowEventForm(!showEventForm)}>
-            <Plus className="mr-2 h-4 w-4" />
-            新規イベント
-          </Button>
+          {isSystemAdmin && (
+            <Button onClick={() => setShowEventForm(!showEventForm)}>
+              <Plus className="mr-2 h-4 w-4" />
+              新規イベント
+            </Button>
+          )}
         </div>
 
         {/* イベント作成フォーム */}
@@ -690,11 +697,31 @@ export default function AdminPage() {
                         <CardDescription>{cir.description}</CardDescription>
                       )}
                     </CardHeader>
-                    <CardContent>
+                    <CardContent className="space-y-4">
                       <div className="text-xs text-muted-foreground space-y-1">
                         <p>代表者: {cir.managerName || "未設定"} ({cir.managerEmail || "未設定"})</p>
                         <p className="mt-2">ID: {cir.id}</p>
                       </div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="w-full mt-2 font-headline uppercase tracking-wider"
+                        onClick={() => {
+                          const authInfo = getAuthInfo();
+                          if (authInfo) {
+                            saveAuthInfo({
+                              ...authInfo,
+                              circleId: cir.id,
+                              circleName: cir.name,
+                              role: "circle_manager",
+                            });
+                            toast.success(`「${cir.name}」のダッシュボードに移動します`);
+                            navigate("/dashboard");
+                          }
+                        }}
+                      >
+                        このサークルを管理
+                      </Button>
                     </CardContent>
                   </Card>
                 ))}

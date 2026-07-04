@@ -16,7 +16,7 @@
 			"database_name": "fesflow-db",
 			// `wrangler d1 create fesflow-db` 実行後に表示される id に置き換える。
 			// ローカル (--local) では任意の値で動作する。
-			"database_id": "REPLACE_WITH_D1_DATABASE_ID",
+			"database_id": "f7122e10-3ca6-4bb6-8996-b03eb46bb984",
 			"migrations_dir": "../../packages/db/src/migrations"
 		}
 	],

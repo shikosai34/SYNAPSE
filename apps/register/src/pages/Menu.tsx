@@ -104,6 +104,7 @@ function MenuPageContent() {
       if (!selectedCircleId || cart.length === 0) return;
       return await orderApi.create({
         circleId: selectedCircleId,
+        userId, // 2026-07-04: リストバンド/QR必須化対応
         peopleCount: 1,
         items: cart.map((item) => ({
           menuId: item.menuId,

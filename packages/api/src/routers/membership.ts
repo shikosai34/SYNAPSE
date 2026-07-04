@@ -16,13 +16,13 @@ import bcrypt from "bcryptjs";
 
 // ロールのZodスキーマ
 const roleSchema = z.enum([
-  "event_admin",
+  "super_admin",
+  "system_manager",
+  "system_staff",
+  "event_manager",
+  "event_staff",
   "circle_manager",
-  "cashier",
-  "kitchen_staff",
-  "waiter",
-  "stock_manager",
-  "viewer",
+  "circle_staff",
 ]);
 
 // 権限チェックヘルパー関数
@@ -37,13 +37,13 @@ export function canManageRole(
   targetRole: RoleType
 ): boolean {
   const hierarchy: Record<RoleType, number> = {
-    event_admin: 100,
-    circle_manager: 80,
-    stock_manager: 60,
-    cashier: 50,
-    kitchen_staff: 50,
-    waiter: 40,
-    viewer: 10,
+    [ROLES.SUPER_ADMIN]: 100,
+    [ROLES.SYSTEM_MANAGER]: 95,
+    [ROLES.SYSTEM_STAFF]: 90,
+    [ROLES.EVENT_MANAGER]: 80,
+    [ROLES.EVENT_STAFF]: 70,
+    [ROLES.CIRCLE_MANAGER]: 60,
+    [ROLES.CIRCLE_STAFF]: 50,
   };
 
   return hierarchy[managerRole] > hierarchy[targetRole];
@@ -162,7 +162,8 @@ export const membershipRouter = router({
     .mutation(async ({ input }) => {
       const id = nanoid();
       const hashedPin = input.pin
-        ? await bcrypt.hash(input.pin, 10)
+        // 2026-07-04: Cloudflare Workers の CPU 時間制限（最大50ms）超過による 500 エラーを避けるため、ソルトラウンドを 4 に引き下げ。
+        ? await bcrypt.hash(input.pin, 4)
         : undefined;
 
       await db.insert(membership).values({
@@ -309,7 +310,8 @@ export const membershipRouter = router({
       // メンバーシップを作成
       const id = nanoid();
       const hashedPin = input.pin
-        ? await bcrypt.hash(input.pin, 10)
+        // 2026-07-04: Cloudflare Workers の CPU 時間制限超過防止のため、ソルトラウンドを 4 に設定。
+        ? await bcrypt.hash(input.pin, 4)
         : undefined;
 
       await db.insert(membership).values({
@@ -419,33 +421,33 @@ export const membershipRouter = router({
     return {
       roles: ROLES,
       roleDescriptions: {
-        [ROLES.EVENT_ADMIN]: {
-          name: "イベント管理者",
-          description: "イベント全体の管理権限を持つ最上位の管理者",
+        [ROLES.SUPER_ADMIN]: {
+          name: "システム最高管理者",
+          description: "システム全体の管理権限を持つ最上位の管理者",
+        },
+        [ROLES.SYSTEM_MANAGER]: {
+          name: "システムマネージャー",
+          description: "システム全体の設定や売上閲覧などを行う管理者",
+        },
+        [ROLES.SYSTEM_STAFF]: {
+          name: "システムスタッフ",
+          description: "システム全体の閲覧が可能なスタッフ",
+        },
+        [ROLES.EVENT_MANAGER]: {
+          name: "イベントマネージャー",
+          description: "イベント全体の管理権限を持つ主催者管理者",
+        },
+        [ROLES.EVENT_STAFF]: {
+          name: "イベントスタッフ",
+          description: "イベント運営を補助するスタッフ",
         },
         [ROLES.CIRCLE_MANAGER]: {
           name: "サークルマネージャー",
-          description: "サークルの設定、メニュー、スタッフを管理できる",
+          description: "サークルの設定、メニュー、スタッフを管理できる店舗責任者",
         },
-        [ROLES.CASHIER]: {
-          name: "レジ担当",
-          description: "注文の作成と管理ができる",
-        },
-        [ROLES.KITCHEN_STAFF]: {
-          name: "厨房スタッフ",
-          description: "注文の確認と完了操作ができる",
-        },
-        [ROLES.WAITER]: {
-          name: "ウェイター",
-          description: "注文の提供確認ができる",
-        },
-        [ROLES.STOCK_MANAGER]: {
-          name: "在庫管理",
-          description: "在庫の確認と更新ができる",
-        },
-        [ROLES.VIEWER]: {
-          name: "閲覧者",
-          description: "メニューと注文状況の閲覧のみ",
+        [ROLES.CIRCLE_STAFF]: {
+          name: "サークルスタッフ",
+          description: "模擬店のレジ・調理・在庫などを担当する店舗スタッフ",
         },
       },
     };

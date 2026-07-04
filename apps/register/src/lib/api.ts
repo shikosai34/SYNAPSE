@@ -16,12 +16,25 @@ async function fetchApi<T>(
 ): Promise<T> {
   const { method = "GET", body, headers = {} } = options;
 
+  const headersObj: Record<string, string> = {
+    "Content-Type": "application/json",
+    ...headers,
+  };
+
+  // ローカルストレージのアクティブメンバーシップIDをヘッダーに注入 (2026-07-04 SaaS権限隔離対応)
+  const authStored = localStorage.getItem("circleAuth");
+  if (authStored) {
+    try {
+      const authInfo = JSON.parse(authStored);
+      if (authInfo.membershipId) {
+        headersObj["X-Active-Membership-Id"] = authInfo.membershipId;
+      }
+    } catch (_) {}
+  }
+
   const config: RequestInit = {
     method,
-    headers: {
-      "Content-Type": "application/json",
-      ...headers,
-    },
+    headers: headersObj,
     credentials: "include",
   };
 
@@ -51,17 +64,19 @@ async function fetchApi<T>(
 }
 
 // Event API
+// 2026-07-04: 広告ブロック(Adblocker/Brave Shield)による誤認検知(ERR_BLOCKED_BY_CLIENT)を避けるため、
+// エンドポイントを /api/events から /api/festivals に変更。
 export const eventApi = {
-  list: () => fetchApi<Event[]>("/api/events"),
-  get: (id: string) => fetchApi<Event>(`/api/events/${id}`),
+  list: () => fetchApi<Event[]>("/api/festivals"),
+  get: (id: string) => fetchApi<Event>(`/api/festivals/${id}`),
   create: (data: CreateEventInput) =>
-    fetchApi<{ id: string }>("/api/events", { method: "POST", body: data }),
+    fetchApi<{ id: string }>("/api/festivals", { method: "POST", body: data }),
   updateTheme: (id: string, data: EventTheme) =>
-    fetchApi<Event>(`/api/events/${id}/theme`, { method: "PUT", body: data }),
+    fetchApi<Event>(`/api/festivals/${id}/theme`, { method: "PUT", body: data }),
   delete: (id: string) =>
-    fetchApi<{ success: boolean }>(`/api/events/${id}`, { method: "DELETE" }),
+    fetchApi<{ success: boolean }>(`/api/festivals/${id}`, { method: "DELETE" }),
   login: (data: LoginInput) =>
-    fetchApi<LoginResponse>("/api/events/login", {
+    fetchApi<LoginResponse>("/api/festivals/login", {
       method: "POST",
       body: data,
     }),
@@ -533,6 +548,7 @@ export interface UpdateStaffInput {
 
 export interface CreateOrderInput {
   circleId: string;
+  userId: string; // 2026-07-04: リストバンド/QR必須化のため追加
   staffId?: string;
   peopleCount?: number;
   items: {

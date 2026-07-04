@@ -80,7 +80,9 @@ app.use(
 );
 
 // REST ルート登録
-app.route("/api/events", eventRoutes);
+// 2026-07-04: /api/events は広告ブロック機能(uBlock, Brave Shield等)に telemetry 送信と誤認され
+// net::ERR_BLOCKED_BY_CLIENT で遮断されるため、恒久回避策として /api/festivals に改名。
+app.route("/api/festivals", eventRoutes);
 app.route("/api/circles", circleRoutes);
 app.route("/api/menus", menuRoutes);
 app.route("/api/toppings", toppingRoutes);
@@ -137,10 +139,33 @@ app.post("/api/upload", async (c) => {
       cacheControl: "public, max-age=31536000, immutable",
     });
 
-    return c.json({ path: storage.publicUrl(key), key, ext });
+    // 2026-07-04: 本番ドメインに自動追従させるため、リクエストの Origin から動的に公開 URL を生成
+    const url = new URL(c.req.url);
+    const publicUrl = `${url.origin}/${key}`;
+
+    return c.json({ path: publicUrl, key, ext });
   } catch (error) {
     console.error("Upload error:", error);
     return c.json({ error: "アップロードに失敗しました" }, 500);
+  }
+});
+
+// 2026-07-04: R2 / MinIO からアップロードファイルを配信するルートを追加 (カスタムドメイン・公開設定不要化)
+app.get("/uploads/*", async (c) => {
+  try {
+    const key = c.req.path.replace(/^\//, "");
+    const storage = createStorage(c.env as WorkerEnv);
+    const obj = await storage.get(key);
+    if (!obj) {
+      return c.text("Not Found", 404);
+    }
+    return c.body(obj.body, 200, {
+      "Content-Type": obj.contentType || "application/octet-stream",
+      "Cache-Control": "public, max-age=31536000, immutable",
+    });
+  } catch (error) {
+    console.error("Failed to serve upload:", error);
+    return c.text("Internal Server Error", 500);
   }
 });
 

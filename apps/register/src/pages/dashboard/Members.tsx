@@ -153,12 +153,13 @@ function MembersContent() {
 
   const getRoleBadgeVariant = (role: string) => {
     switch (role) {
-      case "event_admin":
+      case "super_admin":
+      case "system_manager":
+      case "event_manager":
         return "error";
       case "circle_manager":
         return "active";
-      case "cashier":
-      case "kitchen_staff":
+      case "circle_staff":
         return "warning";
       default:
         return "default";
@@ -240,14 +241,10 @@ function MembersContent() {
                 >
                   {Object.entries(ROLES)
                     .filter(([key, value]) => {
-                      if (role === ROLES.EVENT_ADMIN) return true;
-                      return ([
-                        ROLES.CASHIER,
-                        ROLES.KITCHEN_STAFF,
-                        ROLES.WAITER,
-                        ROLES.STOCK_MANAGER,
-                        ROLES.VIEWER,
-                      ] as RoleType[]).includes(value as RoleType);
+                      return [
+                        ROLES.CIRCLE_MANAGER,
+                        ROLES.CIRCLE_STAFF,
+                      ].includes(value as any);
                     })
                     .map(([key, value]) => (
                     <option key={value} value={value}>
@@ -314,14 +311,10 @@ function MembersContent() {
                 >
                   {Object.entries(ROLES)
                     .filter(([key, value]) => {
-                      if (role === ROLES.EVENT_ADMIN) return true;
-                      return ([
-                        ROLES.CASHIER,
-                        ROLES.KITCHEN_STAFF,
-                        ROLES.WAITER,
-                        ROLES.STOCK_MANAGER,
-                        ROLES.VIEWER,
-                      ] as RoleType[]).includes(value as RoleType);
+                      return [
+                        ROLES.CIRCLE_MANAGER,
+                        ROLES.CIRCLE_STAFF,
+                      ].includes(value as any);
                     })
                     .map(([key, value]) => (
                     <option key={value} value={value}>

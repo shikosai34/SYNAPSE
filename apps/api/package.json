@@ -7,8 +7,8 @@
     "deploy": "wrangler deploy",
     "check-types": "tsc -b",
     "cf-typegen": "wrangler types",
-    "db:migrate:local": "wrangler d1 migrations apply fesflow-db --local",
-    "db:migrate:remote": "wrangler d1 migrations apply fesflow-db --remote"
+    "db:migrate:local": "CI=true wrangler d1 migrations apply fesflow-db --local",
+    "db:migrate:remote": "CI=true wrangler d1 migrations apply fesflow-db --remote"
   },
   "dependencies": {
     "@hono/trpc-server": "^0.4.0",

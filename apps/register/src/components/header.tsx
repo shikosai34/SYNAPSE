@@ -2,19 +2,23 @@ import { useState } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { Button } from "./ui/button";
 import { toast } from "sonner";
-import { Menu, X } from "lucide-react";
+import { Menu, X, ChevronDown } from "lucide-react";
 import { PRODUCT_NAME } from "@fesflow/config";
 import {
   useAuth,
   clearAuthInfo,
   hasPermission,
+  useMySpaces,
+  saveAuthInfo,
 } from "@/hooks/useCircleAuth";
 
 export default function Header() {
   const navigate = useNavigate();
   const pathname = useLocation().pathname;
-  const { role, userName, circleName, isLoading, isAuthenticated, isEventAdmin } =
+  const { role, userName, circleName, isLoading, isAuthenticated, isEventAdmin, userEmail } =
     useAuth();
+  const { data: spaces } = useMySpaces();
+  const [switcherOpen, setSwitcherOpen] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
 
   const handleLogout = () => {
@@ -22,8 +26,96 @@ export default function Header() {
     localStorage.removeItem("circleName");
     localStorage.removeItem("eventName");
     toast.success("ログアウトしました");
-    navigate("/circle-login");
+    navigate("/login");
     setMobileOpen(false);
+  };
+
+  const getAvailableSpaces = () => {
+    if (!spaces) return [];
+    const list: Array<{
+      id: string;
+      type: "system" | "event" | "circle";
+      name: string;
+      role: string;
+      circleId?: string | null;
+      eventId?: string | null;
+    }> = [];
+
+    spaces.forEach((m: any) => {
+      if (["super_admin", "system_manager", "system_staff"].includes(m.role)) {
+        list.push({
+          id: m.id,
+          type: "system",
+          name: "システム管理",
+          role: m.role,
+        });
+      } else if (m.eventId && !m.circleId) {
+        list.push({
+          id: m.id,
+          type: "event",
+          name: m.event?.eventName || `イベント: ${m.eventId}`,
+          role: m.role,
+          eventId: m.eventId,
+        });
+      } else if (m.circleId) {
+        list.push({
+          id: m.id,
+          type: "circle",
+          name: m.circle?.name || `サークル: ${m.circleId}`,
+          role: m.role,
+          circleId: m.circleId,
+          eventId: m.eventId,
+        });
+      }
+    });
+    return list;
+  };
+
+  const handleSwitchSpace = (space: any) => {
+    const email = userEmail || "";
+    const name = userName || null;
+
+    if (space.type === "system") {
+      saveAuthInfo({
+        circleId: null,
+        eventId: null,
+        userEmail: email,
+        userName: name,
+        role: space.role,
+        membershipId: space.id,
+        circleName: null,
+        isEventAdmin: true,
+      });
+      toast.success(`システム管理者権限へ切り替えました`);
+      navigate("/admin");
+    } else if (space.type === "event") {
+      saveAuthInfo({
+        circleId: null,
+        eventId: space.eventId,
+        userEmail: email,
+        userName: name,
+        role: space.role,
+        membershipId: space.id,
+        circleName: null,
+        isEventAdmin: true,
+      });
+      toast.success(`イベント [${space.name}] の管理者へ切り替えました`);
+      navigate("/admin");
+    } else if (space.type === "circle") {
+      saveAuthInfo({
+        circleId: space.circleId,
+        eventId: space.eventId,
+        userEmail: email,
+        userName: name,
+        role: space.role,
+        membershipId: space.id,
+        circleName: space.name,
+        isEventAdmin: false,
+      });
+      toast.success(`店舗 [${space.name}] へ切り替えました`);
+      navigate("/dashboard");
+    }
+    setSwitcherOpen(false);
   };
 
   const allLinks: Array<{
@@ -91,12 +183,44 @@ export default function Header() {
 
         {/* 右サイド */}
         <div className="flex items-center gap-2 shrink-0">
-          {/* ユーザー名（デスクトップのみ） */}
+          {/* ユーザー名/スペース切り替え器（デスクトップのみ） */}
           {!isClientView && isAuthenticated && !isLoading && (
-            <div className="hidden md:flex items-center gap-1.5 font-mono text-[11px]">
-              <span className="bg-muted border-[1.5px] border-border px-2 py-1 font-bold">
-                {circleName || userName || "スタッフ"}
-              </span>
+            <div className="relative hidden md:block">
+              <button
+                onClick={() => setSwitcherOpen(!switcherOpen)}
+                className="flex items-center gap-1.5 bg-muted border-[2.5px] border-border px-3 py-1.5 font-mono text-[11px] font-bold hover:bg-muted/80 select-none cursor-pointer"
+              >
+                <span>
+                  {circleName
+                    ? `店舗: ${circleName}`
+                    : (role === "super_admin" || role === "system_manager")
+                    ? "システム管理"
+                    : "イベント管理"}
+                </span>
+                <ChevronDown className="h-3.5 w-3.5" />
+              </button>
+
+              {switcherOpen && (
+                <div className="absolute right-0 mt-1.5 w-64 bg-background border-[2.5px] border-border shadow-none py-1 z-50 text-left">
+                  <div className="px-3 py-1 border-b border-border bg-muted/50 font-headline text-[10px] text-muted-foreground uppercase tracking-wider font-bold">
+                    スペースを切り替える
+                  </div>
+                  <div className="max-h-60 overflow-y-auto">
+                    {getAvailableSpaces().map((space) => (
+                      <button
+                        key={space.id}
+                        onClick={() => handleSwitchSpace(space)}
+                        className="w-full px-3 py-2 text-left hover:bg-primary hover:text-primary-foreground font-mono text-[11px] font-bold block border-b border-border/10 last:border-b-0 cursor-pointer"
+                      >
+                        <div className="uppercase text-[9px] text-muted-foreground font-black tracking-widest hover:text-primary-foreground/70">
+                          {space.type.toUpperCase()} | {space.role}
+                        </div>
+                        <div className="truncate">{space.name}</div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -116,7 +240,7 @@ export default function Header() {
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => navigate("/circle-login")}
+                  onClick={() => navigate("/login")}
                   className="h-8 text-xs font-mono px-3"
                 >
                   ログイン
@@ -139,12 +263,35 @@ export default function Header() {
       {/* モバイルドロワー */}
       {mobileOpen && (
         <div className="md:hidden bg-background border-t-[3px] border-border">
-          {/* ユーザー情報 */}
+          {/* ユーザー情報とスペース選択（モバイル） */}
           {!isClientView && isAuthenticated && !isLoading && (
-            <div className="px-4 py-3 border-b-[2px] border-border bg-muted">
-              <span className="font-mono text-[12px] uppercase tracking-[1px] font-bold">
-                {circleName || userName || "スタッフ"}
-              </span>
+            <div className="px-4 py-3 border-b-[2px] border-border bg-muted space-y-2">
+              <div className="font-mono text-[12px] uppercase tracking-[1px] font-bold">
+                現在のスペース: {circleName ? `店舗: ${circleName}` : (role === "super_admin" || role === "system_manager") ? "システム管理" : "イベント管理"}
+              </div>
+              
+              {/* スペース切り替えリスト */}
+              {getAvailableSpaces().length > 1 && (
+                <div className="space-y-1 pt-1.5 border-t border-border/20">
+                  <div className="font-headline text-[9px] text-muted-foreground uppercase font-black tracking-widest">
+                    スペース切り替え:
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    {getAvailableSpaces().map((space) => (
+                      <button
+                        key={space.id}
+                        onClick={() => {
+                          handleSwitchSpace(space);
+                          setMobileOpen(false);
+                        }}
+                        className="text-left px-2 py-1.5 bg-background border border-border text-[11px] font-mono font-bold truncate hover:bg-primary hover:text-primary-foreground transition-all cursor-pointer"
+                      >
+                        [{space.type.toUpperCase()}] {space.name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 

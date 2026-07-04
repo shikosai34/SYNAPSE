@@ -36,44 +36,36 @@ export default function SignInForm({
 						try {
 							const memberships = await membershipApi.listMy(value.email);
 							
-							const adminMembership = memberships.find((m) => m.role === "event_admin");
+							const systemMembership = memberships.find((m) => ["super_admin", "system_manager", "system_staff"].includes(m.role));
+							const eventMembership = memberships.find((m) => ["event_manager", "event_staff"].includes(m.role));
 							const circleMembership = memberships.find((m) => m.circleId);
 
-							if (adminMembership && circleMembership) {
-								saveAuthInfo({
-									circleId: circleMembership.circleId,
-									eventId: circleMembership.eventId || adminMembership.eventId,
-									userEmail: adminMembership.userEmail,
-									userName: adminMembership.userName || circleMembership.userName,
-									role: circleMembership.role as any,
-									membershipId: circleMembership.id,
-									circleName: circleMembership.circle?.name || null,
-									isEventAdmin: true,
-									adminMembershipId: adminMembership.id,
-									adminEventId: adminMembership.eventId,
-								});
-
-								if (circleMembership.circle) {
-									localStorage.setItem("circleName", circleMembership.circle.name);
-								}
-
-								navigate((callbackUrl as any) || "/dashboard");
-								toast.success(`管理者 + ${circleMembership.circle?.name || "サークル"}としてログインしました`);
-							} else if (adminMembership) {
+							if (systemMembership) {
 								saveAuthInfo({
 									circleId: null,
-									eventId: adminMembership.eventId,
-									userEmail: adminMembership.userEmail,
-									userName: adminMembership.userName,
-									role: "event_admin",
-									membershipId: adminMembership.id,
+									eventId: null,
+									userEmail: systemMembership.userEmail,
+									userName: systemMembership.userName,
+									role: systemMembership.role,
+									membershipId: systemMembership.id,
 									circleName: null,
 									isEventAdmin: true,
-									adminMembershipId: adminMembership.id,
-									adminEventId: adminMembership.eventId,
 								});
 								navigate((callbackUrl as any) || "/admin");
-								toast.success("管理者としてログインしました");
+								toast.success(`システム管理スペースにログインしました (${systemMembership.role})`);
+							} else if (eventMembership) {
+								saveAuthInfo({
+									circleId: null,
+									eventId: eventMembership.eventId,
+									userEmail: eventMembership.userEmail,
+									userName: eventMembership.userName,
+									role: eventMembership.role,
+									membershipId: eventMembership.id,
+									circleName: null,
+									isEventAdmin: true,
+								});
+								navigate((callbackUrl as any) || "/admin");
+								toast.success(`イベント管理スペースにログインしました (${eventMembership.role})`);
 							} else if (circleMembership) {
 								saveAuthInfo({
 									circleId: circleMembership.circleId,
@@ -90,7 +82,7 @@ export default function SignInForm({
 								}
 
 								navigate((callbackUrl as any) || "/dashboard");
-								toast.success(`${circleMembership.userName}さんとしてログインしました`);
+								toast.success(`${circleMembership.userName}さんとして [${circleMembership.circle?.name || "サークル"}] にログインしました`);
 							} else {
 								navigate((callbackUrl as any) || "/dashboard");
 								toast.success("ログインしました");
