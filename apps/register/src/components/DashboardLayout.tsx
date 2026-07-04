@@ -1,4 +1,4 @@
-import { ReactNode } from "react";
+import { ReactNode, useState } from "react";
 import { useLocation } from "react-router-dom";
 import Link from "@/components/link";
 import { cn } from "@/lib/utils";
@@ -15,7 +15,9 @@ import {
   Shield,
   Calendar,
   Lock,
-  Smartphone
+  Smartphone,
+  ChevronDown,
+  ChevronUp
 } from "lucide-react";
 
 interface MenuItem {
@@ -43,6 +45,7 @@ export default function DashboardLayout({
   onTabChange
 }: DashboardLayoutProps) {
   const location = useLocation();
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   // サークル管理のメニュー項目
   const circleMenuItems: MenuItem[] = [
@@ -79,6 +82,13 @@ export default function DashboardLayout({
       ? eventMenuItems
       : systemMenuItems;
 
+  const activeItem = menuItems.find((item) => {
+    if (type === "circle") {
+      return location.pathname === item.href;
+    }
+    return activeTab === item.tab;
+  });
+
   return (
     <div className="max-w-7xl mx-auto p-4 md:p-6 font-mono bg-background text-foreground">
       {/* 共通ヘッダー */}
@@ -97,11 +107,72 @@ export default function DashboardLayout({
         </div>
       </div>
 
+      {/* モバイルアコーディオンメニュー (md未満) */}
+      <div className="md:hidden w-full border-[1px] border-border bg-background mb-4">
+        <button
+          onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+          className="flex items-center justify-between w-full px-4 py-3 text-xs font-bold uppercase cursor-pointer"
+        >
+          <span className="flex items-center gap-2">
+            {activeItem ? <activeItem.icon className="h-4 w-4 shrink-0 text-muted-foreground" /> : null}
+            {activeItem ? activeItem.title : "メニューを選択"}
+          </span>
+          {isMobileMenuOpen ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+        </button>
+
+        {isMobileMenuOpen && (
+          <nav className="border-t border-border p-1.5 space-y-1 bg-background">
+            {menuItems.map((item, idx) => {
+              const Icon = item.icon;
+              const isCircleActive = type === "circle" && location.pathname === item.href;
+              const isTabActive = type !== "circle" && activeTab === item.tab;
+              const isActive = isCircleActive || isTabActive;
+
+              const baseClass = cn(
+                "flex items-center gap-2 px-3 py-2 text-[12px] font-bold uppercase rounded-none transition-all border border-transparent w-full select-none cursor-pointer text-left",
+                isActive
+                  ? "bg-primary text-primary-foreground border-primary"
+                  : "hover:bg-muted text-muted-foreground hover:text-foreground"
+              );
+
+              const handleItemClick = () => {
+                setIsMobileMenuOpen(false);
+                if (type !== "circle" && item.tab && onTabChange) {
+                  onTabChange(item.tab);
+                }
+              };
+
+              if (type === "circle" && item.href) {
+                return (
+                  <Link key={idx} href={item.href as any} className="block w-full" onClick={() => setIsMobileMenuOpen(false)}>
+                    <span className={baseClass}>
+                      <Icon className="h-4 w-4 shrink-0" />
+                      {item.title}
+                    </span>
+                  </Link>
+                );
+              } else {
+                return (
+                  <button
+                    key={idx}
+                    onClick={handleItemClick}
+                    className={baseClass}
+                  >
+                    <Icon className="h-4 w-4 shrink-0" />
+                    {item.title}
+                  </button>
+                );
+              }
+            })}
+          </nav>
+        )}
+      </div>
+
       {/* 2カラムレイアウト */}
       <div className="flex flex-col md:flex-row gap-6 items-start">
-        {/* 左サイドバー: PCでは縦並び、モバイルでは横スクロールメニュー */}
-        <aside className="w-full md:w-64 shrink-0 border-[1px] border-border bg-background p-2 rounded-none shadow-none md:sticky md:top-4">
-          <nav className="flex md:flex-col overflow-x-auto md:overflow-x-visible no-scrollbar gap-1 pb-2 md:pb-0">
+        {/* 左サイドバー: PCでは縦並び、モバイルでは非表示 (アコーディオンがカバーするため) */}
+        <aside className="hidden md:block w-full md:w-64 shrink-0 border-[1px] border-border bg-background p-2 rounded-none shadow-none md:sticky md:top-4">
+          <nav className="flex md:flex-col gap-1">
             {menuItems.map((item, idx) => {
               const Icon = item.icon;
               const isCircleActive = type === "circle" && location.pathname === item.href;

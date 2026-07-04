@@ -3,6 +3,7 @@ import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { CircleAuthGuard } from "@/hooks/useCircleAuth";
 import { menuApi, toppingApi } from "@/lib/api";
+import DashboardLayout from "@/components/DashboardLayout";
 import {
   Card,
   CardContent,
@@ -21,6 +22,7 @@ import Image from "@/components/image";
 
 function MenuManagementContent() {
   const [circleId, setCircleId] = useState<string>("");
+  const [circleName, setCircleName] = useState<string>("サークルダッシュボード");
   const [isAddingMenu, setIsAddingMenu] = useState(false);
   const [isAddingTopping, setIsAddingTopping] = useState(false);
   const [editingMenuId, setEditingMenuId] = useState<string | null>(null);
@@ -50,7 +52,20 @@ function MenuManagementContent() {
     if (storedCircleId) {
       setCircleId(storedCircleId);
     }
+    const authStored = localStorage.getItem("circleAuth");
+    if (authStored) {
+      try {
+        const authInfo = JSON.parse(authStored);
+        if (authInfo.circleName) {
+          setFormCircleName(authInfo.circleName);
+        }
+      } catch (_) {}
+    }
   }, []);
+
+  function setFormCircleName(name: string) {
+    setCircleName(name);
+  }
 
   const {
     data: menus,
@@ -246,18 +261,25 @@ function MenuManagementContent() {
 
   if (menusLoading || toppingsLoading) {
     return (
-      <div className="container mx-auto p-4 space-y-4">
-        <Skeleton className="h-12 w-64" />
-        <Skeleton className="h-96" />
-      </div>
+      <DashboardLayout title={circleName} subtitle="メニュー・トッピング管理" type="circle">
+        <div className="space-y-4">
+          <Skeleton className="h-12 w-64" />
+          <Skeleton className="h-96" />
+        </div>
+      </DashboardLayout>
     );
   }
 
   return (
-    <div className="container mx-auto p-6 space-y-8">
-      <h1 className="text-3xl font-bold">メニュー・トッピング管理</h1>
-
-      {/* メニューセクション */}
+    <DashboardLayout title={circleName} subtitle="メニュー・トッピング管理" type="circle">
+      <div className="space-y-6">
+        <div className="flex justify-between items-center border-b-[1px] border-border pb-3">
+          <h2 className="text-sm font-bold uppercase tracking-wider">[メニュー一覧]</h2>
+          <Button onClick={() => setIsAddingMenu(true)} className="rounded-none border-[1px] border-primary bg-primary text-primary-foreground hover:bg-background hover:text-foreground h-8 text-[11px] font-bold shadow-none px-3">
+            <Plus className="mr-1.5 h-3.5 w-3.5" />
+            メニューを追加
+          </Button>
+        </div>
       <div className="space-y-4">
         <div className="flex justify-between items-center">
           <h2 className="text-2xl font-semibold">メニュー</h2>
@@ -517,7 +539,8 @@ function MenuManagementContent() {
           ))}
         </div>
       </div>
-    </div>
+      </div>
+    </DashboardLayout>
   );
 }
 

@@ -1,5 +1,5 @@
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   CircleAuthGuard,
@@ -8,6 +8,7 @@ import {
 } from "@/hooks/useCircleAuth";
 import { staffApi } from "@/lib/api";
 import type { Staff } from "@/lib/api";
+import DashboardLayout from "@/components/DashboardLayout";
 import {
   Card,
   CardContent,
@@ -37,6 +38,7 @@ import {
 function StaffManagementContent() {
   const { circleId } = useAuth();
   const queryClient = useQueryClient();
+  const [circleName, setCircleName] = useState<string>("サークルダッシュボード");
   const [isAddingStaff, setIsAddingStaff] = useState(false);
   const [editingStaffId, setEditingStaffId] = useState<string | null>(null);
 
@@ -46,6 +48,18 @@ function StaffManagementContent() {
     shiftStart: "",
     shiftEnd: "",
   });
+
+  useEffect(() => {
+    const authStored = localStorage.getItem("circleAuth");
+    if (authStored) {
+      try {
+        const authInfo = JSON.parse(authStored);
+        if (authInfo.circleName) {
+          setCircleName(authInfo.circleName);
+        }
+      } catch (_) {}
+    }
+  }, []);
 
   // スタッフ一覧取得
   const {
@@ -180,209 +194,209 @@ function StaffManagementContent() {
 
   if (isLoading) {
     return (
-      <div className="container mx-auto p-6 space-y-4">
-        <Skeleton className="h-12 w-64" />
-        <Skeleton className="h-32" />
-        <Skeleton className="h-96" />
-      </div>
+      <DashboardLayout title={circleName} subtitle="スタッフ管理" type="circle">
+        <div className="space-y-4">
+          <Skeleton className="h-12 w-64" />
+          <Skeleton className="h-32" />
+          <Skeleton className="h-96" />
+        </div>
+      </DashboardLayout>
     );
   }
 
   return (
-    <div className="container mx-auto p-6 space-y-8">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold flex items-center gap-2">
-            <Users className="h-8 w-8" />
-            スタッフ管理
-          </h1>
-          <p className="text-muted-foreground">スタッフの追加とシフト管理</p>
+    <DashboardLayout title={circleName} subtitle="スタッフ管理" type="circle">
+      <div className="space-y-6">
+        <div className="flex justify-between items-center border-b-[1px] border-border pb-3">
+          <h2 className="text-sm font-bold flex items-center gap-2 uppercase tracking-wider">
+            <Users className="h-4 w-4" />
+            スタッフ一覧
+          </h2>
+          <PermissionGuard permission="staff:write">
+            <Button onClick={() => setIsAddingStaff(true)} className="rounded-none border-[1px] border-primary bg-primary text-primary-foreground hover:bg-background hover:text-foreground h-8 text-[11px] font-bold shadow-none px-3">
+              <Plus className="mr-1.5 h-3.5 w-3.5" />
+              スタッフを追加
+            </Button>
+          </PermissionGuard>
         </div>
-        <PermissionGuard permission="staff:write">
-          <Button onClick={() => setIsAddingStaff(true)}>
-            <Plus className="mr-2 h-4 w-4" />
-            スタッフを追加
-          </Button>
-        </PermissionGuard>
-      </div>
 
-      {/* 現在シフト中のスタッフ */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Clock className="h-5 w-5 text-green-500" />
-            現在シフト中
-          </CardTitle>
-          <CardDescription>現在勤務中のスタッフ一覧</CardDescription>
-        </CardHeader>
-        <CardContent>
-          {currentShiftStaff && currentShiftStaff.length > 0 ? (
-            <div className="flex flex-wrap gap-2">
-              {currentShiftStaff.map((staff) => (
-                <Badge
-                  key={staff.id}
-                  variant="default"
-                  className="text-sm py-1 px-3 gap-1"
-                >
-                  <CheckCircle className="h-3 w-3" />
-                  {staff.name}
-                </Badge>
-              ))}
-            </div>
-          ) : (
-            <p className="text-muted-foreground text-sm">
-              現在シフト中のスタッフはいません
-            </p>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* スタッフ追加/編集フォーム */}
-      {isAddingStaff && (
-        <Card>
-          <CardHeader>
-            <CardTitle>
-              {editingStaffId ? "スタッフ情報を編集" : "新しいスタッフを追加"}
+        {/* 現在シフト中のスタッフ */}
+        <Card className="border-[1px] border-border rounded-none shadow-none">
+          <CardHeader className="p-4 pb-2">
+            <CardTitle className="flex items-center gap-2 text-xs uppercase font-bold">
+              <Clock className="h-4 w-4 text-green-500" />
+              現在シフト中
             </CardTitle>
+            <CardDescription className="text-[10px]">現在勤務中のスタッフ一覧</CardDescription>
           </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="staffName">名前 *</Label>
-                <Input
-                  id="staffName"
-                  value={staffForm.name}
-                  onChange={(e) =>
-                    setStaffForm({ ...staffForm, name: e.target.value })
-                  }
-                  placeholder="山田 太郎"
-                />
+          <CardContent className="p-4 pt-0">
+            {currentShiftStaff && currentShiftStaff.length > 0 ? (
+              <div className="flex flex-wrap gap-2">
+                {currentShiftStaff.map((staff) => (
+                  <Badge
+                    key={staff.id}
+                    variant="default"
+                    className="text-[10px] py-1 px-3 gap-1 rounded-none font-bold"
+                  >
+                    <CheckCircle className="h-3 w-3" />
+                    {staff.name}
+                  </Badge>
+                ))}
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="shiftStart">シフト開始</Label>
-                <Input
-                  id="shiftStart"
-                  type="datetime-local"
-                  value={staffForm.shiftStart}
-                  onChange={(e) =>
-                    setStaffForm({ ...staffForm, shiftStart: e.target.value })
-                  }
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="shiftEnd">シフト終了</Label>
-                <Input
-                  id="shiftEnd"
-                  type="datetime-local"
-                  value={staffForm.shiftEnd}
-                  onChange={(e) =>
-                    setStaffForm({ ...staffForm, shiftEnd: e.target.value })
-                  }
-                />
-              </div>
-            </div>
-            <div className="flex justify-end gap-2">
-              <Button variant="outline" onClick={resetForm}>
-                <X className="mr-2 h-4 w-4" />
-                キャンセル
-              </Button>
-              <Button
-                onClick={handleSave}
-                disabled={
-                  !staffForm.name ||
-                  createStaff.isPending ||
-                  updateStaff.isPending
-                }
-              >
-                <Save className="mr-2 h-4 w-4" />
-                {editingStaffId ? "更新" : "追加"}
-              </Button>
-            </div>
+            ) : (
+              <p className="text-muted-foreground text-xs font-mono">
+                現在シフト中のスタッフはいません
+              </p>
+            )}
           </CardContent>
         </Card>
-      )}
 
-      {/* スタッフ一覧 */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <User className="h-5 w-5" />
-            スタッフ一覧
-          </CardTitle>
-          <CardDescription>
-            {staffList?.length || 0}人のスタッフが登録されています
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {staffList && staffList.length > 0 ? (
-            <div className="space-y-3">
-              {staffList.map((staff) => (
-                <div
-                  key={staff.id}
-                  className={`flex items-center justify-between p-4 rounded-lg border ${
-                    isOnShift(staff)
-                      ? "border-green-500 bg-green-50 dark:bg-green-950/20"
-                      : ""
-                  }`}
+        {/* スタッフ追加/編集フォーム */}
+        {isAddingStaff && (
+          <Card className="border-[1px] border-border rounded-none shadow-none p-2">
+            <CardHeader className="pb-3 border-b-[1px] border-border">
+              <CardTitle className="text-xs uppercase font-bold tracking-wider">
+                {editingStaffId ? "[スタッフ情報を編集]" : "[新しいスタッフを追加]"}
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="pt-4 space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="space-y-1">
+                  <Label htmlFor="staffName" className="text-[10px] font-bold uppercase">名前 *</Label>
+                  <Input
+                    id="staffName"
+                    value={staffForm.name}
+                    onChange={(e) =>
+                      setStaffForm({ ...staffForm, name: e.target.value })
+                    }
+                    placeholder="山田 太郎"
+                    className="border-[1px] border-border rounded-none focus-visible:ring-0 h-9 text-xs bg-background"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="shiftStart" className="text-[10px] font-bold uppercase">シフト開始</Label>
+                  <Input
+                    id="shiftStart"
+                    type="datetime-local"
+                    value={staffForm.shiftStart}
+                    onChange={(e) =>
+                      setStaffForm({ ...staffForm, shiftStart: e.target.value })
+                    }
+                    className="border-[1px] border-border rounded-none focus-visible:ring-0 h-9 text-xs bg-background font-mono"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="shiftEnd" className="text-[10px] font-bold uppercase">シフト終了</Label>
+                  <Input
+                    id="shiftEnd"
+                    type="datetime-local"
+                    value={staffForm.shiftEnd}
+                    onChange={(e) =>
+                      setStaffForm({ ...staffForm, shiftEnd: e.target.value })
+                    }
+                    className="border-[1px] border-border rounded-none focus-visible:ring-0 h-9 text-xs bg-background font-mono"
+                  />
+                </div>
+              </div>
+              <div className="flex justify-end gap-2 pt-2">
+                <Button variant="outline" onClick={resetForm} className="border-[1px] border-border rounded-none h-8 text-[11px] font-bold hover:bg-neutral-100 px-3">
+                  <X className="mr-1.5 h-4 w-4" />
+                  キャンセル
+                </Button>
+                <Button
+                  onClick={handleSave}
+                  disabled={
+                    !staffForm.name ||
+                    createStaff.isPending ||
+                    updateStaff.isPending
+                  }
+                  className="border-[1px] border-primary bg-primary text-primary-foreground hover:bg-background hover:text-foreground h-8 text-[11px] font-bold rounded-none shadow-none px-3"
                 >
-                  <div className="flex items-center gap-4">
-                    <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center">
-                      <User className="h-5 w-5 text-primary" />
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <p className="font-medium">{staff.name}</p>
-                        {isOnShift(staff) && (
-                          <Badge variant="default" className="text-xs">
-                            シフト中
-                          </Badge>
-                        )}
+                  <Save className="mr-1.5 h-4 w-4" />
+                  {editingStaffId ? "更新" : "追加"}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* スタッフ一覧 */}
+        <Card className="border-[1px] border-border rounded-none shadow-none">
+          <CardHeader className="p-4 pb-2 border-b border-border">
+            <CardTitle className="flex items-center gap-2 text-xs uppercase font-bold">
+              <User className="h-4 w-4" />
+              スタッフ一覧 ({staffList?.length || 0})
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="p-0">
+            {staffList && staffList.length > 0 ? (
+              <div className="divide-y divide-border">
+                {staffList.map((staff) => (
+                  <div
+                    key={staff.id}
+                    className={`flex items-center justify-between p-3 text-xs font-mono ${
+                      isOnShift(staff)
+                        ? "bg-green-50/30 dark:bg-green-950/10 border-l-[3px] border-l-green-500"
+                        : ""
+                    }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="h-8 w-8 rounded-none bg-primary/10 flex items-center justify-center border border-border">
+                        <User className="h-4 w-4 text-primary" />
                       </div>
-                      <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                        <span className="flex items-center gap-1">
-                          <Calendar className="h-3 w-3" />
-                          {formatDateTime(staff.shiftStart)} 〜{" "}
-                          {formatDateTime(staff.shiftEnd)}
-                        </span>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <p className="font-bold text-foreground">{staff.name}</p>
+                          {isOnShift(staff) && (
+                            <Badge variant="default" className="text-[8px] font-mono rounded-none px-1.5 py-0">
+                              シフト中
+                            </Badge>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-4 text-[10px] text-muted-foreground">
+                          <span className="flex items-center gap-1">
+                            <Calendar className="h-3 w-3" />
+                            {formatDateTime(staff.shiftStart)} 〜{" "}
+                            {formatDateTime(staff.shiftEnd)}
+                          </span>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                  <PermissionGuard permission="staff:write">
-                    <div className="flex items-center gap-2">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => handleEdit(staff)}
-                      >
-                        <Edit className="h-4 w-4" />
-                      </Button>
-                      <PermissionGuard permission="staff:delete">
+                    <PermissionGuard permission="staff:write">
+                      <div className="flex items-center gap-1">
                         <Button
                           variant="ghost"
                           size="icon"
-                          className="text-destructive hover:text-destructive"
-                          onClick={() => handleDelete(staff)}
+                          onClick={() => handleEdit(staff)}
+                          className="h-8 w-8 rounded-none"
                         >
-                          <Trash2 className="h-4 w-4" />
+                          <Edit className="h-4 w-4" />
                         </Button>
-                      </PermissionGuard>
-                    </div>
-                  </PermissionGuard>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="text-center py-8 text-muted-foreground">
-              <Users className="h-12 w-12 mx-auto mb-4 opacity-50" />
-              <p>まだスタッフが登録されていません</p>
-              <p className="text-sm">
-                上のボタンからスタッフを追加してください
-              </p>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-    </div>
+                        <PermissionGuard permission="staff:delete">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="text-destructive hover:text-destructive h-8 w-8 rounded-none"
+                            onClick={() => handleDelete(staff)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </PermissionGuard>
+                      </div>
+                    </PermissionGuard>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-12 text-muted-foreground font-mono">
+                <Users className="h-10 w-10 mx-auto mb-4 opacity-50 text-foreground" />
+                <p className="text-xs font-bold uppercase tracking-wider">登録スタッフはいません</p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    </DashboardLayout>
   );
 }
 
@@ -392,12 +406,12 @@ export default function StaffManagementPage() {
       <PermissionGuard
         permission="staff:read"
         fallback={
-          <div className="container mx-auto p-6">
-            <Card>
-              <CardContent className="py-8 text-center">
-                <Users className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
-                <p className="text-lg font-medium">アクセス権限がありません</p>
-                <p className="text-muted-foreground">
+          <div className="container mx-auto p-6 font-mono">
+            <Card className="border-[1px] border-border rounded-none shadow-none">
+              <CardContent className="py-12 text-center">
+                <Users className="h-10 w-10 mx-auto mb-4 text-muted-foreground" />
+                <p className="text-sm font-bold uppercase tracking-wider">アクセス権限がありません</p>
+                <p className="text-xs text-muted-foreground mt-1">
                   スタッフ管理にアクセスするには適切な権限が必要です
                 </p>
               </CardContent>

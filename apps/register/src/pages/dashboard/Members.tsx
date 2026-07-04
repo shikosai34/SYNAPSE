@@ -1,5 +1,5 @@
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   CircleAuthGuard,
@@ -11,6 +11,7 @@ import {
   type RoleType,
 } from "@/hooks/useCircleAuth";
 import { membershipApi, type Role } from "@/lib/api";
+import DashboardLayout from "@/components/DashboardLayout";
 import {
   Card,
   CardContent,
@@ -36,9 +37,22 @@ import { toast } from "sonner";
 function MembersContent() {
   const { circleId, role, userEmail } = useAuth();
   const queryClient = useQueryClient();
+  const [circleName, setCircleName] = useState<string>("サークルダッシュボード");
   const [showAddForm, setShowAddForm] = useState(false);
   const [showInviteForm, setShowInviteForm] = useState(false);
   const [copiedToken, setCopiedToken] = useState<string | null>(null);
+
+  useEffect(() => {
+    const authStored = localStorage.getItem("circleAuth");
+    if (authStored) {
+      try {
+        const authInfo = JSON.parse(authStored);
+        if (authInfo.circleName) {
+          setCircleName(authInfo.circleName);
+        }
+      } catch (_) {}
+    }
+  }, []);
 
   // フォーム状態
   const [newMember, setNewMember] = useState({
@@ -175,30 +189,35 @@ function MembersContent() {
   };
 
   return (
-    <div className="container mx-auto p-6 space-y-8">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-4xl font-bold mb-2">メンバー管理</h1>
-          <p className="text-muted-foreground">
-            サークルメンバーの追加と権限設定
-          </p>
+    <DashboardLayout title={circleName} subtitle="メンバー管理" type="circle">
+      <div className="space-y-6 font-mono">
+        <div className="flex items-center justify-between border-b-[1px] border-border pb-3">
+          <div>
+            <h2 className="text-sm font-bold flex items-center gap-2 uppercase tracking-wider">
+              <Users className="h-4 w-4" />
+              メンバー管理
+            </h2>
+          </div>
+          <div className="flex gap-2">
+            <PermissionGuard permission="member:write">
+              <Button
+                onClick={() => setShowAddForm(!showAddForm)}
+                variant="outline"
+                className="rounded-none border-[1px] border-border h-8 text-[11px] font-bold shadow-none px-3 bg-background hover:bg-neutral-100"
+              >
+                <UserPlus className="mr-1.5 h-3.5 w-3.5" />
+                メンバー追加
+              </Button>
+              <Button 
+                onClick={() => setShowInviteForm(!showInviteForm)}
+                className="rounded-none border-[1px] border-primary bg-primary text-primary-foreground hover:bg-background hover:text-foreground h-8 text-[11px] font-bold shadow-none px-3"
+              >
+                <LinkIcon className="mr-1.5 h-3.5 w-3.5" />
+                招待リンク作成
+              </Button>
+            </PermissionGuard>
+          </div>
         </div>
-        <div className="flex gap-2">
-          <PermissionGuard permission="member:write">
-            <Button
-              onClick={() => setShowAddForm(!showAddForm)}
-              variant="outline"
-            >
-              <UserPlus className="mr-2 h-4 w-4" />
-              メンバー追加
-            </Button>
-            <Button onClick={() => setShowInviteForm(!showInviteForm)}>
-              <LinkIcon className="mr-2 h-4 w-4" />
-              招待リンク作成
-            </Button>
-          </PermissionGuard>
-        </div>
-      </div>
 
       {/* メンバー追加フォーム */}
       {showAddForm && (
@@ -549,7 +568,8 @@ function MembersContent() {
           </div>
         </CardContent>
       </Card>
-    </div>
+      </div>
+    </DashboardLayout>
   );
 }
 
