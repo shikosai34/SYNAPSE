@@ -15,6 +15,22 @@ import {
   saveAuthInfo,
 } from "@/hooks/useCircleAuth";
 
+// register はスタッフ/管理で別サブドメイン配信 (staff. / admin.)。権限スイッチで
+// スペース種別に応じて正しいドメインへ移動する。未設定(ローカル単一ポート)なら現オリジン。
+// (2026-07-04 ドメイン分離対応)
+const STAFF_URL = (import.meta.env.VITE_STAFF_URL as string) || "";
+const ADMIN_URL = (import.meta.env.VITE_ADMIN_URL as string) || "";
+
+/** URL文字列からオリジンを取り出す。空/不正なら現在のオリジンを返す。 */
+function toOrigin(url: string): string {
+  if (!url) return window.location.origin;
+  try {
+    return new URL(url, window.location.href).origin;
+  } catch {
+    return window.location.origin;
+  }
+}
+
 export default function Header() {
   const navigate = useNavigate();
   const pathname = useLocation().pathname;
@@ -209,9 +225,23 @@ export default function Header() {
     setMobileOpen(false);
 
     if (!payload) return;
-    navigate(target);
-    saveAuthInfo(payload);
-    toast.success(message);
+
+    // スペース種別ごとの遷移先ドメイン: サークル=staff、イベント/システム=admin。
+    const base = space.type === "circle" ? STAFF_URL : ADMIN_URL;
+
+    if (toOrigin(base) === window.location.origin) {
+      // 同一オリジン (ローカル or 既に該当ドメイン) はクライアント遷移
+      navigate(target);
+      saveAuthInfo(payload);
+      toast.success(message);
+    } else {
+      // 別ドメインへ移動。localStorage はオリジン単位で共有されないため、アクティブ
+      // スペース(payload)を URL の _sw で引き継ぎ、遷移先の main.tsx で復元する。
+      // 認証セッション自体は api の Cookie 経由で全サブドメイン共通なので持ち越し不要。
+      // btoa は Latin1 のみのため encodeURIComponent で UTF-8(日本語名)を退避する。
+      const token = btoa(encodeURIComponent(JSON.stringify(payload)));
+      window.location.href = `${base}${target}?_sw=${token}`;
+    }
   };
 
   // 来場者機能は apps/visitor に分離したため register の管理ヘッダーには来場者リンクを持たない (2026-07-04)

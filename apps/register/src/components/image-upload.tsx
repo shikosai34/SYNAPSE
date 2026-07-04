@@ -30,7 +30,8 @@ export function ImageUpload({
       const formData = new FormData();
       formData.append("file", file);
 
-      const apiUrl = import.meta.env.VITE_API_URL || "http://localhost:3001";
+      // API Worker の既定ポートは 8787 (3001 は visitor フロントのポートで誤り) (2026-07-04)
+      const apiUrl = import.meta.env.VITE_API_URL || "http://localhost:8787";
       const response = await fetch(`${apiUrl}/api/upload`, {
         method: "POST",
         body: formData,

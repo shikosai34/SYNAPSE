@@ -2,6 +2,11 @@
 
 文化祭の模擬店・来場者・校内配信を統合管理するシステム **FesFlow** のモノレポ開発リポジトリです。
 
+> 📖 **詳しいドキュメント**
+> - ローカル開発の手引き: [docs/DEVELOPMENT.md](./docs/DEVELOPMENT.md)
+> - 本番デプロイ手順: [docs/DEPLOY.md](./docs/DEPLOY.md)
+> - デザインシステム: [docs/DESIGN.md](./docs/DESIGN.md)
+
 ---
 
 ## 🚀 クイックスタート (Getting Started)
@@ -32,7 +37,11 @@ bun run db:migrate:local
 bun run dev
 ```
 - API サーバー (Hono Worker): [http://localhost:8787](http://localhost:8787)
-- 模擬店向けアプリ (register Vite SPA): [http://localhost:3000](http://localhost:3000)
+- スタッフ/管理アプリ (register Vite SPA): [http://localhost:3000](http://localhost:3000)
+- 来場者アプリ (visitor Vite SPA): [http://localhost:3001](http://localhost:3001)
+
+> [!TIP]
+> 新規の空 DB では管理者もイベントも無いため、初回は管理者サインアップとイベント作成が必要です。手順は [docs/DEVELOPMENT.md](./docs/DEVELOPMENT.md) を参照してください。
 
 ---
 
@@ -44,8 +53,8 @@ bun run dev
 .
 ├── apps/                    # アプリケーション層
 │   ├── api/                 # バックエンド API (Hono on Cloudflare Workers)
-│   ├── register/            # 模擬店向け注文・売上管理アプリ (Vite SPA)
-│   ├── visitor/             # 来場者向けアプリ (スタンプラリー/事前注文/抽選) [未着手]
+│   ├── register/            # スタッフ/イベント/システム管理アプリ (Vite SPA, :3000)
+│   ├── visitor/             # 来場者向けアプリ (入場/オンボ/マイページ) (Vite SPA, :3001)
 │   └── stream/              # 校内配信制御アプリ (OBS連携 WebUI) [未着手]
 ├── packages/                # 共有パッケージ群
 │   ├── config/              # プロダクト全体の共通定数・共通 tsconfig
@@ -54,6 +63,8 @@ bun run dev
 │   ├── api/                 # tRPC ルーター定義
 │   └── storage/             # Cloudflare R2 / MinIO 抽象化レイヤー
 └── docs/                    # 設計資料・ドキュメント類
+    ├── DEVELOPMENT.md       # ローカル開発の手引き
+    ├── DEPLOY.md            # 本番デプロイ手順 (Cloudflare)
     ├── DESIGN.md            # StudioBlank デザインシステム仕様
     └── 設計メモ.md           # 開発初期のアイデア・設計メモ
 ```
@@ -66,7 +77,8 @@ bun run dev
 | :--- | :--- |
 | `bun run dev` | 全アプリケーションのローカル開発サーバーを起動 (turbo) |
 | `bun run dev:api` | API サーバー単体で起動 (ポート `8787`) |
-| `bun run dev:register` | 模擬店向けアプリ単体で起動 (ポート `3000`) |
+| `bun run dev:register` | スタッフ/管理アプリ単体で起動 (ポート `3000`) |
+| `bun run dev:visitor` | 来場者アプリ単体で起動 (ポート `3001`) |
 | `bun run build` | 全アプリケーションのビルド (turbo) |
 | `bun run check-types` | 全コードの型チェック (turbo) |
 | `bun run db:generate` | `packages/db` のスキーマ変更から SQL マイグレーションファイルを生成 |
@@ -110,62 +122,58 @@ bun run dev
 
 ## 🌐 本番環境へのデプロイ手順 (Production Deployment)
 
-### 1. ローカル動作時と本番環境での認証情報の違い
-- **ローカル開発時:** D1（SQLite）および R2（ローカルストレージ）は Wrangler がローカルマシン上でエミュレート（Miniflare）するため、**Cloudflare の認証情報は一切不要**です。オフラインで動作します。
-- **本番デプロイ時:** Cloudflare 上に実際のリソースをプロビジョニングし、デプロイを実行するために **Wrangler によるログイン認証** が必要になります。
+> 詳細な手順・トラブルシュートは [docs/DEPLOY.md](./docs/DEPLOY.md) を参照。ここは要点のみ。
 
-### 2. リソースのプロビジョニング（初回のみ）
-Cloudflare アカウント上にデータベースとストレージを作成します。
+### ドメイン構成
 
-1. **Wrangler で Cloudflare にログインします**
-   ```bash
-   bunx wrangler login
-   ```
-2. **R2 バケットを作成します**
-   ```bash
-   bunx wrangler r2 bucket create fesflow-uploads
-   ```
-3. **D1 データベースを作成します**
-   ```bash
-   bunx wrangler d1 create fesflow-db
-   ```
-   ※ コマンド実行後にコンソールに表示される `database_id` (UUID形式) をコピーします。
-4. **`wrangler.jsonc` の更新**
-   [apps/api/wrangler.jsonc](file:///Users/takumi/Develop/Shikosai/SYNAPSE/apps/api/wrangler.jsonc) の `database_id` を、コピーした UUID に書き換えます。
-   ```json
-   "database_id": "ここにコピーしたUUIDをペースト"
-   ```
+| 用途 | ドメイン | Worker |
+|---|---|---|
+| 来場者 / トップ | `fesflow.shikosai.net` | `fesflow-visitor` |
+| サークルスタッフ | `staff.fesflow.shikosai.net` | `fesflow-register`(同一) |
+| イベント/システム管理 | `admin.fesflow.shikosai.net` | `fesflow-register`(同一) |
+| API | `api.fesflow.shikosai.net` | `fesflow-api` |
 
-### 3. 本番用環境変数の設定
-本番環境のドメイン情報や認証キーを Cloudflare に登録します。
+- register は1つのSPAをロール別にセクション分けし、staff/admin の2ドメインを同一 Worker に割当。
+- 認証Cookieは全て `*.shikosai.net` 配下=同一サイトなので、サブドメイン間でセッションを共有できる。
+- カスタムドメインは各 `wrangler.jsonc` の `routes` に定義済み（ゾーン `shikosai.net` が
+  同一 Cloudflare アカウントにあること）。
 
-**機密・環境個別変数の登録 (Wrangler Secret)**
-セキュリティに関わるキーや、デプロイ先固有のドメイン設定を登録します。
+### 前提 (初回のみ)
+
 ```bash
-# 1. 認証用のセッション秘密鍵（32文字以上のランダムな文字列）
-bunx wrangler secret put BETTER_AUTH_SECRET --name fesflow-api
-
-# 2. 本番環境の API Worker URL (例: https://fesflow-api.<your-subdomain>.workers.dev)
-bunx wrangler secret put BETTER_AUTH_URL --name fesflow-api
-
-# 3. 本番環境のフロントエンドのオリジン URL (例: https://fesflow-register.<your-subdomain>.workers.dev)
-bunx wrangler secret put CORS_ORIGIN --name fesflow-api
-
-# 4. 初期管理者アカウントのメールアドレス
-bunx wrangler secret put INITIAL_SUPER_ADMIN_EMAIL --name fesflow-api
+bunx wrangler login
+bunx wrangler r2 bucket create fesflow-uploads
+bunx wrangler d1 create fesflow-db     # 表示された database_id を apps/api/wrangler.jsonc に反映
 ```
-*(コマンド実行後、プロンプトに従ってそれぞれの実際の値を入力してください)*
 
-### 4. マイグレーションの適用
-作成した Cloudflare 上の D1 データベースに対して、最新のテーブル構造スキーマを反映します。
+### 1. 機密の登録 (secret)
+
+非機密の設定（`BETTER_AUTH_URL` / `CORS_ORIGIN` / `INITIAL_SUPER_ADMIN_EMAIL` / `R2_PUBLIC_URL`）は
+[apps/api/wrangler.jsonc](./apps/api/wrangler.jsonc) の `vars` に記載済み。**機密の秘密鍵のみ** secret で登録:
+
+```bash
+cd apps/api
+bunx wrangler secret put BETTER_AUTH_SECRET   # 32文字以上のランダム文字列
+```
+
+### 2. リモート D1 マイグレーション
+
 ```bash
 bun run db:migrate:remote
 ```
 
-### 5. デプロイの実行
-モノレポ全体のビルドとデプロイを実行します。
+### 3. ビルド & デプロイ
+
+本番フロントの URL は [.env.production](./.env.production) から `vite build` 時に焼き込まれる。
+deploy スクリプトは非対話（`CI=true`）なのでプロンプトで止まらない。
+
 ```bash
-bun run deploy
+bun run deploy    # turbo が build 依存込みで api / register / visitor を全デプロイ
 ```
-※ `turbo deploy` が走り、`apps/api` (Hono API Worker) と `apps/register` (Vite SPA served via Cloudflare Workers Static Assets) がビルドされ、Cloudflare に同時にデプロイされます。
+
+### 4. 初期セットアップ
+
+1. `admin.fesflow.shikosai.net` で `INITIAL_SUPER_ADMIN_EMAIL` のメールでサインアップ → `super_admin` 自動付与。
+2. イベントを1件作成（来場者の `/w/:id` 入場はイベントが1件以上ないと外部キーエラーになる）。
+3. 来場者QR `https://fesflow.shikosai.net/w/<id>` → オンボーディング → マイページ を確認。
 

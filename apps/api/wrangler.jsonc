@@ -7,6 +7,11 @@
 	"main": "src/index.ts",
 	"compatibility_date": "2025-06-01",
 	"compatibility_flags": ["nodejs_compat"],
+	// 本番はカスタムドメイン api.fesflow.shikosai.net で配信 (2026-07-04)。
+	// ゾーン shikosai.net が同一 Cloudflare アカウントにあることが前提。
+	"routes": [
+		{ "pattern": "api.fesflow.shikosai.net", "custom_domain": true }
+	],
 	"observability": {
 		"enabled": true
 	},
@@ -27,8 +32,14 @@
 		}
 	],
 	"vars": {
-		// 非機密の設定値。機密は .dev.vars (ローカル) / wrangler secret (本番) で管理。
+		// 非機密の本番設定値。ローカル開発では apps/api/.dev.vars が同名キーを上書きする
+		// (wrangler dev の仕様) ので、ここは本番値を書いてよい。
+		// 機密 (BETTER_AUTH_SECRET) だけは vars に書かず `wrangler secret put` で登録する。
 		"PRODUCT_NAME": "FesFlow",
-		"R2_PUBLIC_URL": "http://localhost:8787/uploads"
+		"BETTER_AUTH_URL": "https://api.fesflow.shikosai.net",
+		// フロント3オリジンをカンマ区切りで信頼 (better-auth trustedOrigins が分割して読む)
+		"CORS_ORIGIN": "https://fesflow.shikosai.net,https://staff.fesflow.shikosai.net,https://admin.fesflow.shikosai.net",
+		"INITIAL_SUPER_ADMIN_EMAIL": "sato.t.5970@gmail.com",
+		"R2_PUBLIC_URL": "https://api.fesflow.shikosai.net/uploads"
 	}
 }

@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "wrangler dev",
-    "deploy": "wrangler deploy",
+    "deploy": "CI=true WRANGLER_SEND_METRICS=false wrangler deploy",
     "check-types": "tsc -b",
     "cf-typegen": "wrangler types",
     "db:migrate:local": "CI=true wrangler d1 migrations apply fesflow-db --local",

@@ -23,10 +23,20 @@ export function createAuth(db: DB, env: WorkerEnv) {
 		}),
 		secret: env.BETTER_AUTH_SECRET,
 		baseURL: env.BETTER_AUTH_URL,
+		// フロントは複数オリジン (visitor=apex / staff / admin)。オリジンが trustedOrigins に
+		// 無いと better-auth が 403 INVALID_ORIGIN で弾く ("origin が間違ってる" エラーの正体)。
+		// - 本番: fesflow.shikosai.net (apex) + そのサブドメイン全部をワイルドカードで信頼。
+		//   これで staff. / admin. / 追加サブドメインを個別列挙せずに済む (2026-07-04)。
+		// - CORS_ORIGIN があれば追加で信頼 (別ドメインや workers.dev で試す場合の逃げ道)。
+		// - ローカル: localhost/127.0.0.1 の 3000(register) と 3001(visitor)。
 		trustedOrigins: [
-			env.CORS_ORIGIN || "",
+			...(env.CORS_ORIGIN ? env.CORS_ORIGIN.split(",").map((s) => s.trim()) : []),
+			"https://fesflow.shikosai.net",
+			"https://*.fesflow.shikosai.net",
 			"http://localhost:3000",
 			"http://127.0.0.1:3000",
+			"http://localhost:3001",
+			"http://127.0.0.1:3001",
 		].filter(Boolean),
 		emailAndPassword: {
 			enabled: true,

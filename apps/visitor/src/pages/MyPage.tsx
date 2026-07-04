@@ -185,8 +185,8 @@ export default function MyOrderPage() {
   const activeWristband = userStatus?.wristband;
   const targetWbId = activeWristband?.id || userId;
   // 来場者アプリと register(模擬店POS)は別オリジンのため、店頭スキャン用QRは
-  // register 側の /checkin を指すよう VITE_REGISTER_URL を優先する (2026-07-04 アプリ分離)
-  const registerBase = (import.meta.env.VITE_REGISTER_URL as string) || origin;
+  // register(スタッフ)側の /checkin を指すよう VITE_STAFF_URL を優先する (2026-07-04 アプリ分離)
+  const registerBase = (import.meta.env.VITE_STAFF_URL as string) || origin;
   const userCheckinUrl = registerBase ? `${registerBase}/checkin?wb=${targetWbId}` : targetWbId;
   const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(
     userCheckinUrl
