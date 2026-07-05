@@ -12,8 +12,10 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { EmptyState } from "@/components/ui/EmptyState";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { toast } from "sonner";
-import { Plus, Edit, Trash2, Settings } from "lucide-react";
+import { Plus, Edit, Trash2, Settings, UtensilsCrossed } from "lucide-react";
 import Image from "@/components/image";
 
 // モーダルインポート
@@ -33,6 +35,10 @@ function MenuManagementContent() {
   const [selectedTopping, setSelectedTopping] = useState<any | null>(null);
 
   const [isMappingOpen, setIsMappingOpen] = useState(false);
+
+  // 削除確認ダイアログ用ステート (メニュー / トッピング共通で対象を保持)
+  const [menuToDelete, setMenuToDelete] = useState<any | null>(null);
+  const [toppingToDelete, setToppingToDelete] = useState<any | null>(null);
 
   const queryClient = useQueryClient();
 
@@ -70,6 +76,7 @@ function MenuManagementContent() {
     onSuccess: () => {
       toast.success("メニューを削除しました");
       queryClient.invalidateQueries({ queryKey: ["menus", circleId] });
+      setMenuToDelete(null);
     },
     onError: (error: any) => {
       toast.error(error.message || "削除に失敗しました");
@@ -83,6 +90,7 @@ function MenuManagementContent() {
       toast.success("トッピングを削除しました");
       queryClient.invalidateQueries({ queryKey: ["toppings", circleId] });
       queryClient.invalidateQueries({ queryKey: ["menus", circleId] }); // メニューのトッピング一覧も更新
+      setToppingToDelete(null);
     },
     onError: (error: any) => {
       toast.error(error.message || "削除に失敗しました");
@@ -112,9 +120,17 @@ function MenuManagementContent() {
   if (menusLoading || toppingsLoading) {
     return (
       <DashboardLayout title={circleName} subtitle="メニュー・トッピング管理" type="circle">
-        <div className="space-y-4">
-          <Skeleton className="h-12 w-64" />
-          <Skeleton className="h-96" />
+        <div className="space-y-8">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <Skeleton key={i} className="h-64" />
+            ))}
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <Skeleton key={i} className="h-40" />
+            ))}
+          </div>
         </div>
       </DashboardLayout>
     );
@@ -149,9 +165,12 @@ function MenuManagementContent() {
 
           {/* メニュー一覧 */}
           {!menus || menus.length === 0 ? (
-            <div className="text-center py-12 border-thick border-dashed border-border p-4 bg-muted/10 text-xs text-muted-foreground">
-              登録されているメニューはありません。「メニューを追加」ボタンから作成してください。
-            </div>
+            <EmptyState
+              icon={UtensilsCrossed}
+              message="メニューがまだありません"
+              actionLabel="メニューを追加"
+              onAction={handleOpenMenuAdd}
+            />
           ) : (
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {menus.map((menu) => (
@@ -217,7 +236,7 @@ function MenuManagementContent() {
                       <Button
                         variant="destructive"
                         size="sm"
-                        onClick={() => deleteMenu.mutate(menu.id)}
+                        onClick={() => setMenuToDelete(menu)}
                         disabled={deleteMenu.isPending}
                         className="flex-1 rounded-none border-thick border-destructive h-8 text-[10px] font-bold uppercase"
                       >
@@ -247,9 +266,12 @@ function MenuManagementContent() {
 
           {/* トッピング一覧 */}
           {!toppings || toppings.length === 0 ? (
-            <div className="text-center py-12 border-thick border-dashed border-border p-4 bg-muted/10 text-xs text-muted-foreground">
-              登録されているトッピングはありません。「トッピングを追加」ボタンから作成してください。
-            </div>
+            <EmptyState
+              icon={UtensilsCrossed}
+              message="トッピングがまだありません"
+              actionLabel="トッピングを追加"
+              onAction={handleOpenToppingAdd}
+            />
           ) : (
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
               {toppings.map((topping) => (
@@ -282,7 +304,7 @@ function MenuManagementContent() {
                     <Button
                       variant="destructive"
                       size="sm"
-                      onClick={() => deleteTopping.mutate(topping.id)}
+                      onClick={() => setToppingToDelete(topping)}
                       disabled={deleteTopping.isPending}
                       className="flex-1 rounded-none border-thick border-destructive h-7 text-[10px] font-bold uppercase"
                     >
@@ -317,6 +339,26 @@ function MenuManagementContent() {
         circleId={circleId}
         isOpen={isMappingOpen}
         onClose={() => setIsMappingOpen(false)}
+      />
+
+      {/* メニュー削除確認ダイアログ */}
+      <ConfirmDialog
+        isOpen={!!menuToDelete}
+        title="[確認: メニューの削除]"
+        description={`メニュー「${menuToDelete?.name ?? ""}」を削除しますか？この操作は取り消せません。`}
+        confirmLabel="削除する"
+        onConfirm={() => menuToDelete && deleteMenu.mutate(menuToDelete.id)}
+        onCancel={() => setMenuToDelete(null)}
+      />
+
+      {/* トッピング削除確認ダイアログ */}
+      <ConfirmDialog
+        isOpen={!!toppingToDelete}
+        title="[確認: トッピングの削除]"
+        description={`トッピング「${toppingToDelete?.name ?? ""}」を削除しますか？この操作は取り消せません。`}
+        confirmLabel="削除する"
+        onConfirm={() => toppingToDelete && deleteTopping.mutate(toppingToDelete.id)}
+        onCancel={() => setToppingToDelete(null)}
       />
     </DashboardLayout>
   );

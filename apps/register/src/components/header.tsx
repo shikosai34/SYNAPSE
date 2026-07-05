@@ -15,6 +15,7 @@ import {
   saveAuthInfo,
   getAuthInfo,
 } from "@/hooks/useCircleAuth";
+import { roleLabel, roleBadge } from "@/lib/roles";
 
 // register はスタッフ/管理で別サブドメイン配信 (staff. / admin.)。権限スイッチで
 // スペース種別に応じて正しいドメインへ移動する。未設定(ローカル単一ポート)なら現オリジン。
@@ -61,14 +62,6 @@ export default function Header() {
     enabled: isAuthenticated && !!userEmail,
   });
 
-  // ロール名マッピング
-  const ROLE_NAMES = {
-    super_admin: "システム最高管理者",
-    event_manager: "イベント管理者",
-    circle_manager: "店舗管理者",
-    circle_staff: "一般スタッフ",
-  } as const;
-
   // 現在のアクティブなスペース名
   const currentSpaceName = useMemo(() => {
     if (pathname.startsWith("/admin")) {
@@ -86,16 +79,10 @@ export default function Header() {
     return "スペース選択";
   }, [pathname, spaces, circleName]);
 
-  // 現在のアクティブな権限
+  // 現在のアクティブな権限 (ラベル対応表は lib/roles.ts に集約)
   const currentSpaceRole = useMemo(() => {
     if (!role) return "";
-    switch (role) {
-      case "super_admin": return "SUPER ADMIN";
-      case "event_manager": return "EVENT MGR";
-      case "circle_manager": return "CIRCLE MGR";
-      case "circle_staff": return "STAFF";
-      default: return "USER";
-    }
+    return roleBadge(role);
   }, [role]);
 
   // 通知一覧取得 (2026-07-04 SaaS通知機能)
@@ -318,14 +305,8 @@ export default function Header() {
   };
 
   const getRoleTag = () => {
-    if (!role) return "VISITOR";
-    switch (role) {
-      case "super_admin": return "SUPER ADMIN";
-      case "event_manager": return "EVENT MGR";
-      case "circle_manager": return "CIRCLE MGR";
-      case "circle_staff": return "STAFF";
-      default: return "USER";
-    }
+    if (!role) return roleBadge("visitor");
+    return roleBadge(role);
   };
 
   return (
@@ -500,7 +481,7 @@ export default function Header() {
                                   className="w-full text-left p-2 hover:bg-primary hover:text-primary-foreground transition-all cursor-pointer rounded-none"
                                 >
                                   <div className="flex items-center gap-1.5 text-[9px] text-muted-foreground font-black uppercase tracking-wider">
-                                    {ROLE_NAMES[space.role as keyof typeof ROLE_NAMES] ?? space.role}
+                                    {roleLabel(space.role)}
                                   </div>
                                   <div className="text-xs font-bold truncate mt-0.5">{space.name}</div>
                                 </button>

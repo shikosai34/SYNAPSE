@@ -14,6 +14,8 @@ import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/Modal";
 import { FormField, FormSubmitButton } from "@/components/ui/FormField";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { Skeleton } from "@/components/ui/skeleton";
+import { EmptyState } from "@/components/ui/EmptyState";
 import {
   Plus,
   Calendar,
@@ -167,7 +169,11 @@ export default function AdminPage() {
 
           {/* イベント一覧グリッド */}
           {eventsLoading ? (
-            <div className="text-center py-12 text-muted-foreground text-xs uppercase tracking-wider">Loading...</div>
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+              {Array.from({ length: 3 }).map((_, i) => (
+                <Skeleton key={i} className="h-36" />
+              ))}
+            </div>
           ) : events && events.length > 0 ? (
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
               {events.map((evt) => (
@@ -208,10 +214,12 @@ export default function AdminPage() {
               ))}
             </div>
           ) : (
-            <Card className="border-thin border-dashed border-border rounded-none p-12 text-center text-muted-foreground bg-background shadow-none">
-              <Calendar className="h-8 w-8 mx-auto mb-4 opacity-40 text-foreground" />
-              <p className="text-xs uppercase tracking-widest font-bold font-headline">イベントがありません</p>
-            </Card>
+            <EmptyState
+              icon={Calendar}
+              message="イベントがありません"
+              actionLabel="新規イベント開設"
+              onAction={() => setShowEventForm(true)}
+            />
           )}
         </div>
 

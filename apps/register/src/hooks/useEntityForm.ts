@@ -1,6 +1,7 @@
 import { useState, useEffect, type Dispatch, type SetStateAction } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import type { SaveStatus } from "@/components/ui/FormField";
 
 // 2026-07-04: Circle/Menu/Topping/Staff/EventStaff の各 FormModal が
 // 「新規=作成 / 編集=onBlur 自動保存 / 未保存入力ありなら閉じる前に確認」という
@@ -47,6 +48,9 @@ export function useEntityForm<TForm extends Record<string, unknown>, TEntity>(
 
   const [form, setForm] = useState<TForm>(emptyForm);
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
+  // "saved"/"error" は次の自動保存が始まるまで表示を維持したいため、
+  // updateMutation の isPending/isSuccess/isError だけでなく独自 state で保持する。
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
 
   // モーダルを開くたび・対象エンティティが変わるたびにフォームを初期化する
   useEffect(() => {
@@ -77,8 +81,12 @@ export function useEntityForm<TForm extends Record<string, unknown>, TEntity>(
     onSuccess: () => {
       toast.success(messages.updateSuccess, { id: toastId });
       invalidate();
+      setSaveStatus("saved");
     },
-    onError: (err: any) => toast.error(`自動保存失敗: ${err?.message ?? ""}`),
+    onError: (err: any) => {
+      toast.error(`自動保存失敗: ${err?.message ?? ""}`);
+      setSaveStatus("error");
+    },
   });
 
   const defaultHasChanged = () =>
@@ -91,6 +99,7 @@ export function useEntityForm<TForm extends Record<string, unknown>, TEntity>(
     const changed = hasChanged ? hasChanged(form, entity) : defaultHasChanged();
     if (!changed) return;
     toast.loading("自動保存中...", { id: toastId });
+    setSaveStatus("saving");
     updateMutation.mutate(form);
     onAfterAutoSave?.(setForm);
   };
@@ -99,6 +108,7 @@ export function useEntityForm<TForm extends Record<string, unknown>, TEntity>(
   const saveNow = (next?: TForm) => {
     if (!isEdit || !update || !entity) return;
     toast.loading("自動保存中...", { id: toastId });
+    setSaveStatus("saving");
     updateMutation.mutate(next ?? form);
   };
 
@@ -131,6 +141,7 @@ export function useEntityForm<TForm extends Record<string, unknown>, TEntity>(
     form, setForm, isEdit,
     isConfirmOpen, setIsConfirmOpen,
     isCreating: createMutation.isPending,
+    saveStatus,
     triggerAutoSave, saveNow,
     handleOverlayClose, handleSaveAndClose, handleDiscardAndClose,
   };

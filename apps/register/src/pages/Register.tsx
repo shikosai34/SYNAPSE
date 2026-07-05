@@ -505,13 +505,24 @@ function RegisterPageContent() {
                   {activeCustomer.wristbandId && ` (リストバンド: ${activeCustomer.wristbandId})`}
                 </div>
               )}
+              {/* 注文確定ブロック理由の明示 (UX-IMPROVEMENTS A-3: ボタンが無効な理由をその場で伝える) */}
+              {(!activeCustomer || cart.length === 0) && (
+                <div className="border-thick border-destructive bg-destructive/10 p-2 space-y-1 font-mono text-[10px] uppercase tracking-wider text-destructive">
+                  {!activeCustomer && (
+                    <p>[顧客未スキャン — リストバンド/QRをスキャンしてください]</p>
+                  )}
+                  {cart.length === 0 && (
+                    <p>[カートが空です — 商品を選択してください]</p>
+                  )}
+                </div>
+              )}
               {/* ボタン群 */}
               <Button
                 className="w-full h-14 border-thick border-border bg-primary text-primary-foreground font-mono text-base font-black uppercase rounded-none hover:bg-background hover:text-foreground transition-all"
                 onClick={handleSubmitOrder}
                 disabled={cart.length === 0 || createOrder.isPending || !activeCustomer}
               >
-                {!activeCustomer ? "【顧客を特定してください】" : createOrder.isPending ? "注文中..." : "注文を確定する"}
+                {createOrder.isPending ? "注文中..." : "注文を確定する"}
               </Button>
               <Button
                 variant="outline"

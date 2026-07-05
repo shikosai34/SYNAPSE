@@ -4,6 +4,8 @@ import { useNavigate } from "react-router-dom";
 import { circleApi } from "@/lib/api";
 import { Card, CardTitle, CardContent, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
+import { EmptyState } from "@/components/ui/EmptyState";
 import { Building2, Plus, Edit, Trash2, Users } from "lucide-react";
 import { toast } from "sonner";
 
@@ -99,8 +101,10 @@ export function CirclesTab({
       </div>
 
       {circlesLoading ? (
-        <div className="text-center py-12 text-muted-foreground text-xs uppercase tracking-wider">
-          Loading...
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <Skeleton key={i} className="h-40" />
+          ))}
         </div>
       ) : circles && circles.length > 0 ? (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
@@ -152,10 +156,12 @@ export function CirclesTab({
           ))}
         </div>
       ) : (
-        <Card className="border-thick border-dashed border-border rounded-none p-12 text-center text-muted-foreground bg-background shadow-none">
-          <Users className="h-8 w-8 mx-auto mb-4 opacity-40 text-foreground" />
-          <p className="text-xs uppercase tracking-widest font-bold font-headline">サークルが登録されていません</p>
-        </Card>
+        <EmptyState
+          icon={Users}
+          message="サークルが登録されていません"
+          actionLabel="新規追加"
+          onAction={handleOpenAdd}
+        />
       )}
 
       {/* サークル追加・編集モーダル */}

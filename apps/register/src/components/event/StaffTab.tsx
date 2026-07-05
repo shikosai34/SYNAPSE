@@ -4,6 +4,8 @@ import { membershipApi } from "@/lib/api";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
+import { EmptyState } from "@/components/ui/EmptyState";
 import { Users, UserPlus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -130,7 +132,11 @@ export function StaffTab({
         </CardHeader>
         <CardContent className="p-0">
           {staffLoading ? (
-            <div className="p-6 text-center text-xs uppercase tracking-wider text-muted-foreground">Loading staff...</div>
+            <div className="p-4 space-y-2">
+              {Array.from({ length: 3 }).map((_, i) => (
+                <Skeleton key={i} className="h-12" />
+              ))}
+            </div>
           ) : staffMembers && staffMembers.length > 0 ? (
             <div className="divide-y divide-border">
               {staffMembers.map((member) => (
@@ -156,7 +162,12 @@ export function StaffTab({
               ))}
             </div>
           ) : (
-            <p className="p-6 text-center text-xs text-muted-foreground uppercase">スタッフは登録されていません</p>
+            <EmptyState
+              icon={Users}
+              message="スタッフは登録されていません"
+              actionLabel="スタッフを招待"
+              onAction={handleOpenInvite}
+            />
           )}
         </CardContent>
       </Card>

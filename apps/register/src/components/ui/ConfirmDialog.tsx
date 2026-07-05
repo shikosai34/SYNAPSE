@@ -1,4 +1,5 @@
 import { Button } from "@/components/ui/button";
+import { useFocusTrap } from "@/hooks/useFocusTrap";
 
 // 2026-07-04: ネイティブ window.confirm() はブラウザにブロックされ得るため、
 // 破壊的操作 (退出・削除・アンインストール等) の確認をアプリ内ダイアログで行う。
@@ -26,6 +27,9 @@ export function ConfirmDialog({
   onConfirm,
   onCancel,
 }: ConfirmDialogProps) {
+  // Escape はキャンセル扱い (処理は useFocusTrap 側に統合)
+  const focusTrapRef = useFocusTrap<HTMLDivElement>(isOpen, { onEscape: onCancel });
+
   if (!isOpen) return null;
 
   return (
@@ -35,7 +39,11 @@ export function ConfirmDialog({
       aria-modal="true"
     >
       <div className="absolute inset-0" onClick={onCancel} />
-      <div className="relative w-full max-w-md bg-background border-thick border-border p-6 space-y-6 font-mono text-foreground z-10">
+      <div
+        ref={focusTrapRef}
+        tabIndex={-1}
+        className="relative w-full max-w-md bg-background border-thick border-border p-6 space-y-6 font-mono text-foreground z-10"
+      >
         <div className="space-y-2">
           <h3
             className={`text-sm font-bold uppercase tracking-wider ${

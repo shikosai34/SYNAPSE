@@ -18,6 +18,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { EmptyState } from "@/components/ui/EmptyState";
 import { toast } from "sonner";
 import {
   Plus,
@@ -251,10 +252,17 @@ function StaffManagementContent() {
                 ))}
               </div>
             ) : (
-              <div className="text-center py-12 text-muted-foreground font-mono">
-                <Users className="h-10 w-10 mx-auto mb-4 opacity-50 text-foreground" />
-                <p className="text-xs font-bold uppercase tracking-wider">登録スタッフはいません</p>
-              </div>
+              <PermissionGuard
+                permission="staff:write"
+                fallback={<EmptyState icon={Users} message="登録スタッフはいません" />}
+              >
+                <EmptyState
+                  icon={Users}
+                  message="登録スタッフはいません"
+                  actionLabel="スタッフを追加"
+                  onAction={handleOpenAdd}
+                />
+              </PermissionGuard>
             )}
           </CardContent>
         </Card>

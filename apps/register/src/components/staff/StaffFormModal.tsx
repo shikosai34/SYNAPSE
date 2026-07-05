@@ -18,7 +18,7 @@ interface StaffFormModalProps {
 
 export function StaffFormModal({ circleId, isOpen, onClose, staff }: StaffFormModalProps) {
   const {
-    form, setForm, isEdit, isConfirmOpen, setIsConfirmOpen, isCreating,
+    form, setForm, isEdit, isConfirmOpen, setIsConfirmOpen, isCreating, saveStatus,
     triggerAutoSave, handleOverlayClose, handleSaveAndClose, handleDiscardAndClose,
   } = useEntityForm<{ name: string }, Staff>({
     isOpen,
@@ -46,7 +46,7 @@ export function StaffFormModal({ circleId, isOpen, onClose, staff }: StaffFormMo
         maxWidth="md"
         title={isEdit ? `[スタッフ編集: ${staff?.name}]` : "[新規スタッフ追加]"}
       >
-        {isEdit && <EditModeBanner />}
+        {isEdit && <EditModeBanner saveStatus={saveStatus} />}
 
         <FormField
           id="staffName"

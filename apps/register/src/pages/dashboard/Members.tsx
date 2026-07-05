@@ -27,6 +27,8 @@ import {
   FormSelect,
   FormSubmitButton,
 } from "@/components/ui/FormField";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { EmptyState } from "@/components/ui/EmptyState";
 import {
   UserPlus,
   Link as LinkIcon,
@@ -45,6 +47,10 @@ function MembersContent() {
   const [showAddForm, setShowAddForm] = useState(false);
   const [showInviteForm, setShowInviteForm] = useState(false);
   const [copiedToken, setCopiedToken] = useState<string | null>(null);
+
+  // 削除確認ダイアログ用ステート (メンバー除名 / 招待リンク削除)
+  const [memberToRemove, setMemberToRemove] = useState<any | null>(null);
+  const [tokenToDelete, setTokenToDelete] = useState<any | null>(null);
 
   useEffect(() => {
     const authStored = localStorage.getItem("circleAuth");
@@ -136,7 +142,12 @@ function MembersContent() {
     mutationFn: (input: { membershipId: string }) =>
       membershipApi.delete(input.membershipId),
     onSuccess: () => {
+      toast.success("メンバーを除名しました");
       refetchMembers();
+      setMemberToRemove(null);
+    },
+    onError: (error: any) => {
+      toast.error(error.message || "除名に失敗しました");
     },
   });
 
@@ -144,7 +155,12 @@ function MembersContent() {
     mutationFn: (input: { tokenId: string }) =>
       membershipApi.deleteInvite(input.tokenId),
     onSuccess: () => {
+      toast.success("招待リンクを削除しました");
       refetchTokens();
+      setTokenToDelete(null);
+    },
+    onError: (error: any) => {
+      toast.error(error.message || "削除に失敗しました");
     },
   });
 
@@ -354,15 +370,15 @@ function MembersContent() {
       </Modal>
 
       {/* アクティブな招待リンク */}
-      {inviteTokens && inviteTokens.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <LinkIcon className="h-5 w-5" />
-              アクティブな招待リンク
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <LinkIcon className="h-5 w-5" />
+            アクティブな招待リンク
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {inviteTokens && inviteTokens.length > 0 ? (
             <div className="space-y-3">
               {inviteTokens.map((token) => (
                 <div
@@ -397,9 +413,7 @@ function MembersContent() {
                       <Button
                         size="sm"
                         variant="destructive"
-                        onClick={() =>
-                          deleteTokenMutation.mutate({ tokenId: token.id })
-                        }
+                        onClick={() => setTokenToDelete(token)}
                       >
                         <Trash2 className="h-4 w-4" />
                       </Button>
@@ -408,9 +422,14 @@ function MembersContent() {
                 </div>
               ))}
             </div>
-          </CardContent>
-        </Card>
-      )}
+          ) : (
+            <EmptyState
+              icon={LinkIcon}
+              message="有効な招待リンクはありません"
+            />
+          )}
+        </CardContent>
+      </Card>
 
       {/* メンバー一覧 */}
       <Card>
@@ -453,11 +472,7 @@ function MembersContent() {
                       <Button
                         size="sm"
                         variant="ghost"
-                        onClick={() =>
-                          removeMemberMutation.mutate({
-                            membershipId: member.id,
-                          })
-                        }
+                        onClick={() => setMemberToRemove(member)}
                       >
                         <Trash2 className="h-4 w-4 text-destructive" />
                       </Button>
@@ -467,13 +482,10 @@ function MembersContent() {
               ))}
             </div>
           ) : (
-            <div className="text-center py-8 text-muted-foreground">
-              <Users className="h-12 w-12 mx-auto mb-4 opacity-50" />
-              <p>まだメンバーがいません</p>
-              <p className="text-sm">
-                上のボタンからメンバーを追加してください
-              </p>
-            </div>
+            <EmptyState
+              icon={Users}
+              message="まだメンバーがいません"
+            />
           )}
         </CardContent>
       </Card>
@@ -506,6 +518,32 @@ function MembersContent() {
         </CardContent>
       </Card>
       </div>
+
+      {/* メンバー除名確認ダイアログ */}
+      <ConfirmDialog
+        isOpen={!!memberToRemove}
+        title="[確認: メンバーの除名]"
+        description={`メンバー「${memberToRemove?.userName ?? ""}」を除名しますか？この操作は取り消せません。`}
+        confirmLabel="除名する"
+        onConfirm={() =>
+          memberToRemove &&
+          removeMemberMutation.mutate({ membershipId: memberToRemove.id })
+        }
+        onCancel={() => setMemberToRemove(null)}
+      />
+
+      {/* 招待リンク削除確認ダイアログ */}
+      <ConfirmDialog
+        isOpen={!!tokenToDelete}
+        title="[確認: 招待リンクの削除]"
+        description="この招待リンクを削除しますか？削除されたリンクは無効になり、この操作は取り消せません。"
+        confirmLabel="削除する"
+        onConfirm={() =>
+          tokenToDelete &&
+          deleteTokenMutation.mutate({ tokenId: tokenToDelete.id })
+        }
+        onCancel={() => setTokenToDelete(null)}
+      />
     </DashboardLayout>
   );
 }

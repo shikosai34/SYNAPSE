@@ -1,4 +1,5 @@
 import { Button } from "@/components/ui/button";
+import { useFocusTrap } from "@/hooks/useFocusTrap";
 
 interface ConfirmationDialogProps {
   isOpen: boolean;
@@ -17,11 +18,24 @@ export function ConfirmationDialog({
   onDiscard,
   onCancel
 }: ConfirmationDialogProps) {
+  // Escape は「編集に戻る」扱い (処理は useFocusTrap 側に統合)
+  const focusTrapRef = useFocusTrap<HTMLDivElement>(isOpen, { onEscape: onCancel });
+
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-foreground/80 p-4 backdrop-blur-sm">
-      <div className="w-full max-w-md bg-background border-thick border-border p-6 space-y-6 font-mono text-foreground">
+    <div
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-foreground/80 p-4 backdrop-blur-sm"
+      role="dialog"
+      aria-modal="true"
+    >
+      {/* 背景タップで閉じるための透明オーバーレイ (Modal と同様の挙動) */}
+      <div className="absolute inset-0" onClick={onCancel} />
+      <div
+        ref={focusTrapRef}
+        tabIndex={-1}
+        className="relative w-full max-w-md bg-background border-thick border-border p-6 space-y-6 font-mono text-foreground z-10"
+      >
         <div className="space-y-2">
           <h3 className="text-sm font-bold uppercase tracking-wider text-destructive">
             {title}

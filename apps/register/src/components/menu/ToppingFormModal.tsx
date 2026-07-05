@@ -20,7 +20,7 @@ type ToppingForm = { name: string; price: number; description: string };
 
 export function ToppingFormModal({ circleId, isOpen, onClose, topping }: ToppingFormModalProps) {
   const {
-    form, setForm, isEdit, isConfirmOpen, setIsConfirmOpen, isCreating,
+    form, setForm, isEdit, isConfirmOpen, setIsConfirmOpen, isCreating, saveStatus,
     triggerAutoSave, handleOverlayClose, handleSaveAndClose, handleDiscardAndClose,
   } = useEntityForm<ToppingForm, Topping>({
     isOpen,
@@ -58,7 +58,7 @@ export function ToppingFormModal({ circleId, isOpen, onClose, topping }: Topping
         onClose={handleOverlayClose}
         title={isEdit ? `[トッピング編集: ${topping?.name}]` : "[新規トッピング追加]"}
       >
-        {isEdit && <EditModeBanner />}
+        {isEdit && <EditModeBanner saveStatus={saveStatus} />}
 
         <div className="grid grid-cols-2 gap-4">
           <FormField

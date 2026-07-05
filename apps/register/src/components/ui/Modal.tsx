@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { X } from "lucide-react";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
+import { useFocusTrap } from "@/hooks/useFocusTrap";
 
 // 2026-07-04: 各 FormModal (Circle/Menu/Topping/Staff/EventStaff) が同一の
 // モーダル外枠 JSX をコピペしていたため共通化。RawBlock デザイン
@@ -37,20 +38,17 @@ export function Modal({
   maxWidth = "lg",
   zIndexClassName = "z-50",
 }: ModalProps) {
-  // Escape キーで閉じる + 背景スクロールロック
+  // 背景スクロールロック (Escape 閉じは useFocusTrap 側に統合)
   useEffect(() => {
     if (!isOpen) return;
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    document.addEventListener("keydown", onKeyDown);
     const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => {
-      document.removeEventListener("keydown", onKeyDown);
       document.body.style.overflow = prevOverflow;
     };
-  }, [isOpen, onClose]);
+  }, [isOpen]);
+
+  const focusTrapRef = useFocusTrap<HTMLDivElement>(isOpen, { onEscape: onClose });
 
   if (!isOpen) return null;
 
@@ -67,6 +65,8 @@ export function Modal({
       <div className="absolute inset-0" onClick={onClose} />
 
       <Card
+        ref={focusTrapRef}
+        tabIndex={-1}
         className={cn(
           "relative w-full bg-background border-thick border-border shadow-none font-mono text-foreground z-10 max-h-[85vh] flex flex-col",
           MAX_WIDTH[maxWidth],

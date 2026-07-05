@@ -26,7 +26,7 @@ type CircleForm = {
 
 export function CircleFormModal({ eventId, isOpen, onClose, circle }: CircleFormModalProps) {
   const {
-    form, setForm, isEdit, isConfirmOpen, setIsConfirmOpen, isCreating,
+    form, setForm, isEdit, isConfirmOpen, setIsConfirmOpen, isCreating, saveStatus,
     triggerAutoSave, handleOverlayClose, handleSaveAndClose, handleDiscardAndClose,
   } = useEntityForm<CircleForm, any>({
     isOpen,
@@ -93,7 +93,7 @@ export function CircleFormModal({ eventId, isOpen, onClose, circle }: CircleForm
         onClose={handleOverlayClose}
         title={isEdit ? `[サークル編集: ${circle?.name}]` : "[新規サークル登録]"}
       >
-        {isEdit && <EditModeBanner />}
+        {isEdit && <EditModeBanner saveStatus={saveStatus} />}
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <FormField

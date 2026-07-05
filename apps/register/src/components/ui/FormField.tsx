@@ -47,11 +47,53 @@ export function FormField({
   required,
   fieldClassName,
   className,
+  type,
+  min,
+  inputMode,
+  onBlur,
   ...inputProps
 }: FormFieldProps) {
+  // 2026-07-05: 価格・在庫数等の number 入力で負値が入力・確定されてしまう問題への
+  // 共通対策。呼び出し側が min を指定しなければ 0 を既定にし、onBlur 時に
+  // DOM の現在値を min でクランプ・正規化して onChange を呼び直す。
+  // (呼び出し側の state 管理はそのまま onChange 経由で更新されるため壊れない)
+  const isNumber = type === "number";
+  const resolvedMin = isNumber ? (min ?? 0) : min;
+
+  const handleBlur = (e: React.FocusEvent<HTMLInputElement>) => {
+    if (isNumber) {
+      const minValue = Number(resolvedMin);
+      const input = e.target;
+      const rawValue = input.value;
+      if (rawValue !== "" && !Number.isNaN(Number(rawValue))) {
+        const normalized = Math.max(Number(rawValue), minValue);
+        if (normalized !== Number(rawValue)) {
+          // controlled input のため、React の value トラッキングを回避する
+          // ネイティブ setter 経由で値を書き換えてから input イベントを発火し、
+          // 呼び出し側の onChange (state 更新) を正しく再実行させる。
+          const nativeSetter = Object.getOwnPropertyDescriptor(
+            window.HTMLInputElement.prototype,
+            "value",
+          )?.set;
+          nativeSetter?.call(input, String(normalized));
+          input.dispatchEvent(new Event("input", { bubbles: true }));
+        }
+      }
+    }
+    onBlur?.(e);
+  };
+
   return (
     <FieldShell id={id} label={label} required={required} className={fieldClassName}>
-      <Input id={id} className={cn(formControlClassName, className)} {...inputProps} />
+      <Input
+        id={id}
+        type={type}
+        min={resolvedMin}
+        inputMode={isNumber ? (inputMode ?? "numeric") : inputMode}
+        onBlur={handleBlur}
+        className={cn(formControlClassName, className)}
+        {...inputProps}
+      />
     </FieldShell>
   );
 }
@@ -119,11 +161,32 @@ export function FormSubmitButton({
   );
 }
 
+export type SaveStatus = "idle" | "saving" | "saved" | "error";
+
+interface EditModeBannerProps {
+  /** useEntityForm から渡す自動保存の状態。省略時は従来通りインジケータなし。 */
+  saveStatus?: SaveStatus;
+}
+
 /** 編集モード時に表示する「フォーカスを外すと自動保存」の注記バナー。 */
-export function EditModeBanner() {
+export function EditModeBanner({ saveStatus = "idle" }: EditModeBannerProps) {
   return (
-    <div className="text-[10px] text-success font-bold bg-muted p-2 border-thick border-border">
-      ※ 編集モード: 変更箇所は入力欄からフォーカスを外すと自動保存されます。
+    <div className="flex items-center justify-between gap-2 text-[10px] text-success font-bold bg-muted p-2 border-thick border-border">
+      <span>※ 編集モード: 変更箇所は入力欄からフォーカスを外すと自動保存されます。</span>
+      {saveStatus === "saving" && (
+        <span className="flex items-center gap-1 shrink-0 text-muted-foreground">
+          <Loader2 className="h-3 w-3 animate-spin" />
+          保存中…
+        </span>
+      )}
+      {saveStatus === "saved" && (
+        <span className="shrink-0 text-success">✓ 保存済み</span>
+      )}
+      {saveStatus === "error" && (
+        <span className="shrink-0 text-destructive">
+          保存失敗 — 再度フォーカスを外すと再試行
+        </span>
+      )}
     </div>
   );
 }

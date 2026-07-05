@@ -27,7 +27,7 @@ type MenuForm = {
 
 export function MenuFormModal({ circleId, isOpen, onClose, menu }: MenuFormModalProps) {
   const {
-    form, setForm, isEdit, isConfirmOpen, setIsConfirmOpen, isCreating,
+    form, setForm, isEdit, isConfirmOpen, setIsConfirmOpen, isCreating, saveStatus,
     triggerAutoSave, saveNow, handleOverlayClose, handleSaveAndClose, handleDiscardAndClose,
   } = useEntityForm<MenuForm, Menu>({
     isOpen,
@@ -75,7 +75,7 @@ export function MenuFormModal({ circleId, isOpen, onClose, menu }: MenuFormModal
         onClose={handleOverlayClose}
         title={isEdit ? `[メニュー編集: ${menu?.name}]` : "[新規メニュー追加]"}
       >
-        {isEdit && <EditModeBanner />}
+        {isEdit && <EditModeBanner saveStatus={saveStatus} />}
 
         <div className="grid grid-cols-2 gap-4">
           <FormField
