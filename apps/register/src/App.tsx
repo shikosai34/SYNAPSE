@@ -10,7 +10,6 @@ import Checkin from "@/pages/Checkin";
 import Invite from "@/pages/Invite";
 import Admin from "@/pages/Admin";
 import EventDashboard from "@/pages/EventDashboard";
-import TestWristbands from "@/pages/TestWristbands";
 import DashboardIndex from "@/pages/dashboard/Index";
 import DashboardCircle from "@/pages/dashboard/Circle";
 import DashboardMembers from "@/pages/dashboard/Members";
@@ -37,7 +36,8 @@ export default function App() {
 						<Route path="/circle-login" element={<CircleLogin />} />
 						<Route path="/checkin" element={<Checkin />} />
 						<Route path="/invite/:token" element={<Invite />} />
-						<Route path="/test-wristbands" element={<TestWristbands />} />
+						{/* 2026-07-05: 開発用デバッグ画面 /test-wristbands (TestWristbands) を撤去。
+						    wb_admin_001 等のテスト用リストバンドを列挙する画面で本番不要のため削除。 */}
 
 						{/* 来場者機能は apps/visitor へ分離。旧パスは来場者アプリへ転送 (2026-07-04) */}
 						<Route path="/visitor/menu" element={<ExternalRedirect to={`${VISITOR_BASE_URL}/menu`} />} />
