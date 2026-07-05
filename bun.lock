@@ -15,13 +15,10 @@
     "apps/api": {
       "name": "api",
       "dependencies": {
-        "@fesflow/api": "workspace:*",
         "@fesflow/auth": "workspace:*",
         "@fesflow/db": "workspace:*",
         "@fesflow/storage": "workspace:*",
-        "@hono/trpc-server": "^0.4.0",
         "@hono/zod-validator": "^0.7.5",
-        "@trpc/server": "catalog:",
         "bcryptjs": "^2.4.3",
         "better-auth": "catalog:",
         "drizzle-orm": "^0.45.0",
@@ -41,14 +38,10 @@
     "apps/register": {
       "name": "register",
       "dependencies": {
-        "@fesflow/api": "workspace:*",
         "@fesflow/config": "workspace:*",
         "@radix-ui/react-tabs": "^1.1.13",
         "@tanstack/react-form": "^1.12.3",
         "@tanstack/react-query": "^5.85.5",
-        "@trpc/client": "catalog:",
-        "@trpc/server": "catalog:",
-        "@trpc/tanstack-react-query": "^11.5.0",
         "better-auth": "catalog:",
         "class-variance-authority": "^0.7.1",
         "clsx": "^2.1.1",
@@ -69,6 +62,7 @@
         "@fesflow/config": "workspace:*",
         "@tailwindcss/vite": "^4.1.10",
         "@tanstack/react-query-devtools": "^5.85.5",
+        "@types/node": "^22.20.0",
         "@types/react": "19.2.2",
         "@types/react-dom": "19.2.2",
         "@vitejs/plugin-react": "^4.3.4",
@@ -110,27 +104,6 @@
         "typescript": "^5.8.2",
         "vite": "^6.0.7",
         "wrangler": "^4.20.0",
-      },
-    },
-    "packages/api": {
-      "name": "@fesflow/api",
-      "dependencies": {
-        "@fesflow/auth": "workspace:*",
-        "@fesflow/db": "workspace:*",
-        "@trpc/client": "catalog:",
-        "@trpc/server": "catalog:",
-        "@types/bcryptjs": "^2.4.6",
-        "bcryptjs": "^2.4.3",
-        "drizzle-orm": "^0.45.0",
-        "hono": "catalog:",
-        "nanoid": "^5.0.9",
-        "zod": "catalog:",
-      },
-      "devDependencies": {
-        "@fesflow/config": "workspace:*",
-      },
-      "peerDependencies": {
-        "typescript": "^5",
       },
     },
     "packages/auth": {
@@ -187,8 +160,6 @@
   },
   "catalog": {
     "@libsql/client": "^0.14.0",
-    "@trpc/client": "^11.5.0",
-    "@trpc/server": "^11.5.0",
     "better-auth": "^1.4.5",
     "dotenv": "^17.2.2",
     "hono": "^4.8.2",
@@ -368,8 +339,6 @@
 
     "@esbuild/win32-x64": ["@esbuild/win32-x64@0.25.12", "", { "os": "win32", "cpu": "x64" }, "sha512-alJC0uCZpTFrSL0CCDjcgleBXPnCrEAhTBILpeAp7M/OFgoqtAetfBzX0xM00MUsVVPpVjlPuMbREqnZCXaTnA=="],
 
-    "@fesflow/api": ["@fesflow/api@workspace:packages/api"],
-
     "@fesflow/auth": ["@fesflow/auth@workspace:packages/auth"],
 
     "@fesflow/config": ["@fesflow/config@workspace:packages/config"],
@@ -385,8 +354,6 @@
     "@floating-ui/react-dom": ["@floating-ui/react-dom@2.1.8", "", { "dependencies": { "@floating-ui/dom": "^1.7.6" }, "peerDependencies": { "react": ">=16.8.0", "react-dom": ">=16.8.0" } }, "sha512-cC52bHwM/n/CxS87FH0yWdngEZrjdtLW/qVruo68qg+prK7ZQ4YGdut2GyDVpoGeAYe/h899rVeOVm6Oi40k2A=="],
 
     "@floating-ui/utils": ["@floating-ui/utils@0.2.11", "", {}, "sha512-RiB/yIh78pcIxl6lLMG0CgBXAZ2Y0eVHqMPYugu+9U0AeT6YBeiJpf7lbdJNIugFP5SIjwNRgo4DhR1Qxi26Gg=="],
-
-    "@hono/trpc-server": ["@hono/trpc-server@0.4.2", "", { "peerDependencies": { "@trpc/server": "^10.10.0 || >11.0.0-rc", "hono": ">=4.0.0" } }, "sha512-3TDrc42CZLgcTFkXQba+y7JlRWRiyw1AqhLqztWyNS2IFT+3bHld0lxKdGBttCtGKHYx0505dM67RMazjhdZqw=="],
 
     "@hono/zod-validator": ["@hono/zod-validator@0.7.6", "", { "peerDependencies": { "hono": ">=3.9.0", "zod": "^3.25.0 || ^4.0.0" } }, "sha512-Io1B6d011Gj1KknV4rXYz4le5+5EubcWEU/speUjuw9XMMIaP3n78yXLhjd2A3PXaXaUwEAluOiAyLqhBEJgsw=="],
 
@@ -751,12 +718,6 @@
     "@tanstack/react-store": ["@tanstack/react-store@0.11.0", "", { "dependencies": { "@tanstack/store": "0.11.0", "use-sync-external-store": "^1.6.0" }, "peerDependencies": { "react": "^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0", "react-dom": "^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0" } }, "sha512-tX4YXh3PDkmpvGQWkWqKpzs/MSqbtuwY9dWdWhtV9Q50PmO+jOkUKIWIX4G85dwt7lxdHLXsiaEKPdKmC8F41w=="],
 
     "@tanstack/store": ["@tanstack/store@0.11.0", "", {}, "sha512-WlzzCt3xi0G6pCAJu1U+2jiECwabETDpQDi3hfkFZvJii9AuZqEKbOiVarX1/bWhTNjU486yQtJCCasi/0q+Cw=="],
-
-    "@trpc/client": ["@trpc/client@11.18.0", "", { "peerDependencies": { "@trpc/server": "11.18.0", "typescript": ">=5.7.2" }, "bin": { "intent": "bin/intent.js" } }, "sha512-wOqeg3Fvl25V1ZisQhUD3K8G60ZJDlSGJNSyeXrLH24xAo5w6GSR2Kzb1cSNY9Y+IQ2YZvYGZstBU+V/ulo/ow=="],
-
-    "@trpc/server": ["@trpc/server@11.18.0", "", { "peerDependencies": { "typescript": ">=5.7.2" }, "bin": { "intent": "bin/intent.js" } }, "sha512-JAvXOuNTxgXjIDfQaOvDq1j66LMNfDJUH1IU7Slfn8EvRv2EkH6ehu3A7zpYhjO0syHHiYg77v2lG2JFJgvw7Q=="],
-
-    "@trpc/tanstack-react-query": ["@trpc/tanstack-react-query@11.18.0", "", { "peerDependencies": { "@tanstack/react-query": "^5.80.3", "@trpc/client": "11.18.0", "@trpc/server": "11.18.0", "react": ">=18.2.0", "typescript": ">=5.7.2" }, "bin": { "intent": "bin/intent.js" } }, "sha512-dm5xIlN0SEzJAbQ34EHdb1Kgd/zWZ63ZMviQEw3WCWCIPz8MjLKAhquncPcn+YxFUJa+Qi4qatdGFymmM4HmAQ=="],
 
     "@turbo/darwin-64": ["@turbo/darwin-64@2.10.3", "", { "os": "darwin", "cpu": "x64" }, "sha512-guuiO2kKc7yUQFU2jhWyM/BrYGD/brqb0+JvJIXTQ/QI1NlWfHZ1id50kkkOWqxmBiDc8DgW2orfY85pQIc7gw=="],
 
