@@ -6,7 +6,7 @@ import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/com
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Lock, Search, RefreshCw } from "lucide-react";
+import { Lock, Search, RefreshCw, Users } from "lucide-react";
 import { toast } from "sonner";
 
 interface WristbandsTabProps {
@@ -18,9 +18,11 @@ export function WristbandsTab({
 }: WristbandsTabProps) {
   const [lostSearchCode, setLostSearchCode] = useState("");
   const [newWristbandId, setNewWristbandId] = useState("");
+  const [profileSearchQuery, setProfileSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<any[]>([]);
   const [lookupResult, setLookupResult] = useState<any | null>(null);
 
-  // リストバンド検索 API
+  // リストバンド照会 API
   const lookupWristbandMutation = useMutation({
     mutationFn: (code: string) => {
       const parsedCode = extractIdFromCode(code);
@@ -39,6 +41,22 @@ export function WristbandsTab({
     },
   });
 
+  // 来場者プロフィール検索 API
+  const searchProfileMutation = useMutation({
+    mutationFn: (query: string) => wristbandApi.search(eventId, query),
+    onSuccess: (data) => {
+      setSearchResults(data);
+      if (data.length === 0) {
+        toast.info("該当する来場者が見つかりませんでした");
+      } else {
+        toast.success(`${data.length} 件の来場者が見つかりました`);
+      }
+    },
+    onError: () => {
+      toast.error("検索に失敗しました");
+    },
+  });
+
   // 紛失ロック API
   const reportLostMutation = useMutation({
     mutationFn: (wristbandId: string) => wristbandApi.reportLost(wristbandId),
@@ -46,6 +64,10 @@ export function WristbandsTab({
       toast.success("紛失ロック（無効化）が完了しました");
       if (lostSearchCode) {
         lookupWristbandMutation.mutate(lostSearchCode);
+      }
+      // 検索結果も更新する
+      if (profileSearchQuery) {
+        searchProfileMutation.mutate(profileSearchQuery);
       }
     },
     onError: (err: any) => {
@@ -63,6 +85,10 @@ export function WristbandsTab({
       if (lostSearchCode) {
         lookupWristbandMutation.mutate(lostSearchCode);
       }
+      // 検索結果も更新する
+      if (profileSearchQuery) {
+        searchProfileMutation.mutate(profileSearchQuery);
+      }
     },
     onError: (err: any) => {
       toast.error(err.message || "紐付けに失敗しました");
@@ -72,6 +98,16 @@ export function WristbandsTab({
   const handleSearchLost = () => {
     if (!lostSearchCode.trim()) return;
     lookupWristbandMutation.mutate(lostSearchCode.trim());
+  };
+
+  const handleSearchProfile = () => {
+    if (!profileSearchQuery.trim()) return;
+    searchProfileMutation.mutate(profileSearchQuery.trim());
+  };
+
+  const handleSelectUser = (result: any) => {
+    setLookupResult(result);
+    setLostSearchCode(result.user.id);
   };
 
   const handleReportLost = (wbId: string) => {
@@ -93,37 +129,137 @@ export function WristbandsTab({
         </h2>
       </div>
 
-      <Card className=" rounded-none bg-background shadow-none">
-        <CardHeader className="p-4 pb-2 border-b-thin border-border bg-muted/20">
-          <CardTitle className="text-xs uppercase font-bold">[登録情報スキャン・照会]</CardTitle>
-          <CardDescription className="text-[10px]">紛失したと思われるリストバンドID、または来場者ユーザーIDを入力して照会します。</CardDescription>
-        </CardHeader>
-        <CardContent className="p-4 pt-4 space-y-4">
-          <div className="flex gap-2">
-            <Input
-              placeholder="例: wb_test_001 または usr_xxxx"
-              value={lostSearchCode}
-              onChange={(e) => setLostSearchCode(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  handleSearchLost();
-                }
-              }}
-              className="border-thick border-border rounded-none focus-visible:ring-0 h-10 text-xs bg-background font-mono flex-1"
-            />
-            <Button
-              onClick={handleSearchLost}
-              disabled={!lostSearchCode.trim() || lookupWristbandMutation.isPending}
-              className="border-thick border-primary bg-primary text-primary-foreground hover:bg-background hover:text-foreground h-10 text-xs font-bold rounded-none shadow-none px-4"
-            >
-              <Search className="h-4 w-4 mr-1" />
-              照会
-            </Button>
-          </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* 照会カード */}
+        <Card className="rounded-none bg-background shadow-none">
+          <CardHeader className="p-4 pb-2 border-b-thin border-border bg-muted/20">
+            <CardTitle className="text-xs uppercase font-bold">[登録情報スキャン・照会]</CardTitle>
+            <CardDescription className="text-[10px]">紛失したリストバンドID、または来場者ユーザーIDを完全一致で照会します。</CardDescription>
+          </CardHeader>
+          <CardContent className="p-4 pt-4">
+            <div className="flex gap-2">
+              <Input
+                placeholder="例: wb_test_001 または usr_xxxx"
+                value={lostSearchCode}
+                onChange={(e) => setLostSearchCode(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    handleSearchLost();
+                  }
+                }}
+                className="border-thick border-border rounded-none focus-visible:ring-0 h-10 text-xs bg-background font-mono flex-1"
+              />
+              <Button
+                onClick={handleSearchLost}
+                disabled={!lostSearchCode.trim() || lookupWristbandMutation.isPending}
+                className="border-thick border-primary bg-primary text-primary-foreground hover:bg-background hover:text-foreground h-10 text-xs font-bold rounded-none shadow-none px-4"
+              >
+                <Search className="h-4 w-4 mr-1" />
+                照会
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
 
-          {/* 照会結果表示 */}
-          {lookupResult && (
+        {/* プロフィール検索カード */}
+        <Card className="rounded-none bg-background shadow-none">
+          <CardHeader className="p-4 pb-2 border-b-thin border-border bg-muted/20">
+            <CardTitle className="text-xs uppercase font-bold">[来場者プロフィール検索]</CardTitle>
+            <CardDescription className="text-[10px]">ニックネーム、呼出ID（#番号）、または誕生日から来場者を検索します。</CardDescription>
+          </CardHeader>
+          <CardContent className="p-4 pt-4">
+            <div className="flex gap-2">
+              <Input
+                placeholder="例: たろう / 123 / YYYY-MM-DD"
+                value={profileSearchQuery}
+                onChange={(e) => setProfileSearchQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    handleSearchProfile();
+                  }
+                }}
+                className="border-thick border-border rounded-none focus-visible:ring-0 h-10 text-xs bg-background font-mono flex-1"
+              />
+              <Button
+                onClick={handleSearchProfile}
+                disabled={!profileSearchQuery.trim() || searchProfileMutation.isPending}
+                className="border-thick border-primary bg-primary text-primary-foreground hover:bg-background hover:text-foreground h-10 text-xs font-bold rounded-none shadow-none px-4"
+              >
+                <Users className="h-4 w-4 mr-1" />
+                検索
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* 検索結果一覧 */}
+      {searchResults.length > 0 && (
+        <Card className="rounded-none bg-background shadow-none border-thick border-border">
+          <CardHeader className="p-4 pb-2 border-b-thin border-border bg-muted/20">
+            <CardTitle className="text-xs uppercase font-bold">[検索結果一覧]</CardTitle>
+          </CardHeader>
+          <CardContent className="p-0">
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs text-left border-collapse">
+                <thead>
+                  <tr className="border-b-thin border-border bg-muted/10 font-bold">
+                    <th className="p-2">呼出ID</th>
+                    <th className="p-2">ニックネーム</th>
+                    <th className="p-2">誕生日</th>
+                    <th className="p-2">紐付くバンド</th>
+                    <th className="p-2">状態</th>
+                    <th className="p-2 text-right">操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {searchResults.map((res) => (
+                    <tr key={res.user.id} className="border-b-thin border-border hover:bg-muted/5">
+                      <td className="p-2">#{res.user.displayId}</td>
+                      <td className="p-2">{res.user.nickname || "-"}</td>
+                      <td className="p-2">{res.user.birthday || "-"}</td>
+                      <td className="p-2">{res.wristband?.id || "なし"}</td>
+                      <td className="p-2">
+                        {res.wristband ? (
+                          <Badge variant="default" className={`rounded-none text-[8px] font-mono border-thick border-border uppercase ${
+                            res.wristband.status === "active"
+                              ? "bg-success/10 text-success border-success"
+                              : "bg-error/10 text-error border-error"
+                          }`}>
+                            {res.wristband.status}
+                          </Badge>
+                        ) : (
+                          <span className="text-muted-foreground">未紐付け</span>
+                        )}
+                      </td>
+                      <td className="p-2 text-right">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => handleSelectUser(res)}
+                          className="h-7 text-[10px] rounded-none border-thick border-border bg-background hover:bg-primary hover:text-primary-foreground"
+                        >
+                          選択する
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* 選択中の詳細表示 */}
+      {lookupResult && (
+        <Card className="rounded-none bg-background shadow-none border-thick border-border">
+          <CardHeader className="p-4 pb-2 border-b-thin border-border bg-muted/20">
+            <CardTitle className="text-xs uppercase font-bold">[選択中の来場者・リストバンド詳細]</CardTitle>
+          </CardHeader>
+          <CardContent className="p-4 pt-4 space-y-4">
             <div className="p-4 bg-muted/10 space-y-4 text-xs font-mono">
               <div className="border-b-thick border-border pb-2">
                 <h4 className="font-bold uppercase text-[10px] text-muted-foreground mb-1">[来場者アカウント情報]</h4>
@@ -195,9 +331,9 @@ export function WristbandsTab({
                 </div>
               </div>
             </div>
-          )}
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

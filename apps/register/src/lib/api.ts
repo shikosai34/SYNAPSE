@@ -719,6 +719,8 @@ export interface WristbandLookupResult {
     eventId: string;
     displayId: number;
     status: string;
+    nickname?: string | null;
+    birthday?: string | null;
   };
   wristband: {
     id: string;
@@ -734,6 +736,10 @@ export const wristbandApi = {
       user: { id: code, eventId: "evt_default", displayId: 999, status: "available" },
       wristband: null,
     })),
+  search: (eventId: string, query: string) =>
+    fetchApi<WristbandLookupResult[]>(
+      `/api/wristbands/search?eventId=${encodeURIComponent(eventId)}&query=${encodeURIComponent(query)}`
+    ).catch(() => []),
   register: (userId: string, wristbandId: string) =>
     fetchApi<{ success: boolean; wristbandId: string }>("/api/wristbands/register", {
       method: "POST",

@@ -144,6 +144,10 @@ export default function MyOrderPage() {
   // リストバンド新規登録・再発行ミューテーション
   const registerMutation = useMutation({
     mutationFn: async (wbId: string) => {
+      // 既存のアクティブなリストバンドがある場合、まず紛失ロックを行ってから登録する（乗っ取り防止制限をセルフ無効化で回避するため）
+      if (activeWristband) {
+        await wristbandApi.reportLost(activeWristband.id);
+      }
       return await wristbandApi.register(userId, wbId);
     },
     onSuccess: () => {
@@ -279,6 +283,11 @@ export default function MyOrderPage() {
       >
         <p className="text-xs text-gray-600">
           手元の物理リストバンドのQRコードをスキャンするか、IDを入力してください。
+          {activeWristband && (
+            <span className="block mt-1 font-bold text-error">
+              ⚠️ 登録すると、現在のリストバンド ({activeWristband.id}) は自動的にロック（無効化）されます。
+            </span>
+          )}
         </p>
         <Input
           type="text"

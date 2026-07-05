@@ -2,13 +2,70 @@ import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import { db, wristband, eventUser, event } from "@fesflow/db";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, or, like } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { auth } from "@fesflow/auth";
 import { hasPermission } from "../utils/auth";
 
 
 const wristbandRoutes = new Hono();
+
+// 来場者の検索 (ニックネーム、呼出ID、誕生日) - スタッフ権限必須
+wristbandRoutes.get(
+  "/search",
+  zValidator(
+    "query",
+    z.object({
+      eventId: z.string().min(1),
+      query: z.string().min(1),
+    })
+  ),
+  async (c) => {
+    const { eventId, query } = c.req.valid("query");
+
+    // 権限チェック (イベントスタッフ権限 member:read が必要)
+    const allowed = await hasPermission(c, null, "member:read", eventId);
+    if (!allowed) {
+      return c.json({ error: "この操作にはスタッフ権限が必要です" }, 403);
+    }
+
+    const queryNum = parseInt(query, 10);
+    const isNum = !isNaN(queryNum) && /^\d+$/.test(query);
+
+    const conditions = [eq(eventUser.eventId, eventId)];
+    const orConditions = [
+      like(eventUser.nickname, `%${query}%`),
+      like(eventUser.birthday, `%${query}%`),
+    ];
+
+    if (isNum) {
+      orConditions.push(eq(eventUser.displayId, queryNum));
+    }
+
+    const rows = await db
+      .select({
+        user: eventUser,
+        wristband: wristband,
+      })
+      .from(eventUser)
+      .leftJoin(
+        wristband,
+        and(
+          eq(wristband.userId, eventUser.id),
+          eq(wristband.status, "active")
+        )
+      )
+      .where(and(...conditions, or(...orConditions)))
+      .limit(50);
+
+    return c.json(
+      rows.map((r) => ({
+        user: r.user,
+        wristband: r.wristband,
+      }))
+    );
+  }
+);
 
 /** イベント内で次に割り当てる呼出用 displayId を採番する。 */
 async function nextDisplayId(eventId: string): Promise<number> {
