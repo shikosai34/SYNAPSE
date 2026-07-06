@@ -257,6 +257,8 @@ orderRoutes.post(
         .from(eventUser)
         .where(eq(eventUser.id, input.userId));
       if (existingUser.length === 0) {
+        // 新規来場者の初回注文。当該 circle の eventId で eventUser を自動シードする
+        // (来場者の初回注文導線を壊さないため、この自動作成自体は維持する)。
         const newDisplayId = Math.floor(100 + Math.random() * 900);
         await db.insert(eventUser).values({
           id: input.userId,
@@ -264,6 +266,16 @@ orderRoutes.post(
           displayId: newDisplayId,
           status: "available",
         });
+      } else if (existingUser[0]!.eventId !== eventId) {
+        // 2026-07-06: クロスイベント混入対策 (H-3, ベストエフォート)。
+        // userId は認証を伴わないベアラー値のため、既存の userId を任意に指定して
+        // 他人へのなりすましスタンプ付与/抽選不正を狙える。完全な防止にはセッションが
+        // 必要でありスコープ外だが、最低限「他イベントの userId を注文に使う」経路は
+        // ここで塞ぐ。同一イベント内でのなりすましは本対応では防げない(残存リスク)。
+        return c.json(
+          { error: "ユーザーとサークルのイベントが一致しません" },
+          400
+        );
       }
 
       // 注文番号を生成
@@ -428,68 +440,100 @@ orderRoutes.post(
         }
       }
 
-      // 注文を作成 (注文モードに応じて初期ステータスを決定)
-      const isDirectComplete = orderFlowMode === "completed";
-      await db.insert(order).values({
-        id: orderId,
-        circleId: input.circleId,
-        cashierId: input.cashierId,
-        userId: input.userId, // ゲストIDを保存
-        orderNumber,
-        peopleCount: input.peopleCount,
-        status: orderFlowMode,
-        totalPrice,
-        completed: isDirectComplete,
-        completedAt: isDirectComplete ? new Date() : undefined,
-      });
-
-      // 未着手以外(調理中/即完成)で受け付けた場合、この時点でスタンプを付与する。
-      // 未着手受付の場合は従来どおり pending→preparing 遷移時に付与される。
-      if (orderFlowMode !== "pending" && input.userId) {
-        const existingStamp = await db
-          .select()
-          .from(userStamp)
-          .where(
-            and(
-              eq(userStamp.userId, input.userId),
-              eq(userStamp.circleId, input.circleId)
-            )
-          );
-        if (existingStamp.length === 0) {
-          await db.insert(userStamp).values({
-            id: nanoid(),
-            userId: input.userId,
-            circleId: input.circleId,
-          });
-        }
-      }
-
-      // 注文アイテムを作成
-      for (const item of orderItems) {
-        await db.insert(orderItem).values({
-          id: item.id,
-          orderId: item.orderId,
-          menuId: item.menuId,
-          menuName: item.menuName,
-          menuPrice: item.menuPrice,
-          quantity: item.quantity,
+      // 2026-07-06: 既知の制約 (M-5)。D1 はマルチステートメントの対話的トランザクションに
+      // 対応していないため、この関数全体 (在庫減算 → order insert → orderItem/topping insert)
+      // は単一のACIDトランザクションではなく逐次実行になっている。途中で失敗すると
+      // 「在庫だけ減って注文レコードが残らない」等の不整合が理論上発生し得る。
+      // 完全な補償(SAGA等)は複雑になるため今回はスコープ外とし、以下では order insert 以降を
+      // try/catch で囲み、失敗時に減算済み在庫を戻すベストエフォートの補償のみ行う。
+      // (在庫減算そのものの失敗は上のガード付きUPDATEで既に処理済みなのでここでは対象外)
+      try {
+        // 注文を作成 (注文モードに応じて初期ステータスを決定)
+        const isDirectComplete = orderFlowMode === "completed";
+        await db.insert(order).values({
+          id: orderId,
+          circleId: input.circleId,
+          cashierId: input.cashierId,
+          userId: input.userId, // ゲストIDを保存
+          orderNumber,
+          peopleCount: input.peopleCount,
+          status: orderFlowMode,
+          totalPrice,
+          completed: isDirectComplete,
+          completedAt: isDirectComplete ? new Date() : undefined,
         });
 
-        // トッピングを関連付け
-        if (item.toppingIds && item.toppingIds.length > 0) {
-          for (const toppingId of item.toppingIds) {
-            const toppingItem = toppings.find((t) => t.id === toppingId);
-            if (toppingItem) {
-              await db.insert(orderItemTopping).values({
-                id: nanoid(),
-                orderItemId: item.id,
-                toppingId,
-                toppingName: toppingItem.name,
-                toppingPrice: toppingItem.price,
-              });
+        // 未着手以外(調理中/即完成)で受け付けた場合、この時点でスタンプを付与する。
+        // 未着手受付の場合は従来どおり pending→preparing 遷移時に付与される。
+        if (orderFlowMode !== "pending" && input.userId) {
+          const existingStamp = await db
+            .select()
+            .from(userStamp)
+            .where(
+              and(
+                eq(userStamp.userId, input.userId),
+                eq(userStamp.circleId, input.circleId)
+              )
+            );
+          if (existingStamp.length === 0) {
+            await db.insert(userStamp).values({
+              id: nanoid(),
+              userId: input.userId,
+              circleId: input.circleId,
+            });
+          }
+        }
+
+        // 注文アイテムを作成
+        for (const item of orderItems) {
+          await db.insert(orderItem).values({
+            id: item.id,
+            orderId: item.orderId,
+            menuId: item.menuId,
+            menuName: item.menuName,
+            menuPrice: item.menuPrice,
+            quantity: item.quantity,
+          });
+
+          // トッピングを関連付け
+          if (item.toppingIds && item.toppingIds.length > 0) {
+            for (const toppingId of item.toppingIds) {
+              const toppingItem = toppings.find((t) => t.id === toppingId);
+              if (toppingItem) {
+                await db.insert(orderItemTopping).values({
+                  id: nanoid(),
+                  orderItemId: item.id,
+                  toppingId,
+                  toppingName: toppingItem.name,
+                  toppingPrice: toppingItem.price,
+                });
+              }
             }
           }
         }
+      } catch (innerError) {
+        // ベストエフォート補償: order/orderItem 作成が失敗した場合、既に減算済みの
+        // 在庫を可能な範囲で戻す (在庫が減ったまま注文が存在しない不整合を軽減する)。
+        // これも複数UPDATEの逐次実行であり完全なロールバックの保証はない。
+        for (const [menuId, neededQty] of stockNeeded.entries()) {
+          try {
+            await db
+              .update(menu)
+              .set({
+                stockQuantity: sql`${menu.stockQuantity} + ${neededQty}`,
+              })
+              .where(eq(menu.id, menuId));
+            // 戻した結果、在庫が正に戻っていれば soldOut を解除する
+            // (他の同時注文で本当に売り切れている場合に誤って解除しないよう条件付きで行う)
+            await db
+              .update(menu)
+              .set({ soldOut: false })
+              .where(and(eq(menu.id, menuId), gte(menu.stockQuantity, 1)));
+          } catch (restoreError) {
+            console.error("Stock restore error:", restoreError);
+          }
+        }
+        throw innerError;
       }
 
       return c.json({ id: orderId, orderNumber }, 201);

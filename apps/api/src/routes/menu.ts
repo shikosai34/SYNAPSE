@@ -245,10 +245,18 @@ menuRoutes.patch(
       return c.json({ error: "権限がありません" }, 403);
     }
 
-    await db
-      .update(menu)
-      .set({ stockQuantity: input.stockQuantity })
-      .where(eq(menu.id, id));
+    // 2026-07-06 (L-4): 在庫補充時にsoldOutを戻さない非対称を是正。
+    // 注文フロー(order.ts)は在庫が0になるとsoldOut=trueにするため、補充時(stockQuantity>0)は
+    // soldOut=falseも併せて更新し「売切」表示を解除する。stockQuantity===0の場合は
+    // 0=無制限/未管理の意味も持つ既存挙動を尊重し、soldOutには触れない。
+    const stockUpdate: Partial<typeof menu.$inferSelect> = {
+      stockQuantity: input.stockQuantity,
+    };
+    if (input.stockQuantity > 0) {
+      stockUpdate.soldOut = false;
+    }
+
+    await db.update(menu).set(stockUpdate).where(eq(menu.id, id));
 
     return c.json({ success: true });
   }

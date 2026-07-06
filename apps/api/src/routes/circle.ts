@@ -4,12 +4,16 @@ import { z } from "zod";
 import { db, circle, event, membership } from "@fesflow/db";
 import { eq, and, isNull } from "drizzle-orm";
 import { nanoid } from "nanoid";
-import bcrypt from "bcryptjs";
 import { getAdminSession, hasPermission } from "../utils/auth";
+import { hashSecret } from "../utils/password";
 
 const circleRoutes = new Hono();
 
 // サークル一覧取得
+// 2026-07-06 (H2): 公開ブラウズ(来場者アプリ)にも使われるため認証必須化はしない。
+// ただし代表者のメールアドレス(PII)を managerEmail として無認可で返すのは漏洩なので、
+// managerEmail は「対象イベントの member:read を持つ認可済み呼び出し元」にのみ付与し、
+// 匿名/権限のない呼び出し元には含めない (managerName は表示用途で常に返す)。
 circleRoutes.get("/", async (c) => {
   const eventId = c.req.query("eventId");
 
@@ -23,8 +27,8 @@ circleRoutes.get("/", async (c) => {
       settings: circle.settings,
       createdAt: circle.createdAt,
       updatedAt: circle.updatedAt,
-      managerEmail: membership.userEmail,
       managerName: membership.userName,
+      managerEmail: membership.userEmail,
     })
     .from(circle)
     .leftJoin(
@@ -41,10 +45,22 @@ circleRoutes.get("/", async (c) => {
     : isNull(circle.deletedAt);
 
   const circles = await query.where(where);
-  return c.json(circles);
+
+  // eventId スコープで member:read を持つ場合のみ managerEmail を残す。
+  // それ以外(匿名来場者・eventId 未指定)では PII を落として返す。
+  const includeEmail = eventId
+    ? await hasPermission(c, null, "member:read", eventId)
+    : false;
+  if (includeEmail) {
+    return c.json(circles);
+  }
+  return c.json(circles.map(({ managerEmail: _managerEmail, ...rest }) => rest));
 });
 
 // サークル取得
+// 2026-07-06 (H2): 公開ブラウズにも使われるため認証必須化はしないが、
+// 代表者のメールアドレス(PII)は当該サークルの member:read を持つ認可済み呼び出し元にのみ
+// 付与し、匿名/権限のない呼び出し元には含めない (managerName は表示用途で常に返す)。
 circleRoutes.get("/:id", async (c) => {
   const id = c.req.param("id");
   const circles = await db
@@ -57,8 +73,8 @@ circleRoutes.get("/:id", async (c) => {
       settings: circle.settings,
       createdAt: circle.createdAt,
       updatedAt: circle.updatedAt,
-      managerEmail: membership.userEmail,
       managerName: membership.userName,
+      managerEmail: membership.userEmail,
     })
     .from(circle)
     .leftJoin(
@@ -74,7 +90,13 @@ circleRoutes.get("/:id", async (c) => {
     return c.json({ error: "サークルが見つかりません" }, 404);
   }
 
-  return c.json(circles[0]!);
+  const found = circles[0]!;
+  const includeEmail = await hasPermission(c, id, "member:read");
+  if (includeEmail) {
+    return c.json(found);
+  }
+  const { managerEmail: _managerEmail, ...rest } = found;
+  return c.json(rest);
 });
 
 // サークル作成
@@ -122,15 +144,15 @@ circleRoutes.post(
     }
 
     // 後方互換性のためにランダムなサークルパスワードを生成しハッシュ化
-    // 2026-07-04: Cloudflare Workers の CPU 時間制限（最大50ms）超過による 500 エラーを避けるため、
-    // ストレッチングコスト（ソルトラウンド）を 10 から 4 に引き下げ。
+    // 2026-07-06: bcrypt(saltRounds=4) は強度が低すぎるため、PBKDF2 ベースの
+    // hashSecret に置換 (H1)。
     const randomPassword = nanoid(16);
-    const hashedPassword = await bcrypt.hash(randomPassword, 4);
+    const hashedPassword = await hashSecret(randomPassword);
 
     // PINをハッシュ化
     let pinHash: string | null = null;
     if (input.managerPin) {
-      pinHash = await bcrypt.hash(input.managerPin, 4);
+      pinHash = await hashSecret(input.managerPin);
     }
 
     // サークルと代表者メンバーシップを作成
@@ -144,16 +166,24 @@ circleRoutes.post(
       description: input.description,
     });
 
+    // 2026-07-06 (M5): D1 はトランザクション非対応のため、membership insert が
+    // 失敗すると代表者不在のサークルが残ってしまう。失敗時は先に作成した circle 行を
+    // 補償削除してからエラーを返す。
     const membershipId = nanoid();
-    await db.insert(membership).values({
-      id: membershipId,
-      userEmail: input.managerEmail.toLowerCase(), // メールアドレスは小文字で保存
-      userName: input.managerName || `${input.name} 代表者`,
-      circleId: id,
-      role: "circle_manager",
-      pin: pinHash,
-      isActive: true,
-    });
+    try {
+      await db.insert(membership).values({
+        id: membershipId,
+        userEmail: input.managerEmail.toLowerCase(), // メールアドレスは小文字で保存
+        userName: input.managerName || `${input.name} 代表者`,
+        circleId: id,
+        role: "circle_manager",
+        pin: pinHash,
+        isActive: true,
+      });
+    } catch (e) {
+      await db.delete(circle).where(eq(circle.id, id));
+      return c.json({ error: "サークルの作成に失敗しました" }, 500);
+    }
 
     return c.json({ id }, 201);
   }
@@ -197,10 +227,11 @@ circleRoutes.put(
       updates.description = input.description;
 
     // PINをハッシュ化
-    // 2026-07-04: Cloudflare Workers の CPU 時間制限超過防止のため、ソルトラウンドを 4 に設定。
+    // 2026-07-06: bcrypt(saltRounds=4) は強度が低すぎるため、PBKDF2 ベースの
+    // hashSecret に置換 (H1)。
     let pinHash: string | null = null;
     if (input.managerPin) {
-      pinHash = await bcrypt.hash(input.managerPin, 4);
+      pinHash = await hashSecret(input.managerPin);
     }
 
     // サークルと代表者メンバーシップを更新

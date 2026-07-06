@@ -4,8 +4,8 @@ import { z } from "zod";
 import { db, event, circle, membership } from "@fesflow/db";
 import { eq, and, inArray, isNull } from "drizzle-orm";
 import { nanoid } from "nanoid";
-import bcrypt from "bcryptjs";
 import { getAdminSession, getSession } from "../utils/auth";
+import { verifySecret, isLegacyHash, hashSecret } from "../utils/password";
 import {
   clientIp,
   isLocked,
@@ -220,6 +220,12 @@ eventRoutes.post(
       });
     }
 
+    // 2026-07-06 (M-3): イベント未検出/サークル未検出/パスワード不一致を応答から区別できると
+    // イベント名・サークル名の存在有無を列挙されてしまうため、失敗ケースは全て同一のステータス(401)・
+    // 同一メッセージに統一する。失敗回数の記録(recordFailure)は各ケースで維持する。
+    const INVALID_LOGIN_MESSAGE =
+      "イベント名・サークル名・パスワードのいずれかが正しくありません";
+
     // イベント名でイベントを検索
     // 2026-07-05: 論理削除済みイベントへのログインを防止するためisNull(event.deletedAt)を追加
     const events = await db
@@ -229,7 +235,7 @@ eventRoutes.post(
 
     if (events.length === 0) {
       await recordFailure(buckets);
-      return c.json({ error: "イベントが見つかりません" }, 404);
+      return c.json({ error: INVALID_LOGIN_MESSAGE }, 401);
     }
 
     const foundEvent = events[0]!;
@@ -249,20 +255,37 @@ eventRoutes.post(
 
     if (circles.length === 0) {
       await recordFailure(buckets);
-      return c.json({ error: "サークルが見つかりません" }, 404);
+      return c.json({ error: INVALID_LOGIN_MESSAGE }, 401);
     }
 
     const foundCircle = circles[0]!;
 
     // パスワードの検証
-    const isPasswordValid = await bcrypt.compare(
+    // 2026-07-06 (H-1): bcryptjs(saltRounds=4)直接比較を廃止し、PBKDF2/bcrypt両対応の
+    // verifySecret に置換 (utils/password.ts)。
+    const isPasswordValid = await verifySecret(
       input.password,
       foundCircle.password
     );
 
     if (!isPasswordValid) {
       await recordFailure(buckets);
-      return c.json({ error: "パスワードが正しくありません" }, 401);
+      return c.json({ error: INVALID_LOGIN_MESSAGE }, 401);
+    }
+
+    // 2026-07-06 (H-1): rehash-on-verify。旧bcryptハッシュで検証成功した場合、
+    // 次回以降はPBKDF2で検証できるよう新形式へ再ハッシュして保存する。
+    // 失敗してもログイン自体は成功させたいため try/catch で本体処理を巻き込まない。
+    if (isLegacyHash(foundCircle.password)) {
+      try {
+        const rehashed = await hashSecret(input.password);
+        await db
+          .update(circle)
+          .set({ password: rehashed })
+          .where(eq(circle.id, foundCircle.id));
+      } catch {
+        // 再ハッシュ失敗はログを残さず無視する（ログイン成功を優先）
+      }
     }
 
     // 認証成功: 失敗履歴を消去する。

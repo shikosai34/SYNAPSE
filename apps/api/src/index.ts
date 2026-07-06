@@ -16,10 +16,18 @@ import { logger } from "hono/logger";
 import { secureHeaders } from "hono/secure-headers";
 import { nanoid } from "nanoid";
 
-import { createDb, runWithRequest, type WorkerEnv } from "@fesflow/db";
+import { createDb, runWithRequest, db, membership, type WorkerEnv } from "@fesflow/db";
+import { eq, and } from "drizzle-orm";
 import { createAuth } from "@fesflow/auth";
 import { createStorage } from "@fesflow/storage";
 import { getSession } from "./utils/auth";
+import {
+  clientIp,
+  isLocked,
+  recordFailure,
+  clearAttempts,
+  lockoutMessage,
+} from "./utils/rate-limit";
 
 // Hono REST ルート
 import {
@@ -33,7 +41,6 @@ import {
   stampRoutes,
   wristbandRoutes,
   preOrderRoutes,
-  extensionRoutes,
   accountRoutes,
 } from "./routes";
 
@@ -41,6 +48,8 @@ type AppBindings = { Bindings: WorkerEnv };
 
 const app = new Hono<AppBindings>();
 
+// 2026-07-06: logger() は全リクエストの URL をそのまま出力する。URL に userId/wristbandId 等の
+// 識別子が含まれ得る点に注意 (本番でのログ保持/マスキング方針を要検討)。
 app.use(logger());
 // 2026-07-05: 基本的なセキュリティレスポンスヘッダを付与 (クリックジャッキング/MIMEスニッフ/
 // HSTS/リファラ抑止)。ただし画像・フォント(/uploads/*)はフロント (別サブドメイン) から
@@ -103,9 +112,38 @@ app.use("/*", async (c, next) => {
 });
 
 // Better Auth ハンドラ
-app.on(["POST", "GET"], "/api/auth/*", (c) => {
+// 2026-07-06: sign-in / sign-up への総当たり・スパム対策 (監査 H4)。
+// better-auth 自体にはレート制限がないため、既存の auth_attempt ベースの
+// ヘルパ (utils/rate-limit.ts) を IP バケットで流用する。対象は POST の
+// sign-in / sign-up 系のみ (セッション取得等の GET は対象外)。
+app.on(["POST", "GET"], "/api/auth/*", async (c) => {
+  const path = c.req.path;
+  const isAuthAttempt =
+    c.req.method === "POST" &&
+    (path.includes("sign-in") || path.includes("sign-up"));
+
+  let ipKey = "";
+  if (isAuthAttempt) {
+    ipKey = `auth:ip:${clientIp(c)}`;
+    const retryAfterSec = await isLocked([ipKey]);
+    if (retryAfterSec > 0) {
+      c.header("Retry-After", String(retryAfterSec));
+      return c.json({ error: lockoutMessage(retryAfterSec) }, 429);
+    }
+  }
+
   const auth = createAuth(createDb(c.env.DB), c.env as WorkerEnv);
-  return auth.handler(c.req.raw);
+  const res = await auth.handler(c.req.raw);
+
+  if (isAuthAttempt) {
+    if (res.status >= 400) {
+      await recordFailure([{ key: ipKey, scope: "auth" }]);
+    } else if (res.status >= 200 && res.status < 300) {
+      await clearAttempts([ipKey]);
+    }
+  }
+
+  return res;
 });
 
 // 2026-07-05: 旧 tRPC エンドポイント (/trpc/*) を撤去。
@@ -126,7 +164,6 @@ app.route("/api/memberships", membershipRoutes);
 app.route("/api/stamps", stampRoutes);
 app.route("/api/wristbands", wristbandRoutes);
 app.route("/api/pre-orders", preOrderRoutes);
-app.route("/api/extensions", extensionRoutes);
 app.route("/api/account", accountRoutes);
 
 // 画像・フォントアップロード (fs → R2/MinIO)
@@ -150,6 +187,19 @@ app.post("/api/upload", async (c) => {
     const session = await getSession(c);
     if (!session || !session.user) {
       return c.json({ error: "認証が必要です" }, 401);
+    }
+
+    // 2026-07-06: アップロード濫用対策 (監査 M4)。単純ログインのみを要件にすると、
+    // 自己登録した来場者を含む「誰でも」10MBファイルを無制限にアップロードできてしまう。
+    // アップロード導線はイベント/サークル/メニュー管理者の操作に限られるため、
+    // 何らかのアクティブなメンバーシップ (スタッフ以上の所属) を持つことを要件にする。
+    const email = session.user.email.toLowerCase();
+    const memberships = await db
+      .select()
+      .from(membership)
+      .where(and(eq(membership.userEmail, email), eq(membership.isActive, true)));
+    if (memberships.length === 0) {
+      return c.json({ error: "アップロード権限がありません" }, 403);
     }
 
     const body = await c.req.parseBody();

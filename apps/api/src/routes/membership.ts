@@ -4,7 +4,6 @@ import { z } from "zod";
 import { db, membership, inviteToken, circle, event, user, getEnv, notification } from "@fesflow/db";
 import { eq, and, inArray, gt, isNull, lt } from "drizzle-orm";
 import { nanoid } from "nanoid";
-import bcrypt from "bcryptjs";
 import { auth } from "@fesflow/auth";
 import { Context } from "hono";
 import {
@@ -14,6 +13,7 @@ import {
   clearAttempts,
   lockoutMessage,
 } from "../utils/rate-limit";
+import { hashSecret, verifySecret, isLegacyHash } from "../utils/password";
 
 const membershipRoutes = new Hono();
 
@@ -107,8 +107,13 @@ async function checkMemberWritePermission(
   const initialAdminEmail = getEnv().INITIAL_SUPER_ADMIN_EMAIL;
 
   // 1. super_admin / system_manager (システムレベルの管理者) は何でも可能
+  // 2026-07-06 (C1): initialAdminEmail 一致だけでの system admin 昇格は、
+  // メール未検証でも成立してしまう抜け道だった。session.user.emailVerified === true
+  // の場合に限定する（未検証なら下の通常の super_admin メンバーシップ判定に委ねる）。
+  const emailVerified =
+    (session.user as { emailVerified?: boolean }).emailVerified === true;
   let isSystemAdmin = false;
-  if (initialAdminEmail && email === initialAdminEmail.toLowerCase()) {
+  if (initialAdminEmail && email === initialAdminEmail.toLowerCase() && emailVerified) {
     isSystemAdmin = true;
   } else {
     const systemMembers = await db
@@ -339,6 +344,10 @@ membershipRoutes.get("/event/:eventId", async (c) => {
 });
 
 // 権限チェック
+// 2026-07-06 (H2): 無認可で任意の userEmail × circleId/eventId の権限を問い合わせでき、
+// メンバー構成の列挙に使えた。セッション必須化し、問い合わせ対象は本人のメールのみ許可する
+// (register/visitor フロントの呼び出し元を確認したところ、現状このエンドポイントの
+// 呼び出し自体が存在せず、他人のメールを渡す用途もないため「本人チェックのみ許可」で十分)。
 membershipRoutes.post(
   "/check-permission",
   zValidator(
@@ -352,6 +361,14 @@ membershipRoutes.post(
   ),
   async (c) => {
     const input = c.req.valid("json");
+
+    const session = await auth.api.getSession({ headers: c.req.raw.headers });
+    if (!session || !session.user) {
+      return c.json({ error: "認証されていません" }, 401);
+    }
+    if (session.user.email.toLowerCase() !== input.userEmail.toLowerCase()) {
+      return c.json({ error: "他のユーザーの権限は照会できません" }, 403);
+    }
 
     // メンバーシップを検索
     let membershipQuery;
@@ -416,11 +433,11 @@ membershipRoutes.post(
     if (err) return c.json({ error: err.error }, err.status);
 
     // PINをハッシュ化
-    // 2026-07-04: Cloudflare Workers の CPU 時間制限（最大50ms）超過による 500 エラーを避けるため、
-    // ストレッチングコスト（ソルトラウンド）を 10 から 4 に引き下げ。
+    // 2026-07-06: bcrypt(saltRounds=4) は強度が低すぎるため、PBKDF2 ベースの
+    // hashSecret に置換 (H1)。
     let pinHash: string | null = null;
     if (input.pin) {
-      pinHash = await bcrypt.hash(input.pin, 4);
+      pinHash = await hashSecret(input.pin);
     }
 
     await db.insert(membership).values({
@@ -676,10 +693,11 @@ membershipRoutes.post(
     }
 
     // PINをハッシュ化
-    // 2026-07-04: Cloudflare Workers の CPU 時間制限超過防止のため、ソルトラウンドを 4 に設定。
+    // 2026-07-06: bcrypt(saltRounds=4) は強度が低すぎるため、PBKDF2 ベースの
+    // hashSecret に置換 (H1)。
     let pinHash: string | null = null;
     if (input.pin) {
-      pinHash = await bcrypt.hash(input.pin, 4);
+      pinHash = await hashSecret(input.pin);
     }
 
     // メンバーシップを作成
@@ -791,7 +809,7 @@ membershipRoutes.post(
     const email = input.email.toLowerCase();
 
     // 2026-07-05 (H4): PIN 総当たり対策。IP バケットと対象(本人)バケットの双方を見て、
-    // どちらかがロック中なら bcrypt を実行する前に 429 で弾く。
+    // どちらかがロック中なら ハッシュ照合(verifySecret) を実行する前に 429 で弾く。
     const ip = clientIp(c);
     const ipKey = `pin:ip:${ip}`;
     const targetKey = `pin:target:${targetId}:${email}`;
@@ -817,10 +835,26 @@ membershipRoutes.post(
     // PINがnullでないメンバーシップをチェック
     for (const m of memberships) {
       if (m.pin) {
-        const isValid = await bcrypt.compare(input.pin, m.pin);
+        const isValid = await verifySecret(input.pin, m.pin);
         if (isValid) {
           // 認証成功: 失敗履歴を消去して正当な利用者を巻き込まないようにする。
           await clearAttempts(keys);
+
+          // 2026-07-06 (H1 任意対応): 旧 bcrypt ハッシュで認証できた場合、
+          // 新形式 (PBKDF2) へ移行 (rehash-on-verify)。失敗しても認証自体は
+          // 成功として扱いたいため try/catch で保護し、エラーは握りつぶす。
+          if (isLegacyHash(m.pin)) {
+            try {
+              const rehashed = await hashSecret(input.pin);
+              await db
+                .update(membership)
+                .set({ pin: rehashed })
+                .where(eq(membership.id, m.id));
+            } catch {
+              // 移行に失敗しても認証結果には影響させない。
+            }
+          }
+
           // 該当メンバーシップの user テーブルのレコードを検索
           const users = await db
             .select()
@@ -892,8 +926,9 @@ membershipRoutes.patch(
       if (err) return c.json({ error: err.error }, err.status);
     }
 
-    // 2026-07-04: Cloudflare Workers の CPU 時間制限超過防止のため、ソルトラウンドを 4 に設定。
-    const pinHash = await bcrypt.hash(input.pin, 4);
+    // 2026-07-06: bcrypt(saltRounds=4) は強度が低すぎるため、PBKDF2 ベースの
+    // hashSecret に置換 (H1)。
+    const pinHash = await hashSecret(input.pin);
 
     await db
       .update(membership)
@@ -1041,9 +1076,11 @@ membershipRoutes.post(
       }
 
       // PINハッシュ化
+      // 2026-07-06: bcrypt(saltRounds=4) は強度が低すぎるため、PBKDF2 ベースの
+      // hashSecret に置換 (H1)。
       let pinHash: string | null = null;
       if (input.pin) {
-        pinHash = await bcrypt.hash(input.pin, 4);
+        pinHash = await hashSecret(input.pin);
       }
 
       // メンバーシップ作成

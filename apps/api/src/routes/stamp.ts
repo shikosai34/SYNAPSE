@@ -8,6 +8,11 @@ import { getSession } from "../utils/auth";
 
 const stampRoutes = new Hono();
 
+// 2026-07-06: 景品交換に必要なスタンプ数を定数化。
+// 本来はイベント/サークル単位で設定可能にすべきだが、スキーマ変更を伴うため
+// 今回はスコープ外とし、まずハードコードされたマジックナンバーを定数化するに留める (今後の課題)。
+const REQUIRED_STAMP_COUNT = 3;
+
 // ユーザーのスタンプ取得
 // 2026-07-05: フロント(apps/register, apps/visitor)を grep した結果、現時点では
 // `/api/stamps/:userId` を呼び出すコンポーネント・APIラッパーは存在しない(未消費)。
@@ -66,13 +71,12 @@ stampRoutes.post(
     }
 
     // 必要スタンプ数を満たしているかチェック
-    // ※要件に応じて個数を変更（例: 3個以上）
     const stamps = await db
       .select()
       .from(userStamp)
       .where(eq(userStamp.userId, input.userId));
 
-    if (stamps.length < 3) { // 仮で3個とする
+    if (stamps.length < REQUIRED_STAMP_COUNT) {
       return c.json({ error: "スタンプが足りません" }, 400);
     }
 
