@@ -89,15 +89,15 @@ preOrderRoutes.post(
         .where(eq(eventUser.id, userId));
 
       if (existingUser.length === 0) {
-        // 新規来場者の初回事前オーダー。当該 circle の eventId で eventUser を自動シードする
-        // (来場者の初回導線を壊さないため、この自動作成自体は維持する)。
-        const newDisplayId = Math.floor(100 + Math.random() * 900);
-        await db.insert(eventUser).values({
-          id: userId,
-          eventId: eventId,
-          displayId: newDisplayId,
-          status: "available",
-        });
+        // 2026-07-06: 「発行しないと使えない」方針。任意の userId から eventUser を
+        // 自動作成する自己発行の抜け穴を撤去。未発行の userId での事前オーダーは拒否する。
+        return c.json(
+          {
+            error:
+              "リストバンドが発行されていません。受付でリストバンドの発行を受けてください。",
+          },
+          403,
+        );
       } else if (existingUser[0]!.eventId !== eventId) {
         // 2026-07-06: クロスイベント混入対策 (H-3, ベストエフォート)。
         // userId は認証を伴わないベアラー値のため、既存の userId を任意に指定して

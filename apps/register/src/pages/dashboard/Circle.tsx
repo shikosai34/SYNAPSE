@@ -20,6 +20,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { OptionCard } from "@/components/ui/OptionCard";
+import { ToggleSwitch } from "@/components/ui/ToggleSwitch";
 import { toast } from "sonner";
 import { Save, Package, UserCheck, Crown, Clock, ChefHat, CheckCircle2 } from "lucide-react";
 
@@ -228,34 +230,16 @@ function CircleSettingsContent() {
             </CardDescription>
           </CardHeader>
           <CardContent className="pt-4 space-y-2">
-            {ORDER_FLOW_OPTIONS.map((opt) => {
-              const Icon = opt.icon;
-              const selected = orderFlowMode === opt.value;
-              return (
-                <button
-                  key={opt.value}
-                  type="button"
-                  onClick={() => setOrderFlowMode(opt.value)}
-                  className={`w-full text-left border-thick p-3 rounded-none transition-all flex items-start gap-3 cursor-pointer ${
-                    selected
-                      ? "border-primary bg-primary text-primary-foreground"
-                      : "border-border bg-background hover:bg-muted"
-                  }`}
-                >
-                  <Icon className="h-4 w-4 mt-0.5 shrink-0" />
-                  <div>
-                    <div className="text-xs font-bold uppercase">{opt.label}</div>
-                    <div
-                      className={`text-[10px] mt-0.5 ${
-                        selected ? "text-primary-foreground/80" : "text-muted-foreground"
-                      }`}
-                    >
-                      {opt.description}
-                    </div>
-                  </div>
-                </button>
-              );
-            })}
+            {ORDER_FLOW_OPTIONS.map((opt) => (
+              <OptionCard
+                key={opt.value}
+                icon={opt.icon}
+                label={opt.label}
+                description={opt.description}
+                selected={orderFlowMode === opt.value}
+                onSelect={() => setOrderFlowMode(opt.value)}
+              />
+            ))}
           </CardContent>
         </Card>
 
@@ -403,14 +387,7 @@ function ExtensionToggle({
           <div className="text-[10px] text-muted-foreground">{description}</div>
         </div>
       </div>
-      <Button
-        type="button"
-        variant={enabled ? "default" : "outline"}
-        onClick={onToggle}
-        className="border-thick border-border font-bold rounded-none h-8 text-[10px] uppercase shrink-0 px-3"
-      >
-        {enabled ? "ON" : "OFF"}
-      </Button>
+      <ToggleSwitch checked={enabled} onChange={onToggle} label={label} />
     </div>
   );
 }

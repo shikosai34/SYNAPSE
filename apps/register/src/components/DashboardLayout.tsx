@@ -18,6 +18,8 @@ import {
   Calendar,
   Lock,
   Smartphone,
+  Megaphone,
+  Wrench,
   ChevronDown,
   ChevronUp
 } from "lucide-react";
@@ -97,6 +99,9 @@ export default function DashboardLayout({
   // システム管理のメニュー項目
   const systemMenuItems: MenuItem[] = [
     { title: "イベント一覧", tab: "events", icon: Calendar },
+    { title: "アカウント管理", tab: "accounts", icon: Users },
+    { title: "お知らせ管理", tab: "announcements", icon: Megaphone },
+    { title: "メンテナンス", tab: "system-settings", icon: Wrench },
   ];
 
   const menuItems =

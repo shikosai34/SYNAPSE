@@ -20,6 +20,7 @@ import { Badge } from "@/components/ui/badge";
 import { Modal } from "@/components/ui/Modal";
 import { toast } from "sonner";
 import Image from "@/components/image";
+import { EventTheme } from "@/components/EventTheme";
 import { ShoppingCart, Plus, Minus, CheckCircle } from "lucide-react";
 
 interface CartItem {
@@ -70,6 +71,13 @@ function MenuPageContent() {
     enabled: !!selectedCircleId,
   });
 
+  // サークルが属するイベントのテーマ (配色/ロゴ) を取得して画面に反映
+  const { data: circleEvent } = useQuery({
+    queryKey: ["event", circleData?.eventId],
+    queryFn: () => eventApi.get(circleData!.eventId),
+    enabled: !!circleData?.eventId,
+  });
+
   useEffect(() => {
     if (circleIdParam) {
       setSelectedCircleId(circleIdParam);
@@ -80,6 +88,7 @@ function MenuPageContent() {
   const preOrderMutation = useMutation({
     mutationFn: async () => {
       if (!selectedCircleId || cart.length === 0) return;
+      if (!userId) throw new Error("注文にはリストバンドの発行(入場)が必要です");
       return await preOrderApi.create({
         userId,
         circleId: selectedCircleId,
@@ -103,6 +112,7 @@ function MenuPageContent() {
   const codOrderMutation = useMutation({
     mutationFn: async () => {
       if (!selectedCircleId || cart.length === 0) return;
+      if (!userId) throw new Error("注文にはリストバンドの発行(入場)が必要です");
       return await orderApi.create({
         circleId: selectedCircleId,
         userId, // 2026-07-04: リストバンド/QR必須化対応
@@ -250,14 +260,17 @@ function MenuPageContent() {
   }
 
   return (
+    <EventTheme theme={circleEvent} className="bg-background text-foreground">
     <div className="max-w-6xl mx-auto p-sp-3 sm:p-sp-4 space-y-sp-4 sm:space-y-sp-5 pb-36">
       {/* 戻るボタン */}
       <button
         onClick={() => {
-          setSelectedCircleId(null);
           if (circleIdParam) {
-            setSelectedEventId(null);
+            // 横断閲覧 (イベントメニュー) から来た場合はイベントの出店一覧へ戻す
+            router.push("/events");
+            return;
           }
+          setSelectedCircleId(null);
         }}
         className="font-mono text-[12px] sm:text-[13px] uppercase tracking-[1px] underline hover:text-info"
       >
@@ -468,9 +481,25 @@ function MenuPageContent() {
           </p>
         </div>
 
+        {/* 未入場 (リストバンド未発行) は注文不可。閲覧は自由だが「使う」には発行が必要。 */}
+        {!userId && (
+          <div className="border-thick border-border bg-muted/30 p-3 space-y-1">
+            <p className="text-xs font-black uppercase tracking-wide text-foreground">
+              注文にはリストバンドが必要です
+            </p>
+            <p className="text-[11px] text-muted-foreground leading-normal">
+              お持ちのリストバンドの QR コードを読み取って入場するか、受付でリストバンドの発行を受けてください。メニューの閲覧は発行なしでもご利用いただけます。
+            </p>
+          </div>
+        )}
+
         <div className="flex flex-col gap-2 pt-2">
           <Button
             onClick={() => {
+              if (!userId) {
+                toast.error("注文にはリストバンドが必要です。QR を読み取って入場してください。");
+                return;
+              }
               setIsCartOpen(false);
               if (isPreOrderEnabled()) {
                 codOrderMutation.mutate();
@@ -478,10 +507,14 @@ function MenuPageContent() {
                 preOrderMutation.mutate();
               }
             }}
-            disabled={preOrderMutation.isPending || codOrderMutation.isPending}
-            className="w-full h-12 border-thick border-border bg-primary text-primary-foreground text-base font-black uppercase rounded-none hover:bg-background hover:text-foreground transition-all"
+            disabled={!userId || preOrderMutation.isPending || codOrderMutation.isPending}
+            className="w-full h-12 border-thick border-border bg-primary text-primary-foreground text-base font-black uppercase rounded-none hover:bg-background hover:text-foreground transition-all disabled:opacity-50"
           >
-            {preOrderMutation.isPending || codOrderMutation.isPending ? "送信中..." : "注文を送信する"}
+            {preOrderMutation.isPending || codOrderMutation.isPending
+              ? "送信中..."
+              : !userId
+                ? "入場が必要です"
+                : "注文を送信する"}
           </Button>
         </div>
       </Modal>
@@ -574,6 +607,7 @@ function MenuPageContent() {
         );
       })}
     </div>
+    </EventTheme>
   );
 }
 

@@ -42,6 +42,8 @@ import {
   wristbandRoutes,
   preOrderRoutes,
   accountRoutes,
+  systemRoutes,
+  adminRoutes,
 } from "./routes";
 
 type AppBindings = { Bindings: WorkerEnv };
@@ -165,6 +167,8 @@ app.route("/api/stamps", stampRoutes);
 app.route("/api/wristbands", wristbandRoutes);
 app.route("/api/pre-orders", preOrderRoutes);
 app.route("/api/account", accountRoutes);
+app.route("/api/system", systemRoutes);
+app.route("/api/admin", adminRoutes);
 
 // 画像・フォントアップロード (fs → R2/MinIO)
 // 2026-07-05: SVG は同一オリジン配信時にスクリプトを実行し得る (保存型XSS) ため

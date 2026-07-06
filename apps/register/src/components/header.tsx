@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { Button } from "./ui/button";
 import { toast } from "sonner";
@@ -6,7 +6,7 @@ import { Menu, X, ChevronDown, User, Bell, Shield, Calendar, Building2 } from "l
 import AccountModal from "./account-modal";
 import { PRODUCT_NAME } from "@fesflow/config";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { eventApi, notificationApi, accountApi } from "@/lib/api";
+import { eventApi, notificationApi, accountApi, systemApi } from "@/lib/api";
 import {
   useAuth,
   clearAuthInfo,
@@ -55,6 +55,19 @@ export default function Header() {
   const [notifPopoverOpen, setNotifPopoverOpen] = useState(false);
   const [spacePopoverOpen, setSpacePopoverOpen] = useState(false);
 
+  // Escape キーでポップオーバーを閉じる (外側クリック用バックドロップと併用)
+  useEffect(() => {
+    if (!notifPopoverOpen && !spacePopoverOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setNotifPopoverOpen(false);
+        setSpacePopoverOpen(false);
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [notifPopoverOpen, spacePopoverOpen]);
+
   // ログインユーザーのアカウント情報を取得 (アバター画像用)
   const { data: me } = useQuery({
     queryKey: ["accountMe"],
@@ -91,6 +104,14 @@ export default function Header() {
     queryFn: () => notificationApi.list(),
     enabled: isAuthenticated && !!userEmail,
     refetchInterval: 15000, // 15秒おきに自動更新
+  });
+
+  // システムお知らせ (公開分) を [お知らせ・通知] に表示する (2026-07-06)
+  const { data: announcements } = useQuery({
+    queryKey: ["publicAnnouncements"],
+    queryFn: () => systemApi.announcements(),
+    enabled: isAuthenticated,
+    refetchInterval: 5 * 60_000,
   });
 
   // 全イベント取得 (super_admin用)
@@ -357,14 +378,22 @@ export default function Header() {
                   className="p-2 border-thick border-border bg-background hover:bg-muted select-none cursor-pointer flex items-center justify-center relative h-9 w-9 rounded-none"
                 >
                   <Bell className="h-4 w-4" />
-                  {notifications && notifications.length > 0 && (
+                  {((notifications && notifications.length > 0) ||
+                    (announcements && announcements.length > 0)) && (
                     <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-destructive rounded-none" />
                   )}
                 </button>
 
                 {/* 通知ポップオーバー (StudioBlank デザインルール準拠のフラットスタイル) */}
                 {notifPopoverOpen && (
-                  <div className="absolute right-0 top-11 z-50 w-72 sm:w-80 border-thin border-border bg-background p-4 shadow-none rounded-none text-left">
+                  <>
+                    {/* 外側クリックで閉じる透明バックドロップ */}
+                    <div
+                      className="fixed inset-0 z-40"
+                      aria-hidden
+                      onClick={() => setNotifPopoverOpen(false)}
+                    />
+                  <div className="absolute right-0 top-11 z-50 w-72 sm:w-80 border-thick border-border bg-background p-4 shadow-none rounded-none text-left">
                     <div className="flex items-center justify-between border-b border-border/20 pb-2 mb-3">
                       <span className="text-[11px] font-black uppercase tracking-wider">[お知らせ・通知]</span>
                       <button
@@ -375,7 +404,34 @@ export default function Header() {
                       </button>
                     </div>
 
-                    <div className="max-h-60 overflow-y-auto space-y-3">
+                    <div className="max-h-72 overflow-y-auto space-y-3">
+                      {/* システムお知らせ (公開分) */}
+                      {announcements && announcements.map((a) => {
+                        const badge =
+                          a.level === "critical"
+                            ? "bg-destructive text-destructive-foreground"
+                            : a.level === "warning"
+                              ? "bg-warning text-black"
+                              : "bg-primary text-primary-foreground";
+                        return (
+                          <div key={a.id} className="text-xs border-thick border-border p-3 bg-background space-y-1.5">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="font-headline font-bold truncate">{a.title}</span>
+                              <span className={`px-1.5 py-0.5 text-[8px] font-black uppercase tracking-wider shrink-0 ${badge}`}>
+                                お知らせ
+                              </span>
+                            </div>
+                            {a.body && (
+                              <p className="text-[11px] leading-[1.4] text-foreground/80 whitespace-pre-wrap">{a.body}</p>
+                            )}
+                            <div className="text-[9px] text-muted-foreground">
+                              {new Date(a.createdAt).toLocaleDateString("ja-JP")}
+                            </div>
+                          </div>
+                        );
+                      })}
+
+                      {/* 個人宛通知 */}
                       {notifications && notifications.length > 0 ? (
                         notifications.map((notif: any) => (
                           <div key={notif.id} className="text-xs border-thin border-border p-3 bg-muted/10 space-y-2">
@@ -409,13 +465,17 @@ export default function Header() {
                             )}
                           </div>
                         ))
-                      ) : (
-                        <div className="text-center py-6 text-muted-foreground text-xs">
-                          通知はありません
-                        </div>
-                      )}
+                      ) : null}
+
+                      {(!announcements || announcements.length === 0) &&
+                        (!notifications || notifications.length === 0) && (
+                          <div className="text-center py-6 text-muted-foreground text-xs">
+                            お知らせ・通知はありません
+                          </div>
+                        )}
                     </div>
                   </div>
+                  </>
                 )}
               </div>
 
@@ -443,7 +503,14 @@ export default function Header() {
 
                 {/* スペース切り替えポップオーバー */}
                 {spacePopoverOpen && (
-                  <div className="absolute right-0 top-11 z-50 w-72 sm:w-80 border-thin border-border bg-background p-4 shadow-none rounded-none text-left">
+                  <>
+                    {/* 外側クリックで閉じる透明バックドロップ */}
+                    <div
+                      className="fixed inset-0 z-40"
+                      aria-hidden
+                      onClick={() => setSpacePopoverOpen(false)}
+                    />
+                  <div className="absolute right-0 top-11 z-50 w-72 sm:w-80 border-thick border-border bg-background p-4 shadow-none rounded-none text-left">
                     <div className="flex items-center justify-between border-b border-border/20 pb-2 mb-3">
                       <span className="text-[11px] font-black uppercase tracking-wider">[スペース切り替え]</span>
                       <button
@@ -496,6 +563,7 @@ export default function Header() {
                       )}
                     </div>
                   </div>
+                  </>
                 )}
               </div>
 

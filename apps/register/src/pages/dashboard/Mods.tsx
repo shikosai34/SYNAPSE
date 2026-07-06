@@ -16,7 +16,8 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { toast } from "sonner";
-import { Save, Sparkles, Plus, Trash2, Globe, Upload, ToggleRight as ToggleOn, ToggleLeft as ToggleOff } from "lucide-react";
+import { Save, Sparkles, Plus, Trash2, Globe, Upload } from "lucide-react";
+import { ToggleSwitch } from "@/components/ui/ToggleSwitch";
 
 interface SettingsSchemaField {
   key: string;
@@ -348,23 +349,17 @@ function ModsSettingsContent() {
                             {manifest.author && <span className="block mt-0.5">開発者: {manifest.author} | v{manifest.version}</span>}
                           </CardDescription>
                         </div>
-                        <div className="flex gap-2 w-full sm:w-auto shrink-0">
-                          <Button
-                            type="button"
-                            variant={enabled ? "default" : "outline"}
-                            onClick={() => toggleMod(modId)}
-                            className="border-thick border-border font-bold rounded-none h-9 text-xs uppercase flex-1 sm:flex-none px-3"
-                          >
-                            {enabled ? (
-                              <>
-                                <ToggleOn className="mr-1.5 h-4 w-4 text-success" /> 有効
-                              </>
-                            ) : (
-                              <>
-                                <ToggleOff className="mr-1.5 h-4 w-4 text-muted-foreground" /> 無効
-                              </>
-                            )}
-                          </Button>
+                        <div className="flex items-center gap-3 w-full sm:w-auto shrink-0">
+                          <div className="flex items-center gap-2 border-thick border-accent-foreground/40 bg-background/10 px-3 h-9">
+                            <span className="text-[10px] font-black uppercase w-8">
+                              {enabled ? "有効" : "無効"}
+                            </span>
+                            <ToggleSwitch
+                              checked={enabled}
+                              onChange={() => toggleMod(modId)}
+                              label={`${manifest.name} の有効化`}
+                            />
+                          </div>
                           <Button
                             type="button"
                             onClick={() => uninstallMod(modId, manifest.name)}

@@ -16,6 +16,9 @@ import { FormField, FormSubmitButton } from "@/components/ui/FormField";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { AccountsTab } from "@/components/system/AccountsTab";
+import { AnnouncementsTab } from "@/components/system/AnnouncementsTab";
+import { SystemSettingsTab } from "@/components/system/SystemSettingsTab";
 import {
   Plus,
   Calendar,
@@ -102,6 +105,10 @@ export default function AdminPage() {
         activeTab={activeTab}
         onTabChange={setActiveTab}
       >
+        {activeTab === "accounts" && <AccountsTab />}
+        {activeTab === "announcements" && <AnnouncementsTab />}
+        {activeTab === "system-settings" && <SystemSettingsTab />}
+        {activeTab === "events" && (
         <div className="space-y-6">
           {/* アクションバー */}
           <div className="flex justify-between items-center border-b-thin border-border pb-3">
@@ -222,6 +229,7 @@ export default function AdminPage() {
             />
           )}
         </div>
+        )}
 
         <ConfirmDialog
           isOpen={!!pendingDelete}

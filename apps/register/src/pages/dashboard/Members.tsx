@@ -383,7 +383,7 @@ function MembersContent() {
               {inviteTokens.map((token) => (
                 <div
                   key={token.id}
-                  className="flex items-center justify-between p-3 border-thin border-border"
+                  className="flex items-center justify-between p-3 border-thick border-border"
                 >
                   <div className="flex items-center gap-3">
                     <Badge variant={getRoleBadgeVariant(token.role)}>
@@ -448,10 +448,10 @@ function MembersContent() {
               {members.map((member) => (
                 <div
                   key={member.id}
-                  className="flex items-center justify-between p-4 border-thin border-border"
+                  className="flex items-center justify-between p-4 border-thick border-border"
                 >
                   <div className="flex items-center gap-4">
-                    <div className="h-10 w-10 border-thin border-border bg-secondary flex items-center justify-center">
+                    <div className="h-10 w-10 border-thick border-border bg-secondary flex items-center justify-center">
                       <Shield className="h-5 w-5 text-muted-foreground" />
                     </div>
                     <div>
@@ -502,7 +502,7 @@ function MembersContent() {
               rolesData.map((roleInfo) => (
                 <div
                   key={roleInfo.role}
-                  className="p-4 border-thin border-border space-y-2"
+                  className="p-4 border-thick border-border space-y-2"
                 >
                   <div className="flex items-center gap-2">
                     <Badge variant={getRoleBadgeVariant(roleInfo.role)}>

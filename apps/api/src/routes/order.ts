@@ -257,15 +257,17 @@ orderRoutes.post(
         .from(eventUser)
         .where(eq(eventUser.id, input.userId));
       if (existingUser.length === 0) {
-        // 新規来場者の初回注文。当該 circle の eventId で eventUser を自動シードする
-        // (来場者の初回注文導線を壊さないため、この自動作成自体は維持する)。
-        const newDisplayId = Math.floor(100 + Math.random() * 900);
-        await db.insert(eventUser).values({
-          id: input.userId,
-          eventId: eventId,
-          displayId: newDisplayId,
-          status: "available",
-        });
+        // 2026-07-06: 「発行しないと使えない」方針。任意の userId から eventUser を
+        // 自動作成する経路(自己発行の抜け穴)を撤去。正規の来場者IDは受付での発行
+        // (POST /wristbands/issue) か物理バンドのスキャン(lookup)でのみ得られる。
+        // 未発行の userId での注文は拒否する。
+        return c.json(
+          {
+            error:
+              "リストバンドが発行されていません。受付でリストバンドの発行を受けるか、店頭でスタッフにお申し付けください。",
+          },
+          403,
+        );
       } else if (existingUser[0]!.eventId !== eventId) {
         // 2026-07-06: クロスイベント混入対策 (H-3, ベストエフォート)。
         // userId は認証を伴わないベアラー値のため、既存の userId を任意に指定して

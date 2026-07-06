@@ -1,11 +1,11 @@
 import { useState, useEffect } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { eventApi, uploadImage } from "@/lib/api";
-import { Card, CardContent, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Settings, Save, Upload, Loader2 } from "lucide-react";
+import { Settings, Save, Upload, Loader2, Palette } from "lucide-react";
 import { toast } from "sonner";
 
 interface SettingsTabProps {
@@ -13,10 +13,24 @@ interface SettingsTabProps {
   event: any; // イベント詳細情報
 }
 
-export function SettingsTab({
-  eventId,
-  event
-}: SettingsTabProps) {
+// テーマカラーの既定値 (event スキーマの default と一致させる)
+const DEFAULT_THEME = {
+  primaryColor: "#000000",
+  primaryTextColor: "#FFFFFF",
+  accentColor: "#0000FF",
+  accentTextColor: "#FFFFFF",
+  backgroundColor: "#FFFFFF",
+  textColor: "#000000",
+  fontFamily: "mono",
+};
+
+const FONT_OPTIONS = [
+  { value: "mono", label: "等幅 (Mono)" },
+  { value: "sans", label: "ゴシック (Sans)" },
+  { value: "serif", label: "明朝 (Serif)" },
+];
+
+export function SettingsTab({ eventId, event }: SettingsTabProps) {
   const queryClient = useQueryClient();
 
   const [form, setForm] = useState({
@@ -25,16 +39,25 @@ export function SettingsTab({
     startDate: "",
     endDate: "",
     logoUrl: "",
+    ...DEFAULT_THEME,
   });
 
   useEffect(() => {
     if (event) {
       setForm({
-        eventName: event.name || "",
+        // 2026-07-06: DB 上のフィールドは eventName。念のため name も許容する。
+        eventName: event.eventName || event.name || "",
         description: event.description || "",
-        startDate: event.startDate ? event.startDate.slice(0, 10) : "",
-        endDate: event.endDate ? event.endDate.slice(0, 10) : "",
+        startDate: event.startDate ? String(event.startDate).slice(0, 10) : "",
+        endDate: event.endDate ? String(event.endDate).slice(0, 10) : "",
         logoUrl: event.logoUrl || "",
+        primaryColor: event.primaryColor || DEFAULT_THEME.primaryColor,
+        primaryTextColor: event.primaryTextColor || DEFAULT_THEME.primaryTextColor,
+        accentColor: event.accentColor || DEFAULT_THEME.accentColor,
+        accentTextColor: event.accentTextColor || DEFAULT_THEME.accentTextColor,
+        backgroundColor: event.backgroundColor || DEFAULT_THEME.backgroundColor,
+        textColor: event.textColor || DEFAULT_THEME.textColor,
+        fontFamily: event.fontFamily || DEFAULT_THEME.fontFamily,
       });
     }
   }, [event]);
@@ -48,10 +71,17 @@ export function SettingsTab({
         startDate: data.startDate || null,
         endDate: data.endDate || null,
         logoUrl: data.logoUrl || null,
+        primaryColor: data.primaryColor,
+        primaryTextColor: data.primaryTextColor,
+        accentColor: data.accentColor,
+        accentTextColor: data.accentTextColor,
+        backgroundColor: data.backgroundColor,
+        textColor: data.textColor,
+        fontFamily: data.fontFamily,
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["event", eventId] });
-      toast.success("イベント基本設定を更新しました");
+      toast.success("イベント設定を更新しました");
     },
     onError: (err: any) => {
       toast.error(err.message || "設定の保存に失敗しました");
@@ -84,16 +114,20 @@ export function SettingsTab({
     updateEventMutation.mutate(form);
   };
 
+  const setColor = (key: keyof typeof DEFAULT_THEME, value: string) =>
+    setForm((prev) => ({ ...prev, [key]: value }));
+
   return (
     <div className="space-y-6 font-mono text-foreground">
       <div className="flex justify-between items-center border-b-thick border-border pb-3">
         <h2 className="text-sm font-bold uppercase tracking-wider flex items-center gap-2">
           <Settings className="h-4 w-4" />
-          イベント基本設定・ロゴ画像
+          イベント基本設定・テーマ
         </h2>
       </div>
 
-      <Card className=" rounded-none bg-background shadow-none">
+      {/* 基本情報 + ロゴ */}
+      <Card className="rounded-none bg-background shadow-none">
         <CardContent className="pt-6 space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {/* 設定項目 */}
@@ -143,7 +177,7 @@ export function SettingsTab({
             {/* ロゴ画像アップロード */}
             <div className="space-y-2 border-thick border-dashed border-border p-4 flex flex-col justify-center items-center bg-muted/20">
               <Label className="text-xs font-bold uppercase text-muted-foreground block text-center mb-2">イベント画像（ロゴ・背景用）</Label>
-              
+
               {form.logoUrl ? (
                 <div className="space-y-2 text-center w-full">
                   <img
@@ -184,6 +218,75 @@ export function SettingsTab({
               </div>
             </div>
           </div>
+        </CardContent>
+      </Card>
+
+      {/* テーマカラー */}
+      <Card className="rounded-none bg-background shadow-none">
+        <CardContent className="pt-6 space-y-5">
+          <div className="flex items-center gap-2 border-b-thick border-border pb-3">
+            <Palette className="h-4 w-4" />
+            <h3 className="text-xs font-bold uppercase tracking-wider">テーマカラー</h3>
+            <span className="text-[10px] text-muted-foreground normal-case">
+              来場者のイベント画面に反映されます
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="space-y-3">
+              <ColorField label="メインカラー" value={form.primaryColor} onChange={(v) => setColor("primaryColor", v)} />
+              <ColorField label="メイン文字色" value={form.primaryTextColor} onChange={(v) => setColor("primaryTextColor", v)} />
+              <ColorField label="アクセントカラー" value={form.accentColor} onChange={(v) => setColor("accentColor", v)} />
+              <ColorField label="アクセント文字色" value={form.accentTextColor} onChange={(v) => setColor("accentTextColor", v)} />
+              <ColorField label="背景色" value={form.backgroundColor} onChange={(v) => setColor("backgroundColor", v)} />
+              <ColorField label="本文文字色" value={form.textColor} onChange={(v) => setColor("textColor", v)} />
+              <div className="space-y-1">
+                <Label className="text-[10px] font-bold uppercase text-muted-foreground">フォント</Label>
+                <select
+                  value={form.fontFamily}
+                  onChange={(e) => setForm({ ...form, fontFamily: e.target.value })}
+                  className="w-full border-thick border-border rounded-none h-9 text-xs bg-background px-2 focus-visible:ring-0 font-mono"
+                >
+                  {FONT_OPTIONS.map((f) => (
+                    <option key={f.value} value={f.value}>{f.label}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {/* ライブプレビュー */}
+            <div className="space-y-2">
+              <Label className="text-[10px] font-bold uppercase text-muted-foreground">プレビュー</Label>
+              <div
+                className="border-thick border-border p-4 space-y-3"
+                style={{ backgroundColor: form.backgroundColor, color: form.textColor }}
+              >
+                {form.logoUrl && (
+                  <img src={form.logoUrl} alt="" className="max-h-12 border-thick" style={{ borderColor: form.primaryColor }} />
+                )}
+                <div
+                  className="p-3 font-bold uppercase text-sm"
+                  style={{ backgroundColor: form.primaryColor, color: form.primaryTextColor }}
+                >
+                  {form.eventName || "イベント名"}
+                </div>
+                <p className="text-xs" style={{ color: form.textColor }}>
+                  本文サンプル。来場者向けメニュー画面ではこの配色が使われます。
+                </p>
+                <button
+                  type="button"
+                  className="px-3 py-2 text-xs font-bold uppercase border-thick"
+                  style={{
+                    backgroundColor: form.accentColor,
+                    color: form.accentTextColor,
+                    borderColor: form.accentColor,
+                  }}
+                >
+                  アクセントボタン
+                </button>
+              </div>
+            </div>
+          </div>
 
           <div className="border-t-thick border-border pt-4 flex justify-end">
             <Button
@@ -201,6 +304,39 @@ export function SettingsTab({
           </div>
         </CardContent>
       </Card>
+    </div>
+  );
+}
+
+// カラー入力行: カラーピッカー + hex テキストを同期
+function ColorField({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <Label className="text-[11px] font-bold uppercase">{label}</Label>
+      <div className="flex items-center gap-2 shrink-0">
+        <input
+          type="color"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className="h-8 w-10 border-thick border-border rounded-none bg-background cursor-pointer p-0"
+          aria-label={`${label} カラーピッカー`}
+        />
+        <input
+          type="text"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className="h-8 w-24 border-thick border-border rounded-none bg-background text-xs font-mono px-2 uppercase focus-visible:outline-none"
+          aria-label={`${label} 16進数`}
+        />
+      </div>
     </div>
   );
 }

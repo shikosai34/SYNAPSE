@@ -9,6 +9,7 @@ import stampRoutes from "./stamp";
 import wristbandRoutes from "./wristband";
 import preOrderRoutes from "./pre_order";
 import accountRoutes from "./account";
+import { systemRoutes, adminRoutes } from "./system";
 
 export {
   eventRoutes,
@@ -22,5 +23,7 @@ export {
   wristbandRoutes,
   preOrderRoutes,
   accountRoutes,
+  systemRoutes,
+  adminRoutes,
 };
 

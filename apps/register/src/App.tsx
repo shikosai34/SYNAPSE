@@ -1,6 +1,7 @@
 import { Routes, Route, Navigate } from "react-router-dom";
 import Providers from "@/components/providers";
 import Header from "@/components/header";
+import SystemBanner from "@/components/SystemBanner";
 import Home from "@/pages/Home";
 import Login from "@/pages/Login";
 import CircleLogin from "@/pages/CircleLogin";
@@ -26,8 +27,9 @@ import { CircleAuthGuard, SystemAdminGuard, EventAdminGuard } from "@/hooks/useC
 export default function App() {
 	return (
 		<Providers>
-			<div className="grid grid-rows-[auto_1fr] min-h-svh">
+			<div className="grid grid-rows-[auto_auto_1fr] min-h-svh">
 				<Header />
+				<SystemBanner />
 				<main>
 					<Routes>
 						{/* パブリック / 共通ルート */}

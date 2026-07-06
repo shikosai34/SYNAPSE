@@ -768,3 +768,21 @@ export const preOrderApi = {
 
 
 
+
+// ── システム全体設定 (メンテナンス/お知らせ) 公開値 (2026-07-06) ──────────
+export interface SystemSettings {
+  maintenance: { enabled: boolean; message: string };
+}
+
+export interface PublicAnnouncement {
+  id: string;
+  title: string;
+  body: string;
+  level: "info" | "warning" | "critical";
+  createdAt: string;
+}
+
+export const systemApi = {
+  public: () => fetchApi<SystemSettings>("/api/system/public"),
+  announcements: () => fetchApi<PublicAnnouncement[]>("/api/system/announcements"),
+};

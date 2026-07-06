@@ -23,18 +23,18 @@ export default function Home() {
           FesFlow へようこそ
         </h1>
         <p className="text-sm text-muted-foreground leading-relaxed">
-          ご利用の立場を選んでください。スタッフ・管理者は各専用ページへ移動してログインします。
+          ご利用の機能を選んでください。スタッフ・管理者は各専用ページへ移動してログインします。
         </p>
       </div>
 
       <div className="grid gap-4">
-        {/* 来場者: このアプリ内で完結 */}
+        {/* 来場者: メニューの下見は自由。利用にはリストバンド発行(入場)が必要 */}
         <PortalCard
           icon={QrCode}
           title="来場者"
-          desc="学園祭を楽しむ方。メニューの閲覧や事前注文ができます。リストバンドのQRを読み取ると、スタンプ・抽選・マイページが使えます。"
-          cta="来場者として進む"
-          onClick={() => navigate("/menu")}
+          desc="学園祭を楽しむ方。メニューの下見はどなたでもご覧いただけます。事前注文・スタンプ・抽選・マイページを使うには、受付でリストバンドの発行を受けるか、お持ちのリストバンドのQRを読み取って入場してください。"
+          cta="メニューを見る"
+          onClick={() => navigate("/events")}
           primary
         />
 
