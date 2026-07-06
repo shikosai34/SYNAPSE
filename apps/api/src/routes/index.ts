@@ -8,7 +8,6 @@ import membershipRoutes from "./membership";
 import stampRoutes from "./stamp";
 import wristbandRoutes from "./wristband";
 import preOrderRoutes from "./pre_order";
-import extensionRoutes from "./extension";
 import accountRoutes from "./account";
 
 export {
@@ -22,7 +21,6 @@ export {
   stampRoutes,
   wristbandRoutes,
   preOrderRoutes,
-  extensionRoutes,
   accountRoutes,
 };
 

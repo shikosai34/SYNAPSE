@@ -152,6 +152,17 @@ export function ModSandbox({
         <head>
           <meta charset="utf-8" />
           <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+          <!--
+            2026-07-06: (監査M-2) サークル管理者が設定した任意HTML/JSを実行するmodサンドボックスに
+            制限的なCSPを追加。iframeはsandbox="allow-scripts"（allow-same-origin無し）で
+            オリジン分離済みだが、親と同一サークルを見る他ユーザーへのフィッシングUI表示・
+            外部への情報送信・マイニング等を緩和するため、mod内で許可する通信先を最小限に絞る。
+            特に connect-src 'none' により fetch/XHR/WebSocket 等の外部通信を全面遮断する。
+            これは情報流出緩和の要となる一方、外部APIを利用する正規modを壊す可能性がある
+            トレードオフであることに留意（現状リポジトリ内に connect を要求するサンプルmodは
+            見当たらないため 'none' を採用）。
+          -->
+          <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' https:; style-src 'unsafe-inline' https://fonts.googleapis.com https:; font-src https://fonts.gstatic.com https: data:; img-src https: data:; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none';" />
           <!-- Google Fontsの読み込み (DESIGN.md用) -->
           <link rel="preconnect" href="https://fonts.googleapis.com">
           <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>

@@ -87,10 +87,6 @@ wristbandRoutes.get("/lookup/:code", async (c) => {
     code = urlMatch[1];
   }
 
-  // 2026-07-04: D1 の外部キー制約エラーを避けるため、DB内の最初のイベントIDを取得してデフォルトとして使用する
-  const eventsList = await db.select().from(event).limit(1);
-  const defaultEventId = eventsList[0]?.id || "evt_default";
-
   // 2026-07-05: 開発用の固定管理者/テストバンド (wb_admin*/wb_test*) の自動シードを撤去。
   // 本番に残るとハードコードされたバックドア (誰でも管理者バンドを生成可能) になるため。
 
@@ -141,24 +137,12 @@ wristbandRoutes.get("/lookup/:code", async (c) => {
   }
 
 
-  // 3. 未知のコード/ユーザーIDの場合の自動作成フォールバック (画面がエラーでクラッシュするのを防ぐ)
-  const newDisplayId = Math.floor(100 + Math.random() * 900);
-  await db.insert(eventUser).values({
-    id: code,
-    eventId: defaultEventId,
-    displayId: newDisplayId,
-    status: "available",
-  });
-
-  const createdUsers = await db
-    .select()
-    .from(eventUser)
-    .where(eq(eventUser.id, code));
-
-  return c.json({
-    user: createdUsers[0],
-    wristband: null,
-  });
+  // 3. 未知のコード/ユーザーIDの場合の自動作成フォールバックを撤去 (2026-07-06)。
+  // 認証なしで誰でも任意のコードを叩くたびに eventUser が無制限に生成されてしまい、
+  // DB膨張/コスト増/DoSの温床になっていたため。lookup はあくまで「既存の照会」に徹し、
+  // 未知のコードは 404 を返す。正規の来場者ID発行は POST /issue (セッション必須) や
+  // POST /register (能動的なリストバンド登録操作) で行う。
+  return c.json({ error: "ユーザーが見つかりません" }, 404);
 });
 
 
@@ -322,13 +306,23 @@ wristbandRoutes.post(
     }
     const u = users[0]!;
 
+    // 2026-07-06: write-once化。onboardedAt が既に設定済み(=初回登録完了済み)の場合、
+    // userId さえ知っていれば誰でも他人のニックネーム/誕生日を無制限に上書きできてしまう
+    // 経路を塞ぐ。初回のセルフ登録(onboardedAt が null)のみ許可し、以降の変更はスタッフ経由に限定する。
+    if (u.onboardedAt) {
+      return c.json(
+        { error: "既に登録済みです。変更にはスタッフにお問い合わせください" },
+        409
+      );
+    }
+
     await db
       .update(eventUser)
       .set({
         nickname,
         birthday: birthday || null,
         // 初回のみ確定させる (再編集で入場日時が動かないように)
-        onboardedAt: u.onboardedAt ?? new Date(),
+        onboardedAt: new Date(),
       })
       .where(eq(eventUser.id, userId));
 

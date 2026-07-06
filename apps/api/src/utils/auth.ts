@@ -25,8 +25,14 @@ export async function getAdminSession(c: Context) {
   const email = session.user.email;
   const initialAdminEmail = getEnv().INITIAL_SUPER_ADMIN_EMAIL;
 
-  // 初期管理者メールアドレスに一致する場合、自動昇格/登録チェック
-  if (initialAdminEmail && email.toLowerCase() === initialAdminEmail.toLowerCase()) {
+  // 2026-07-06: 初期管理者メールアドレスへの自動昇格は emailVerified === true の場合に限定する (監査 C1)。
+  // better-auth はメール検証なしでもサインアップ・ログインできるため、検証前は
+  // 「文字列が一致しただけ」の任意人物が super_admin になれてしまっていた。
+  if (
+    initialAdminEmail &&
+    email.toLowerCase() === initialAdminEmail.toLowerCase() &&
+    session.user.emailVerified === true
+  ) {
     const existing = await db
       .select()
       .from(membership)
