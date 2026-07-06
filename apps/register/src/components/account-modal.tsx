@@ -225,10 +225,20 @@ export default function AccountModal({
             className="w-full h-9 rounded-none border-thin text-xs uppercase font-black flex items-center justify-center gap-2"
             onClick={async () => {
               try {
-                await authClient.passkey.addPasskey();
-                toast.success("パスキーを追加しました");
+                const res = await authClient.passkey.addPasskey({
+                  fetchOptions: {
+                    onError(ctx) {
+                      toast.error(ctx.error.message || "パスキーの追加に失敗しました");
+                    }
+                  }
+                });
+                if (res?.error) {
+                  toast.error(res.error.message || "パスキーの追加に失敗しました");
+                } else if (res?.data) {
+                  toast.success("パスキーを追加しました");
+                }
               } catch (e: any) {
-                toast.error(e.message || "パスキーの追加に失敗しました");
+                toast.error(e.message || "予期せぬエラーが発生しました");
               }
             }}
           >

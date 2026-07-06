@@ -18,7 +18,7 @@ import { nanoid } from "nanoid";
 
 import { createDb, runWithRequest, db, membership, type WorkerEnv } from "@fesflow/db";
 import { eq, and } from "drizzle-orm";
-import { createAuth } from "@fesflow/auth";
+import { createAuth, auth } from "@fesflow/auth";
 import { createStorage } from "@fesflow/storage";
 import { getSession } from "./utils/auth";
 import {
@@ -150,7 +150,6 @@ app.on(["POST", "GET"], "/api/auth/*", async (c) => {
     }
   }
 
-  const auth = createAuth(createDb(c.env.DB), c.env as WorkerEnv);
   const res = await auth.handler(c.req.raw);
 
   if (isAuthAttempt) {
