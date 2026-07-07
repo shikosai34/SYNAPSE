@@ -16,6 +16,7 @@ import { FormField, FormSubmitButton } from "@/components/ui/FormField";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { ErrorState } from "@/components/ui/ErrorState";
 import { AccountsTab } from "@/components/system/AccountsTab";
 import { AnnouncementsTab } from "@/components/system/AnnouncementsTab";
 import { SystemSettingsTab } from "@/components/system/SystemSettingsTab";
@@ -42,7 +43,13 @@ export default function AdminPage() {
   });
 
   // イベント一覧取得
-  const { data: events, isLoading: eventsLoading } = useQuery({
+  const {
+    data: events,
+    isLoading: eventsLoading,
+    isError: eventsError,
+    error: eventsErrorObj,
+    refetch: refetchEvents,
+  } = useQuery({
     queryKey: ["events"],
     queryFn: () => eventApi.list(),
   });
@@ -181,6 +188,8 @@ export default function AdminPage() {
                 <Skeleton key={i} className="h-36" />
               ))}
             </div>
+          ) : eventsError ? (
+            <ErrorState error={eventsErrorObj} onRetry={() => refetchEvents()} />
           ) : events && events.length > 0 ? (
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
               {events.map((evt) => (

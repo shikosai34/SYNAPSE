@@ -13,6 +13,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/Modal";
+import { ErrorState } from "@/components/ui/ErrorState";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 
 // ローカルタイムの YYYY-MM-DD キー (日付ごとの集計・切り替えに使用)
@@ -50,7 +51,13 @@ function SalesManagementContent() {
     }
   }, []);
 
-  const { data: orders, isLoading } = useQuery({
+  const {
+    data: orders,
+    isLoading,
+    isError,
+    error,
+    refetch,
+  } = useQuery({
     queryKey: ["orders", circleId],
     queryFn: () => orderApi.list(circleId),
     enabled: !!circleId,
@@ -158,6 +165,14 @@ function SalesManagementContent() {
             <Skeleton className="h-32" />
           </div>
         </div>
+      </DashboardLayout>
+    );
+  }
+
+  if (isError) {
+    return (
+      <DashboardLayout title={circleName} subtitle="売上管理" type="circle">
+        <ErrorState error={error} onRetry={() => refetch()} />
       </DashboardLayout>
     );
   }

@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { ErrorState } from "@/components/ui/ErrorState";
 import { Badge } from "@/components/ui/badge";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { toast } from "sonner";
@@ -39,6 +40,8 @@ function BackyardPageContent() {
   const {
     data: orders,
     isLoading,
+    isError,
+    error,
     refetch,
   } = useQuery({
     queryKey: ["orders", circleId, selectedStatus],
@@ -124,6 +127,14 @@ function BackyardPageContent() {
             <Skeleton key={i} className="h-48" />
           ))}
         </div>
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <div className="container mx-auto p-4">
+        <ErrorState error={error} onRetry={() => refetch()} />
       </div>
     );
   }

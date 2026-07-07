@@ -29,6 +29,7 @@ import {
 } from "@/components/ui/FormField";
 import { undoableDelete } from "@/lib/toast-undo";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { ErrorState } from "@/components/ui/ErrorState";
 import {
   UserPlus,
   Link as LinkIcon,
@@ -80,13 +81,23 @@ function MembersContent() {
   });
 
   // API呼び出し
-  const { data: members, refetch: refetchMembers } = useQuery({
+  const {
+    data: members,
+    isError: membersError,
+    error: membersErrorObj,
+    refetch: refetchMembers,
+  } = useQuery({
     queryKey: ["members", circleId],
     queryFn: () => membershipApi.listByCircle(circleId!),
     enabled: !!circleId,
   });
 
-  const { data: inviteTokens, refetch: refetchTokens } = useQuery({
+  const {
+    data: inviteTokens,
+    isError: inviteTokensError,
+    error: inviteTokensErrorObj,
+    refetch: refetchTokens,
+  } = useQuery({
     queryKey: ["inviteTokens", circleId],
     queryFn: () => membershipApi.listInvites(circleId!),
     enabled: !!circleId,
@@ -360,7 +371,9 @@ function MembersContent() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          {inviteTokens && inviteTokens.length > 0 ? (
+          {inviteTokensError ? (
+            <ErrorState error={inviteTokensErrorObj} onRetry={() => refetchTokens()} />
+          ) : inviteTokens && inviteTokens.length > 0 ? (
             <div className="space-y-3">
               {inviteTokens.map((token) => (
                 <div
@@ -425,7 +438,9 @@ function MembersContent() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          {members && members.length > 0 ? (
+          {membersError ? (
+            <ErrorState error={membersErrorObj} onRetry={() => refetchMembers()} />
+          ) : members && members.length > 0 ? (
             <div className="space-y-3">
               {members.map((member) => (
                 <div

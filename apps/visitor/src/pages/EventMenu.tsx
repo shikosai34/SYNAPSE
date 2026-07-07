@@ -5,6 +5,8 @@ import { eventApi, circleApi } from "@/lib/api";
 import { useVisitor } from "@/hooks/useVisitor";
 import { EventTheme } from "@/components/EventTheme";
 import { Skeleton } from "@/components/ui/skeleton";
+import { ErrorState } from "@/components/ui/ErrorState";
+import { EmptyState } from "@/components/ui/EmptyState";
 import { Store, ArrowRight, QrCode, Calendar, ChevronRight } from "lucide-react";
 
 /**
@@ -49,12 +51,24 @@ function EventMenuContent({
   isEntered: boolean;
   onBrowseCircle: (circleId: string) => void;
 }) {
-  const { data: event, isLoading: eventLoading } = useQuery({
+  const {
+    data: event,
+    isLoading: eventLoading,
+    isError: eventError,
+    error: eventErrorObj,
+    refetch: refetchEvent,
+  } = useQuery({
     queryKey: ["event", eventId],
     queryFn: () => eventApi.get(eventId),
   });
 
-  const { data: circles, isLoading: circlesLoading } = useQuery({
+  const {
+    data: circles,
+    isLoading: circlesLoading,
+    isError: circlesError,
+    error: circlesErrorObj,
+    refetch: refetchCircles,
+  } = useQuery({
     queryKey: ["circles", eventId],
     queryFn: () => circleApi.list(eventId),
   });
@@ -92,6 +106,17 @@ function EventMenuContent({
           </div>
         </div>
 
+        {/* イベント取得失敗: ヘッダーは上でフォールバック表示済みだが、
+            テーマ/イベント名が欠けたまま気づかず進むのを避けるため明示的にエラーを出す */}
+        {eventError && (
+          <ErrorState
+            error={eventErrorObj}
+            title="イベント情報の取得に失敗しました"
+            onRetry={() => refetchEvent()}
+            className="mb-6"
+          />
+        )}
+
         {/* 未入場バナー: 閲覧は自由・利用は発行必須 */}
         {!isEntered && (
           <div className="border-thick border-border bg-muted/40 p-4 mb-6 flex items-start gap-3">
@@ -118,6 +143,8 @@ function EventMenuContent({
               <Skeleton key={i} className="h-24" />
             ))}
           </div>
+        ) : circlesError ? (
+          <ErrorState error={circlesErrorObj} onRetry={() => refetchCircles()} />
         ) : circles && circles.length > 0 ? (
           <div className="grid gap-3 sm:grid-cols-2">
             {circles.map((circle) => (
@@ -156,9 +183,7 @@ function EventMenuContent({
             ))}
           </div>
         ) : (
-          <div className="border-thick border-dashed border-border p-8 text-center text-xs text-muted-foreground">
-            このイベントにはまだ出店が登録されていません。
-          </div>
+          <EmptyState icon={Store} message="このイベントにはまだ出店が登録されていません" />
         )}
 
         {/* マイページ導線 (入場済みのみ) */}
@@ -181,7 +206,13 @@ function EventMenuContent({
 /** 未入場でイベント未特定のとき: 公開イベントの一覧から選ばせる */
 function EventPicker() {
   const navigate = useNavigate();
-  const { data: events, isLoading } = useQuery({
+  const {
+    data: events,
+    isLoading,
+    isError,
+    error,
+    refetch,
+  } = useQuery({
     queryKey: ["events"],
     queryFn: () => eventApi.list(),
   });
@@ -206,6 +237,8 @@ function EventPicker() {
             <Skeleton key={i} className="h-16" />
           ))}
         </div>
+      ) : isError ? (
+        <ErrorState error={error} onRetry={() => refetch()} />
       ) : events && events.length > 0 ? (
         <div className="grid gap-3">
           {events.map((event) => (
@@ -241,9 +274,7 @@ function EventPicker() {
           ))}
         </div>
       ) : (
-        <div className="border-thick border-dashed border-border p-8 text-center text-xs text-muted-foreground">
-          公開中のイベントがありません。
-        </div>
+        <EmptyState icon={Calendar} message="公開中のイベントがありません" />
       )}
     </div>
   );

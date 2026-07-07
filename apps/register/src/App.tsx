@@ -1,4 +1,5 @@
 import { Routes, Route } from "react-router-dom";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 import Providers from "@/components/providers";
 import Header from "@/components/header";
 import SystemBanner from "@/components/SystemBanner";
@@ -23,6 +24,7 @@ import { CircleAuthGuard, SystemAdminGuard, EventAdminGuard } from "@/hooks/useC
 
 export default function App() {
 	return (
+		<ErrorBoundary>
 		<Providers>
 			<div className="grid grid-rows-[auto_auto_1fr] min-h-svh">
 				<Header />
@@ -149,5 +151,6 @@ export default function App() {
 				</main>
 			</div>
 		</Providers>
+		</ErrorBoundary>
 	);
 }

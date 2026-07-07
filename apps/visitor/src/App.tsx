@@ -1,4 +1,5 @@
 import { Routes, Route, Navigate } from "react-router-dom";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 import Providers from "@/components/providers";
 import SystemGate from "@/components/SystemGate";
 import VisitorHeader from "@/components/visitor-header";
@@ -13,6 +14,7 @@ import EventMenu from "@/pages/EventMenu";
 // 入場は /w/:id (リストバンドQR)。管理者向けの権限/ダッシュボードは一切持たない。
 export default function App() {
 	return (
+		<ErrorBoundary>
 		<Providers>
 			<SystemGate>
 			<div className="grid grid-rows-[auto_1fr] min-h-svh">
@@ -36,5 +38,6 @@ export default function App() {
 			</div>
 			</SystemGate>
 		</Providers>
+		</ErrorBoundary>
 	);
 }

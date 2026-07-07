@@ -34,14 +34,28 @@ export default function EventDashboard() {
   }, [eventData]);
 
   // サークル一覧取得
-  const { data: circles, isLoading: circlesLoading } = useQuery({
+  const {
+    data: circles,
+    isLoading: circlesLoading,
+    isError: circlesError,
+    error: circlesErrorObj,
+    refetch: refetchCircles,
+  } = useQuery({
     queryKey: ["circles", eventId],
     queryFn: () => circleApi.list(eventId!),
     enabled: !!eventId,
   });
 
   // 全サークルの売上・注文情報の一括取得 (Promise.all)
-  const { data: allCirclesOrders, isLoading: ordersLoading } = useQuery({
+  // 注: 各サークルの注文取得は queryFn 内で try/catch 済み (1サークル分の失敗で全体を落とさない)。
+  // ここでの isError は Promise.all 自体が reject した場合 (通信断など) の保険。
+  const {
+    data: allCirclesOrders,
+    isLoading: ordersLoading,
+    isError: ordersError,
+    error: ordersErrorObj,
+    refetch: refetchOrders,
+  } = useQuery({
     queryKey: ["allCirclesOrders", circles?.map((c) => c.id)],
     queryFn: async () => {
       if (!circles) return [];
@@ -61,7 +75,13 @@ export default function EventDashboard() {
   });
 
   // イベントスタッフ一覧取得
-  const { data: staffMembers, isLoading: staffLoading } = useQuery({
+  const {
+    data: staffMembers,
+    isLoading: staffLoading,
+    isError: staffError,
+    error: staffErrorObj,
+    refetch: refetchStaff,
+  } = useQuery({
     queryKey: ["eventStaff", eventId],
     queryFn: () => membershipApi.listByEvent(eventId!),
     enabled: !!eventId,
@@ -104,6 +124,9 @@ export default function EventDashboard() {
               eventId={eventId}
               circles={circles}
               circlesLoading={circlesLoading}
+              circlesError={circlesError}
+              error={circlesErrorObj}
+              onRetry={() => refetchCircles()}
             />
           )}
 
@@ -112,6 +135,9 @@ export default function EventDashboard() {
             <SalesTab
               allCirclesOrders={allCirclesOrders}
               ordersLoading={ordersLoading}
+              ordersError={ordersError}
+              error={ordersErrorObj}
+              onRetry={() => refetchOrders()}
             />
           )}
 
@@ -121,6 +147,9 @@ export default function EventDashboard() {
               eventId={eventId}
               staffMembers={staffMembers}
               staffLoading={staffLoading}
+              staffError={staffError}
+              error={staffErrorObj}
+              onRetry={() => refetchStaff()}
               invites={invites}
             />
           )}

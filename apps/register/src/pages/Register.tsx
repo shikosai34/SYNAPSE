@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
+import { ErrorState } from "@/components/ui/ErrorState";
 import { toast } from "sonner";
 import { Minus, Plus, ShoppingCart, Trash2, QrCode, X, ScanLine } from "lucide-react";
 
@@ -351,7 +352,13 @@ function RegisterPageContent() {
     enabled: !!circleId,
   });
 
-  const { data: menus, isLoading: menusLoading } = useQuery({
+  const {
+    data: menus,
+    isLoading: menusLoading,
+    isError: menusError,
+    error: menusErrorObj,
+    refetch: refetchMenus,
+  } = useQuery({
     queryKey: ["menus", circleId],
     queryFn: () => menuApi.list(circleId),
     enabled: !!circleId,
@@ -507,6 +514,14 @@ function RegisterPageContent() {
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {[1, 2, 3, 4, 5, 6].map((i) => <Skeleton key={i} className="h-64" />)}
         </div>
+      </div>
+    );
+  }
+
+  if (menusError) {
+    return (
+      <div className="p-4">
+        <ErrorState error={menusErrorObj} onRetry={() => refetchMenus()} />
       </div>
     );
   }

@@ -13,6 +13,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { ErrorState } from "@/components/ui/ErrorState";
 import { undoableDelete } from "@/lib/toast-undo";
 import { Plus, Edit, Trash2, Settings, UtensilsCrossed } from "lucide-react";
 
@@ -52,13 +53,25 @@ function MenuManagementContent() {
     }
   }, []);
 
-  const { data: menus, isLoading: menusLoading } = useQuery({
+  const {
+    data: menus,
+    isLoading: menusLoading,
+    isError: menusError,
+    error: menusErrorObj,
+    refetch: refetchMenus,
+  } = useQuery({
     queryKey: ["menus", circleId],
     queryFn: () => menuApi.list(circleId),
     enabled: !!circleId,
   });
 
-  const { data: toppings, isLoading: toppingsLoading } = useQuery({
+  const {
+    data: toppings,
+    isLoading: toppingsLoading,
+    isError: toppingsError,
+    error: toppingsErrorObj,
+    refetch: refetchToppings,
+  } = useQuery({
     queryKey: ["toppings", circleId],
     queryFn: () => toppingApi.list(circleId),
     enabled: !!circleId,
@@ -154,7 +167,9 @@ function MenuManagementContent() {
           </div>
 
           {/* メニュー一覧 */}
-          {!menus || menus.length === 0 ? (
+          {menusError ? (
+            <ErrorState error={menusErrorObj} onRetry={() => refetchMenus()} />
+          ) : !menus || menus.length === 0 ? (
             <EmptyState
               icon={UtensilsCrossed}
               message="メニューがまだありません"
@@ -253,7 +268,9 @@ function MenuManagementContent() {
           </div>
 
           {/* トッピング一覧 */}
-          {!toppings || toppings.length === 0 ? (
+          {toppingsError ? (
+            <ErrorState error={toppingsErrorObj} onRetry={() => refetchToppings()} />
+          ) : !toppings || toppings.length === 0 ? (
             <EmptyState
               icon={UtensilsCrossed}
               message="トッピングがまだありません"

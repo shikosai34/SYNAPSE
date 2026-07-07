@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
+import { ErrorState } from "@/components/ui/ErrorState";
 import { ToggleSwitch } from "@/components/ui/ToggleSwitch";
 import { toast } from "sonner";
 import { Wrench, Save } from "lucide-react";
@@ -12,7 +13,13 @@ import { Wrench, Save } from "lucide-react";
 export function SystemSettingsTab() {
   const queryClient = useQueryClient();
 
-  const { data, isLoading } = useQuery({
+  const {
+    data,
+    isLoading,
+    isError,
+    error,
+    refetch,
+  } = useQuery({
     queryKey: ["adminSettings"],
     queryFn: () => adminApi.getSettings(),
   });
@@ -35,6 +42,10 @@ export function SystemSettingsTab() {
 
   if (isLoading) {
     return <Skeleton className="h-40" />;
+  }
+
+  if (isError) {
+    return <ErrorState error={error} onRetry={() => refetch()} />;
   }
 
   return (

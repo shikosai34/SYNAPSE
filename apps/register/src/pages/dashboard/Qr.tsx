@@ -9,6 +9,7 @@ import { circleApi } from "@/lib/api";
 import DashboardLayout from "@/components/DashboardLayout";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { ErrorState } from "@/components/ui/ErrorState";
 import {
   Printer,
   ArrowLeft,
@@ -54,7 +55,13 @@ function CircleQrContent() {
     }
   }, []);
 
-  const { data: circle, isLoading } = useQuery({
+  const {
+    data: circle,
+    isLoading,
+    isError,
+    error,
+    refetch,
+  } = useQuery({
     queryKey: ["circle", circleId],
     queryFn: () => circleApi.get(circleId!),
     enabled: !!circleId,
@@ -67,6 +74,14 @@ function CircleQrContent() {
           <Skeleton className="h-12 w-64" />
           <Skeleton className="h-96 w-full" />
         </div>
+      </DashboardLayout>
+    );
+  }
+
+  if (isError) {
+    return (
+      <DashboardLayout title={circleName} subtitle="モバイルオーダーQR" type="circle">
+        <ErrorState error={error} onRetry={() => refetch()} />
       </DashboardLayout>
     );
   }

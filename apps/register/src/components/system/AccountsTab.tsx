@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { adminApi, type AdminUserAccount } from "@/lib/api";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { ErrorState } from "@/components/ui/ErrorState";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { Users, Shield, Lock, Unlock, UserX, UserCheck } from "lucide-react";
@@ -23,7 +24,13 @@ const SCOPE_LABELS: Record<string, string> = {
 export function AccountsTab() {
   const queryClient = useQueryClient();
 
-  const { data: users, isLoading } = useQuery({
+  const {
+    data: users,
+    isLoading,
+    isError,
+    error,
+    refetch,
+  } = useQuery({
     queryKey: ["adminUsers"],
     queryFn: () => adminApi.listUsers(),
   });
@@ -103,6 +110,8 @@ export function AccountsTab() {
             <Skeleton key={i} className="h-24" />
           ))}
         </div>
+      ) : isError ? (
+        <ErrorState error={error} onRetry={() => refetch()} />
       ) : users && users.length > 0 ? (
         <div className="space-y-3">
           {users.map((user) => (

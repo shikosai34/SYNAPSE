@@ -10,6 +10,8 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Modal } from "@/components/ui/Modal";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { ErrorState } from "@/components/ui/ErrorState";
+import { EmptyState } from "@/components/ui/EmptyState";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
 import {
@@ -29,6 +31,9 @@ export default function MyOrderPage() {
   const { session, userId: visitorUserId, isLoaded } = useVisitor();
   const eventId = session?.eventId;
 
+  // eventData はヘッダーのロゴ表示のみに使う装飾的な値。取得失敗時は
+  // `eventData?.logoUrl` が undefined のままロゴ非表示になるだけで画面は成立するため、
+  // isError/ErrorState は追加しない (判断: 2026-07-07)。
   const { data: eventData } = useQuery({
     queryKey: ["event", eventId],
     queryFn: () => eventApi.get(eventId!),
@@ -120,14 +125,26 @@ export default function MyOrderPage() {
   const userId = visitorUserId ?? "";
 
   // 事前オーダー取得
-  const { data: preOrders, isLoading: preOrdersLoading } = useQuery({
+  const {
+    data: preOrders,
+    isLoading: preOrdersLoading,
+    isError: preOrdersError,
+    error: preOrdersErrorObj,
+    refetch: refetchPreOrders,
+  } = useQuery({
     queryKey: ["myPreOrders", userId],
     queryFn: () => preOrderApi.getByCode(userId),
     enabled: !!userId,
   });
 
   // ユーザー＆リストバンド状態取得
-  const { data: userStatus, isLoading: statusLoading } = useQuery({
+  const {
+    data: userStatus,
+    isLoading: statusLoading,
+    isError: statusError,
+    error: statusErrorObj,
+    refetch: refetchStatus,
+  } = useQuery({
     queryKey: ["userWristbandStatus", userId],
     queryFn: () => wristbandApi.lookup(userId),
     enabled: !!userId,
@@ -175,6 +192,20 @@ export default function MyOrderPage() {
       <div className="max-w-3xl mx-auto p-4 space-y-4 font-mono">
         <Skeleton className="h-12 w-48" />
         <Skeleton className="h-80 w-full" />
+      </div>
+    );
+  }
+
+  // userStatus はマイQR・リストバンド状態など画面全体の前提になるため取得失敗時はページ全体を止める。
+  // preOrders は下部の履歴セクションのみに影響するため、そちらは該当セクション内で個別に表示する。
+  if (statusError) {
+    return (
+      <div className="max-w-3xl mx-auto p-4 font-mono">
+        <ErrorState
+          error={statusErrorObj}
+          title="ユーザー情報の取得に失敗しました"
+          onRetry={() => refetchStatus()}
+        />
       </div>
     );
   }
@@ -368,7 +399,9 @@ export default function MyOrderPage() {
           [事前オーダー状況]
         </h2>
 
-        {preOrders && preOrders.length > 0 ? (
+        {preOrdersError ? (
+          <ErrorState error={preOrdersErrorObj} onRetry={() => refetchPreOrders()} />
+        ) : preOrders && preOrders.length > 0 ? (
           <div className="space-y-4">
             {preOrders.map((po) => (
               <div
@@ -409,9 +442,7 @@ export default function MyOrderPage() {
             ))}
           </div>
         ) : (
-          <div className="border-thick border-dashed border-border p-8 text-center text-muted-foreground">
-            現在、未処理の事前オーダーはありません。
-          </div>
+          <EmptyState icon={Clock} message="現在、未処理の事前オーダーはありません" />
         )}
       </div>
     </div>

@@ -1,3 +1,4 @@
+import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useFocusTrap } from "@/hooks/useFocusTrap";
 
@@ -13,6 +14,12 @@ interface ConfirmDialogProps {
   cancelLabel?: string;
   /** true で確定ボタンを destructive スタイルにする。 */
   destructive?: boolean;
+  /**
+   * 2026-07-07 (Phase6 UX堅牢化): 呼び出し側の mutation.isPending を渡すと、
+   * 確定ボタンをスピナー表示 + disabled にする (二重送信防止)。省略時は従来通り常に活性。
+   * register 側と同じ対応 (ConfirmDialog.tsx)。
+   */
+  isPending?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
 }
@@ -24,6 +31,7 @@ export function ConfirmDialog({
   confirmLabel = "実行する",
   cancelLabel = "キャンセル",
   destructive = true,
+  isPending = false,
   onConfirm,
   onCancel,
 }: ConfirmDialogProps) {
@@ -58,13 +66,16 @@ export function ConfirmDialog({
         <div className="flex flex-col sm:flex-row gap-2 pt-2">
           <Button
             onClick={onConfirm}
+            disabled={isPending}
             variant={destructive ? "destructive" : "default"}
             className="flex-1 h-10 text-xs font-bold uppercase rounded-none"
           >
+            {isPending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
             {confirmLabel}
           </Button>
           <Button
             onClick={onCancel}
+            disabled={isPending}
             variant="outline"
             className="flex-1 h-10 text-xs font-bold uppercase rounded-none"
           >

@@ -19,6 +19,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
+import { ErrorState } from "@/components/ui/ErrorState";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { OptionCard } from "@/components/ui/OptionCard";
 import { ToggleSwitch } from "@/components/ui/ToggleSwitch";
@@ -83,7 +84,13 @@ function CircleSettingsContent() {
     }
   }, []);
 
-  const { data: circle, isLoading } = useQuery({
+  const {
+    data: circle,
+    isLoading,
+    isError,
+    error,
+    refetch,
+  } = useQuery({
     queryKey: ["circle", circleId],
     queryFn: () => circleApi.get(circleId),
     enabled: !!circleId,
@@ -171,6 +178,14 @@ function CircleSettingsContent() {
           <Skeleton className="h-12 w-64" />
           <Skeleton className="h-96" />
         </div>
+      </DashboardLayout>
+    );
+  }
+
+  if (isError) {
+    return (
+      <DashboardLayout title={circleName} subtitle="サークル設定" type="circle">
+        <ErrorState error={error} onRetry={() => refetch()} />
       </DashboardLayout>
     );
   }

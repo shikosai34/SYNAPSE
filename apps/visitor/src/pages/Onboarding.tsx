@@ -56,6 +56,9 @@ export default function Onboarding() {
   const v = getVisitor();
   const eventId = v?.eventId;
 
+  // eventData はロゴ・イベント名の表示にのみ使う装飾的な値で、フォーム自体(ニックネーム登録)は
+  // eventData 無しでも成立する。取得失敗時は `eventData ? ... : "ようこそ"` のフォールバックが
+  // 効くため、isError/ErrorState は追加せず現状維持とする (判断: 2026-07-07)。
   const { data: eventData } = useQuery({
     queryKey: ["event", eventId],
     queryFn: () => eventApi.get(eventId!),

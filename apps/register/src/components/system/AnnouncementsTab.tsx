@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { ErrorState } from "@/components/ui/ErrorState";
 import { ToggleSwitch } from "@/components/ui/ToggleSwitch";
 import { OptionCard } from "@/components/ui/OptionCard";
 import { undoableDelete } from "@/lib/toast-undo";
@@ -35,7 +36,13 @@ export function AnnouncementsTab() {
   const queryClient = useQueryClient();
   const [editing, setEditing] = useState<null | { id?: string; data: AnnouncementInput }>(null);
 
-  const { data: list, isLoading } = useQuery({
+  const {
+    data: list,
+    isLoading,
+    isError,
+    error,
+    refetch,
+  } = useQuery({
     queryKey: ["adminAnnouncements"],
     queryFn: () => adminApi.listAnnouncements(),
   });
@@ -128,6 +135,8 @@ export function AnnouncementsTab() {
             <Skeleton key={i} className="h-20" />
           ))}
         </div>
+      ) : isError ? (
+        <ErrorState error={error} onRetry={() => refetch()} />
       ) : list && list.length > 0 ? (
         <div className="space-y-3">
           {list.map((a) => (

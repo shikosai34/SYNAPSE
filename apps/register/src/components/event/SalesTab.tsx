@@ -3,15 +3,23 @@ import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/com
 import { TrendingUp } from "lucide-react";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/button";
+import { ErrorState } from "@/components/ui/ErrorState";
 
 interface SalesTabProps {
   allCirclesOrders: any[] | undefined;
   ordersLoading: boolean;
+  /** 全サークル注文取得の isError (省略時はエラー分岐を表示しない) */
+  ordersError?: boolean;
+  error?: unknown;
+  onRetry?: () => void;
 }
 
 export function SalesTab({
   allCirclesOrders,
-  ordersLoading
+  ordersLoading,
+  ordersError,
+  error,
+  onRetry,
 }: SalesTabProps) {
   const [isChartExpanded, setIsChartExpanded] = useState(false);
 
@@ -105,6 +113,8 @@ export function SalesTab({
         <div className="text-center py-12 text-muted-foreground text-xs uppercase tracking-wider">
           Loading sales stats...
         </div>
+      ) : ordersError ? (
+        <ErrorState error={error} onRetry={onRetry} />
       ) : (
         <div className="space-y-6">
           {/* 売上概要カード */}

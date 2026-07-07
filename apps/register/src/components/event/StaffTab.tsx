@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { ErrorState } from "@/components/ui/ErrorState";
 import { Users, UserPlus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -17,6 +18,10 @@ interface StaffTabProps {
   eventId: string;
   staffMembers: any[] | undefined;
   staffLoading: boolean;
+  /** イベントスタッフ一覧取得の isError (省略時はエラー分岐を表示しない) */
+  staffError?: boolean;
+  error?: unknown;
+  onRetry?: () => void;
   invites: any[] | undefined;
 }
 
@@ -24,6 +29,9 @@ export function StaffTab({
   eventId,
   staffMembers,
   staffLoading,
+  staffError,
+  error,
+  onRetry,
   invites
 }: StaffTabProps) {
   const queryClient = useQueryClient();
@@ -136,6 +144,10 @@ export function StaffTab({
               {Array.from({ length: 3 }).map((_, i) => (
                 <Skeleton key={i} className="h-12" />
               ))}
+            </div>
+          ) : staffError ? (
+            <div className="p-4">
+              <ErrorState error={error} onRetry={onRetry} />
             </div>
           ) : staffMembers && staffMembers.length > 0 ? (
             <div className="divide-y divide-border">

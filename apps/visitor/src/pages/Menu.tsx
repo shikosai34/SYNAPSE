@@ -17,6 +17,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Modal } from "@/components/ui/Modal";
+import { ErrorState } from "@/components/ui/ErrorState";
+import { EmptyState } from "@/components/ui/EmptyState";
 import { toast } from "sonner";
 import { EventTheme } from "@/components/EventTheme";
 import { ShoppingCart, Plus, Minus, CheckCircle } from "lucide-react";
@@ -58,14 +60,26 @@ function MenuPageContent() {
   });
 
   // 選択したサークルの情報取得
-  const { data: circleData, isLoading: circleLoading } = useQuery({
+  const {
+    data: circleData,
+    isLoading: circleLoading,
+    isError: circleError,
+    error: circleErrorObj,
+    refetch: refetchCircle,
+  } = useQuery({
     queryKey: ["circle", selectedCircleId],
     queryFn: () => circleApi.get(selectedCircleId!),
     enabled: !!selectedCircleId,
   });
 
   // 選択したサークルのメニュー取得
-  const { data: menus, isLoading: menusLoading } = useQuery({
+  const {
+    data: menus,
+    isLoading: menusLoading,
+    isError: menusError,
+    error: menusErrorObj,
+    refetch: refetchMenus,
+  } = useQuery({
     queryKey: ["menus", selectedCircleId],
     queryFn: () => menuApi.list(selectedCircleId!),
     enabled: !!selectedCircleId,
@@ -259,6 +273,23 @@ function MenuPageContent() {
     );
   }
 
+  // サークル情報 or メニュー取得失敗: どちらも欠けると画面が成立しないため
+  // 一つの ErrorState にまとめて表示し、両方をまとめて再試行する
+  if (circleError || menusError) {
+    return (
+      <div className="max-w-6xl mx-auto p-sp-4">
+        <ErrorState
+          error={circleErrorObj || menusErrorObj}
+          title="メニュー情報の取得に失敗しました"
+          onRetry={() => {
+            refetchCircle();
+            refetchMenus();
+          }}
+        />
+      </div>
+    );
+  }
+
   return (
     <EventTheme theme={circleEvent} className="bg-background text-foreground">
     <div className="max-w-6xl mx-auto p-sp-3 sm:p-sp-4 space-y-sp-4 sm:space-y-sp-5 pb-36">
@@ -399,9 +430,7 @@ function MenuPageContent() {
             })}
           </div>
         ) : (
-          <p className="text-center font-body text-[16px] py-sp-5">
-            メニューがまだ登録されていません
-          </p>
+          <EmptyState icon={ShoppingCart} message="メニューがまだ登録されていません" />
         )}
       </div>
 

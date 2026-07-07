@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { menuApi, toppingApi } from "@/lib/api";
 import { Modal } from "@/components/ui/Modal";
+import { ErrorState } from "@/components/ui/ErrorState";
 import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
 
@@ -15,13 +16,25 @@ export function ToppingMappingModal({ circleId, isOpen, onClose }: ToppingMappin
   const queryClient = useQueryClient();
 
   // メニューとトッピングを取得
-  const { data: menus, isLoading: menusLoading } = useQuery({
+  const {
+    data: menus,
+    isLoading: menusLoading,
+    isError: menusError,
+    error: menusErrorObj,
+    refetch: refetchMenus,
+  } = useQuery({
     queryKey: ["menus", circleId],
     queryFn: () => menuApi.list(circleId),
     enabled: isOpen && !!circleId,
   });
 
-  const { data: toppings, isLoading: toppingsLoading } = useQuery({
+  const {
+    data: toppings,
+    isLoading: toppingsLoading,
+    isError: toppingsError,
+    error: toppingsErrorObj,
+    refetch: refetchToppings,
+  } = useQuery({
     queryKey: ["toppings", circleId],
     queryFn: () => toppingApi.list(circleId),
     enabled: isOpen && !!circleId,
@@ -80,6 +93,16 @@ export function ToppingMappingModal({ circleId, isOpen, onClose }: ToppingMappin
         <div className="flex items-center justify-center py-12">
           <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
         </div>
+      ) : menusError || toppingsError ? (
+        // 2026-07-07 (Phase6 UX堅牢化): どちらかの取得が失敗した場合、モーダルが
+        // 空の状態のまま何も操作できなくなっていたため ErrorState + 再試行を追加。
+        <ErrorState
+          error={menusErrorObj ?? toppingsErrorObj}
+          onRetry={() => {
+            if (menusError) refetchMenus();
+            if (toppingsError) refetchToppings();
+          }}
+        />
       ) : !menus || menus.length === 0 ? (
         <p className="text-xs text-muted-foreground text-center py-12">
           メニューが登録されていません。先にメニューを作成してください。
@@ -123,7 +146,11 @@ export function ToppingMappingModal({ circleId, isOpen, onClose }: ToppingMappin
                           onChange={(e) =>
                             handleCheckboxChange(menu.id, topping.id, e.target.checked)
                           }
-                          className="w-4 h-4 rounded-none border-thin border-border focus:ring-0 focus:ring-offset-0"
+                          // 2026-07-07 (Phase6 UX堅牢化): 自動保存中に連打すると
+                          // updateMappingMutation へのリクエストが重複しうるため、
+                          // 保存中はチェックボックスを disabled にする。
+                          disabled={updateMappingMutation.isPending}
+                          className="w-4 h-4 rounded-none border-thin border-border focus:ring-0 focus:ring-offset-0 disabled:opacity-50"
                         />
                         {topping.imagePath && (
                           <img

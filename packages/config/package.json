@@ -13,6 +13,13 @@
 		"./api-error": {
 			"default": "./src/api-error.ts"
 		},
+		"./cn": {
+			"default": "./src/cn.ts"
+		},
 		"./tsconfig.base.json": "./tsconfig.base.json"
+	},
+	"dependencies": {
+		"clsx": "^2.1.1",
+		"tailwind-merge": "^3.3.1"
 	}
 }

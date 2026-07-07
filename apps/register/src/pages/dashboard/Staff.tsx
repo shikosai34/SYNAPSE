@@ -19,6 +19,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { ErrorState } from "@/components/ui/ErrorState";
 import { toast } from "sonner";
 import {
   Plus,
@@ -62,6 +63,9 @@ function StaffManagementContent() {
   const {
     data: staffList,
     isLoading,
+    isError,
+    error,
+    refetch,
   } = useQuery({
     queryKey: ["staff", circleId],
     queryFn: () => staffApi.list(circleId!),
@@ -123,6 +127,14 @@ function StaffManagementContent() {
           <Skeleton className="h-32" />
           <Skeleton className="h-96" />
         </div>
+      </DashboardLayout>
+    );
+  }
+
+  if (isError) {
+    return (
+      <DashboardLayout title={circleName} subtitle="スタッフ管理" type="circle">
+        <ErrorState error={error} onRetry={() => refetch()} />
       </DashboardLayout>
     );
   }

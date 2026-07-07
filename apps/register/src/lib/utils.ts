@@ -1,33 +1,11 @@
-import { clsx, type ClassValue } from "clsx";
-import { extendTailwindMerge } from "tailwind-merge";
-
 /**
- * 2026-07-06: カスタム枠線ユーティリティ (border-thin/thick/heavy) を tailwind-merge に
- * 「border-width」グループとして登録する。
- *
- * これをしないと twMerge は `border-thick` を `border-border` (border-color) と同じ
- * 競合グループとみなし、`border-thick border-border` のように色クラスが後に来ると
- * 幅クラス(border-thick)を捨ててしまう → 枠が幅0で不可視になる。
- * (実際 `twMerge("border-thick border-border") === "border-border"` だった)
- * width グループに入れることで色クラスと共存し、幅同士だけが後勝ちになる。
+ * 2026-07-07 (Phase6): `cn` 実装 (border-thin/thick/heavy を tailwind-merge の
+ * border-width グループに登録するカスタムマージ) は register/visitor で完全に重複しており、
+ * 同じバグ修正 (border-thick が border-border に潰される問題) を2回行った経緯がある。
+ * @fesflow/config/cn へ共有化し、ここでは re-export するだけにする
+ * (`@/lib/utils` からの既存 import を壊さないため)。
  */
-const twMerge = extendTailwindMerge({
-	extend: {
-		classGroups: {
-			"border-w": ["border-thin", "border-thick", "border-heavy"],
-			"border-w-x": ["border-x-thin", "border-x-thick", "border-x-heavy"],
-			"border-w-y": ["border-y-thin", "border-y-thick", "border-y-heavy"],
-			"border-w-t": ["border-t-thin", "border-t-thick", "border-t-heavy"],
-			"border-w-r": ["border-r-thin", "border-r-thick", "border-r-heavy"],
-			"border-w-b": ["border-b-thin", "border-b-thick", "border-b-heavy"],
-			"border-w-l": ["border-l-thin", "border-l-thick", "border-l-heavy"],
-		},
-	},
-});
-
-export function cn(...inputs: ClassValue[]) {
-	return twMerge(clsx(inputs));
-}
+export { cn } from "@fesflow/config/cn";
 
 export function extractIdFromCode(code: string): string {
 	const trimmed = code.trim();
