@@ -84,6 +84,14 @@ function isAllowedOrigin(origin: string, env: WorkerEnv): boolean {
     return false;
   }
   if (host === "localhost" || host === "127.0.0.1") return true;
+  
+  // 2026-07-06: 開発体験向上のため、ローカルネットワーク(プライベートIP)を自動許可
+  if (
+    /^192\.168\.\d+\.\d+$/.test(host) || 
+    /^10\.\d+\.\d+\.\d+$/.test(host) || 
+    /^172\.(1[6-9]|2\d|3[0-1])\.\d+\.\d+$/.test(host)
+  ) return true;
+
   if (host === "fesflow.shikosai.net") return true;
   if (host.endsWith(".fesflow.shikosai.net")) return true;
   return false;
@@ -105,7 +113,15 @@ app.use("/*", (c, next) =>
  * このストアから実体を解決する。
  */
 app.use("/*", async (c, next) => {
-  const env = c.env as WorkerEnv;
+  const env = { ...c.env as WorkerEnv };
+  const origin = c.req.header("origin");
+  
+  // better-auth の trustedOrigins を通過させるため、isAllowedOrigin で許可された
+  // 動的オリジン（ローカルIP等）をこのリクエスト限定で CORS_ORIGIN に注入する
+  if (origin && isAllowedOrigin(origin, env)) {
+    env.CORS_ORIGIN = env.CORS_ORIGIN ? `${env.CORS_ORIGIN},${origin}` : origin;
+  }
+
   const db = createDb(env.DB);
   const auth = createAuth(db, env);
   return runWithRequest({ db, auth, env }, () => next());

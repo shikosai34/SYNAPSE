@@ -3,7 +3,7 @@
   "main": "src/index.ts",
   "type": "module",
   "scripts": {
-    "dev": "wrangler dev",
+    "dev": "wrangler dev --ip 0.0.0.0",
     "deploy": "CI=true WRANGLER_SEND_METRICS=false wrangler deploy",
     "check-types": "tsc -b",
     "cf-typegen": "wrangler types",
