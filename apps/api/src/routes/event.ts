@@ -1,5 +1,6 @@
 import { Hono } from "hono";
-import { zValidator } from "@hono/zod-validator";
+import { zBody } from "../z-validator";
+import { apiError } from "../http-error";
 import { z } from "zod";
 import { db, event, membership } from "@fesflow/db";
 import { eq, and, inArray, isNull } from "drizzle-orm";
@@ -12,7 +13,7 @@ const eventRoutes = new Hono();
 eventRoutes.get("/", async (c) => {
   const session = await getSession(c);
   if (!session || !session.user) {
-    return c.json({ error: "認証が必要です" }, 401);
+    apiError("UNAUTHORIZED", "認証が必要です");
   }
   const email = session.user.email.toLowerCase();
 
@@ -61,7 +62,7 @@ eventRoutes.get("/:id", async (c) => {
     .where(and(eq(event.id, id), isNull(event.deletedAt)));
 
   if (events.length === 0) {
-    return c.json({ error: "イベントが見つかりません" }, 404);
+    apiError("NOT_FOUND", "イベントが見つかりません");
   }
 
   return c.json(events[0]);
@@ -70,8 +71,7 @@ eventRoutes.get("/:id", async (c) => {
 // イベント作成
 eventRoutes.post(
   "/",
-  zValidator(
-    "json",
+  zBody(
     z.object({
       eventName: z.string().min(1, "イベント名は必須です"),
       description: z.string().optional(),
@@ -82,7 +82,7 @@ eventRoutes.post(
   async (c) => {
     const session = await getAdminSession(c);
     if (!session) {
-      return c.json({ error: "管理者権限が必要です" }, 403);
+      apiError("FORBIDDEN", "管理者権限が必要です");
     }
 
     const input = c.req.valid("json");
@@ -104,7 +104,7 @@ eventRoutes.post(
 eventRoutes.delete("/:id", async (c) => {
   const session = await getAdminSession(c);
   if (!session) {
-    return c.json({ error: "管理者権限が必要です" }, 403);
+    apiError("FORBIDDEN", "管理者権限が必要です");
   }
 
   const id = c.req.param("id");
@@ -116,8 +116,7 @@ eventRoutes.delete("/:id", async (c) => {
 // テーマ・基本設定の更新
 eventRoutes.put(
   "/:id/theme",
-  zValidator(
-    "json",
+  zBody(
     z.object({
       logoUrl: z.string().nullable().optional(),
       fontFamily: z.string().optional(),
@@ -137,7 +136,7 @@ eventRoutes.put(
   async (c) => {
     const session = await getAdminSession(c);
     if (!session) {
-      return c.json({ error: "管理者権限が必要です" }, 403);
+      apiError("FORBIDDEN", "管理者権限が必要です");
     }
 
     const id = c.req.param("id");

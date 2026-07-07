@@ -3,7 +3,7 @@
   "main": "src/index.ts",
   "type": "module",
   "scripts": {
-    "dev": "wrangler dev --ip 0.0.0.0 --local-protocol https",
+    "dev": "wrangler dev --ip 0.0.0.0",
     "deploy": "CI=true WRANGLER_SEND_METRICS=false wrangler deploy",
     "check-types": "tsc -b",
     "test": "vitest run",
@@ -15,6 +15,7 @@
   "dependencies": {
     "@hono/zod-validator": "^0.7.5",
     "@fesflow/auth": "workspace:*",
+    "@fesflow/config": "workspace:*",
     "@fesflow/db": "workspace:*",
     "@fesflow/storage": "workspace:*",
     "bcryptjs": "^2.4.3",
@@ -27,7 +28,6 @@
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.18.0",
     "@cloudflare/workers-types": "^4.20250620.0",
-    "@fesflow/config": "workspace:*",
     "@types/bcryptjs": "^2.4.6",
     "@types/node": "^22.13.11",
     "typescript": "^5.8.2",

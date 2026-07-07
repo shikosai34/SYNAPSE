@@ -1,5 +1,6 @@
 import { Hono } from "hono";
-import { zValidator } from "@hono/zod-validator";
+import { zBody } from "../z-validator";
+import { apiError } from "../http-error";
 import { z } from "zod";
 import { db, userStamp, rewardRedemption } from "@fesflow/db";
 import { eq } from "drizzle-orm";
@@ -42,8 +43,7 @@ stampRoutes.get("/:userId", async (c) => {
 // 景品引換
 stampRoutes.post(
   "/redeem",
-  zValidator(
-    "json",
+  zBody(
     z.object({
       userId: z.string(),
     })
@@ -55,7 +55,7 @@ stampRoutes.post(
     const session = await getSession(c);
     
     if (!session || !session.user) {
-      return c.json({ error: "権限がありません（スタッフログインが必要です）" }, 403);
+      apiError("FORBIDDEN", "権限がありません（スタッフログインが必要です）");
     }
 
     const staffId = session.user.id || session.user.email;
@@ -67,7 +67,7 @@ stampRoutes.post(
       .where(eq(rewardRedemption.userId, input.userId));
 
     if (existing.length > 0) {
-      return c.json({ error: "既に景品を交換済みです" }, 400);
+      apiError("BAD_REQUEST", "既に景品を交換済みです");
     }
 
     // 必要スタンプ数を満たしているかチェック
@@ -77,7 +77,7 @@ stampRoutes.post(
       .where(eq(userStamp.userId, input.userId));
 
     if (stamps.length < REQUIRED_STAMP_COUNT) {
-      return c.json({ error: "スタンプが足りません" }, 400);
+      apiError("BAD_REQUEST", "スタンプが足りません");
     }
 
     // 引換記録を作成

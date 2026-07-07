@@ -1,5 +1,6 @@
 import { Hono } from "hono";
-import { zValidator } from "@hono/zod-validator";
+import { zBody } from "../z-validator";
+import { AppError, apiError } from "../http-error";
 import { z } from "zod";
 import {
   db,
@@ -70,13 +71,13 @@ orderRoutes.get("/", async (c) => {
   const status = c.req.query("status");
 
   if (!circleId) {
-    return c.json({ error: "circleIdが必要です" }, 400);
+    apiError("BAD_REQUEST", "circleIdが必要です");
   }
 
   // 2026-07-05: 一覧は他サークルの注文状況・売上動向が漏洩しうるためスタッフ権限必須にする
   // (register の Sales/Backyard/EventDashboard のみが利用しており来場者導線では使われていない)
   if (!(await hasPermission(c, circleId, "order:read"))) {
-    return c.json({ error: "権限がありません" }, 403);
+    apiError("FORBIDDEN", "権限がありません");
   }
 
   let query = db
@@ -120,7 +121,7 @@ orderRoutes.get("/:id", async (c) => {
   const orders = await db.select().from(order).where(eq(order.id, id));
 
   if (orders.length === 0) {
-    return c.json({ error: "注文が見つかりません" }, 404);
+    apiError("NOT_FOUND", "注文が見つかりません");
   }
 
   const foundOrder = orders[0]!;
@@ -178,13 +179,13 @@ orderRoutes.get("/by-number/:orderNumber", async (c) => {
   const circleId = c.req.query("circleId");
 
   if (!circleId) {
-    return c.json({ error: "circleIdが必要です" }, 400);
+    apiError("BAD_REQUEST", "circleIdが必要です");
   }
 
   // 2026-07-05: フロント確認の結果、register/visitor いずれにも呼び出し箇所が無く
   // レジ導線専用のルックアップ（注文番号+circleId指定）であるため order:read を必須化する。
   if (!(await hasPermission(c, circleId, "order:read"))) {
-    return c.json({ error: "権限がありません" }, 403);
+    apiError("FORBIDDEN", "権限がありません");
   }
 
   const orders = await db
@@ -195,7 +196,7 @@ orderRoutes.get("/by-number/:orderNumber", async (c) => {
     );
 
   if (orders.length === 0) {
-    return c.json({ error: "注文が見つかりません" }, 404);
+    apiError("NOT_FOUND", "注文が見つかりません");
   }
 
   return c.json(orders[0]);
@@ -204,8 +205,7 @@ orderRoutes.get("/by-number/:orderNumber", async (c) => {
 // 注文作成
 orderRoutes.post(
   "/",
-  zValidator(
-    "json",
+  zBody(
     z.object({
       circleId: z.string(),
       cashierId: z.string().optional(),
@@ -231,7 +231,7 @@ orderRoutes.post(
         .from(circle)
         .where(eq(circle.id, input.circleId));
       if (circles.length === 0) {
-        return c.json({ error: `サークル ${input.circleId} が存在しません` }, 404);
+        apiError("NOT_FOUND", `サークル ${input.circleId} が存在しません`);
       }
       const eventId = circles[0]!.eventId;
 
@@ -261,12 +261,9 @@ orderRoutes.post(
         // 自動作成する経路(自己発行の抜け穴)を撤去。正規の来場者IDは受付での発行
         // (POST /wristbands/issue) か物理バンドのスキャン(lookup)でのみ得られる。
         // 未発行の userId での注文は拒否する。
-        return c.json(
-          {
-            error:
-              "リストバンドが発行されていません。受付でリストバンドの発行を受けるか、店頭でスタッフにお申し付けください。",
-          },
-          403,
+        apiError(
+          "FORBIDDEN",
+          "リストバンドが発行されていません。受付でリストバンドの発行を受けるか、店頭でスタッフにお申し付けください。",
         );
       } else if (existingUser[0]!.eventId !== eventId) {
         // 2026-07-06: クロスイベント混入対策 (H-3, ベストエフォート)。
@@ -274,10 +271,7 @@ orderRoutes.post(
         // 他人へのなりすましスタンプ付与/抽選不正を狙える。完全な防止にはセッションが
         // 必要でありスコープ外だが、最低限「他イベントの userId を注文に使う」経路は
         // ここで塞ぐ。同一イベント内でのなりすましは本対応では防げない(残存リスク)。
-        return c.json(
-          { error: "ユーザーとサークルのイベントが一致しません" },
-          400
-        );
+        apiError("BAD_REQUEST", "ユーザーとサークルのイベントが一致しません");
       }
 
       // 注文番号を生成
@@ -327,23 +321,17 @@ orderRoutes.post(
       for (const item of input.items) {
         const menuItem = menus.find((m) => m.id === item.menuId);
         if (!menuItem) {
-          return c.json(
-            { error: `メニュー ${item.menuId} が見つかりません` },
-            404
-          );
+          apiError("NOT_FOUND", `メニュー ${item.menuId} が見つかりません`);
         }
 
         // 2026-07-05: クロスサークルIDOR対策。他サークルのメニューが混入していないか検証する
         if (menuItem.circleId !== input.circleId) {
-          return c.json(
-            { error: `メニュー ${menuItem.name} は指定サークルに属していません` },
-            400
-          );
+          apiError("BAD_REQUEST", `メニュー ${menuItem.name} は指定サークルに属していません`);
         }
 
         // 2026-07-05: 売り切れメニューの注文をハードゲートで拒否する
         if (menuItem.soldOut) {
-          return c.json({ error: `${menuItem.name}は売り切れです` }, 400);
+          apiError("BAD_REQUEST", `${menuItem.name}は売り切れです`);
         }
 
         const itemToppings = toppings.filter((t) =>
@@ -352,30 +340,24 @@ orderRoutes.post(
 
         // 指定トッピングIDがすべて解決できているか（存在確認）
         if (itemToppings.length !== (item.toppingIds || []).length) {
-          return c.json({ error: "存在しないトッピングが指定されています" }, 400);
+          apiError("BAD_REQUEST", "存在しないトッピングが指定されています");
         }
 
         for (const t of itemToppings) {
           // クロスサークルIDOR対策
           if (t.circleId !== input.circleId) {
-            return c.json(
-              { error: `トッピング ${t.name} は指定サークルに属していません` },
-              400
-            );
+            apiError("BAD_REQUEST", `トッピング ${t.name} は指定サークルに属していません`);
           }
           // 売り切れトッピングの拒否
           if (t.soldOut) {
-            return c.json({ error: `${t.name}は売り切れです` }, 400);
+            apiError("BAD_REQUEST", `${t.name}は売り切れです`);
           }
           // 対象メニューに実際に紐付いているか確認
           const isLinked = menuToppingLinks.some(
             (mt) => mt.menuId === menuItem.id && mt.toppingId === t.id
           );
           if (!isLinked) {
-            return c.json(
-              { error: `トッピング ${t.name} はメニュー ${menuItem.name} に紐付いていません` },
-              400
-            );
+            apiError("BAD_REQUEST", `トッピング ${t.name} はメニュー ${menuItem.name} に紐付いていません`);
           }
         }
 
@@ -387,10 +369,7 @@ orderRoutes.post(
           stockNeeded.set(menuItem.id, totalNeeded);
 
           if (menuItem.stockQuantity < totalNeeded) {
-            return c.json(
-              { error: `${menuItem.name}の在庫が不足しています` },
-              400
-            );
+            apiError("BAD_REQUEST", `${menuItem.name}の在庫が不足しています`);
           }
         }
 
@@ -425,12 +404,7 @@ orderRoutes.post(
 
         if (result.length === 0) {
           const menuItem = menus.find((m) => m.id === menuId);
-          return c.json(
-            {
-              error: `${menuItem?.name ?? menuId}の在庫が不足しています`,
-            },
-            400
-          );
+          apiError("BAD_REQUEST", `${menuItem?.name ?? menuId}の在庫が不足しています`);
         }
 
         // 減算の結果 在庫が0になった場合は soldOut も併せてセットする
@@ -540,14 +514,11 @@ orderRoutes.post(
 
       return c.json({ id: orderId, orderNumber }, 201);
     } catch (error) {
+      // Phase4: apiError/AppError による意図的な 4xx (NOT_FOUND/BAD_REQUEST/FORBIDDEN 等) を
+      // ここで握りつぶして 500 に丸めないよう、AppError はそのまま再 throw して onError に委ねる。
+      if (error instanceof AppError) throw error;
       console.error("Order creation error:", error);
-      return c.json(
-        {
-          error:
-            error instanceof Error ? error.message : "注文の作成に失敗しました",
-        },
-        500
-      );
+      apiError("INTERNAL", "注文の作成に失敗しました");
     }
   }
 );
@@ -555,8 +526,7 @@ orderRoutes.post(
 // 注文ステータス更新
 orderRoutes.patch(
   "/:id/status",
-  zValidator(
-    "json",
+  zBody(
     z.object({
       status: z.enum([
         "pending",
@@ -572,12 +542,12 @@ orderRoutes.patch(
     const input = c.req.valid("json");
 
     const existingOrder = await db.select().from(order).where(eq(order.id, id));
-    if (existingOrder.length === 0) return c.json({ error: "見つかりません" }, 404);
+    if (existingOrder.length === 0) apiError("NOT_FOUND", "見つかりません");
     
     const targetOrder = existingOrder[0]!;
 
     if (!(await hasPermission(c, targetOrder.circleId, "order:write"))) {
-      return c.json({ error: "権限がありません" }, 403);
+      apiError("FORBIDDEN", "権限がありません");
     }
 
     // 2026-07-05: 不正なステータス遷移を禁止する（completed/cancelled は終端状態で、そこからの遷移不可）
@@ -586,12 +556,7 @@ orderRoutes.patch(
       targetOrder.status !== input.status &&
       !allowedNextStatuses.includes(input.status)
     ) {
-      return c.json(
-        {
-          error: `${targetOrder.status} から ${input.status} への変更はできません`,
-        },
-        400
-      );
+      apiError("BAD_REQUEST", `${targetOrder.status} から ${input.status} への変更はできません`);
     }
 
     // pending -> preparing に変わった場合、スタンプを付与
@@ -627,12 +592,12 @@ orderRoutes.post("/:id/complete", async (c) => {
   const id = c.req.param("id");
 
   const existingOrder = await db.select().from(order).where(eq(order.id, id));
-  if (existingOrder.length === 0) return c.json({ error: "見つかりません" }, 404);
+  if (existingOrder.length === 0) apiError("NOT_FOUND", "見つかりません");
   
   const targetOrder = existingOrder[0]!;
 
   if (!(await hasPermission(c, targetOrder.circleId, "order:write"))) {
-    return c.json({ error: "権限がありません" }, 403);
+    apiError("FORBIDDEN", "権限がありません");
   }
 
   await db
@@ -646,8 +611,7 @@ orderRoutes.post("/:id/complete", async (c) => {
 // 予想待ち時間設定
 orderRoutes.patch(
   "/:id/estimated-time",
-  zValidator(
-    "json",
+  zBody(
     z.object({
       estimatedTime: z.number().min(0),
     })
@@ -657,12 +621,12 @@ orderRoutes.patch(
     const input = c.req.valid("json");
 
     const existingOrder = await db.select().from(order).where(eq(order.id, id));
-    if (existingOrder.length === 0) return c.json({ error: "見つかりません" }, 404);
+    if (existingOrder.length === 0) apiError("NOT_FOUND", "見つかりません");
     
     const targetOrder = existingOrder[0]!;
 
     if (!(await hasPermission(c, targetOrder.circleId, "order:write"))) {
-      return c.json({ error: "権限がありません" }, 403);
+      apiError("FORBIDDEN", "権限がありません");
     }
 
     await db
@@ -681,11 +645,11 @@ orderRoutes.get("/stats/sales", async (c) => {
   const dateTo = c.req.query("dateTo");
 
   if (!circleId) {
-    return c.json({ error: "circleIdが必要です" }, 400);
+    apiError("BAD_REQUEST", "circleIdが必要です");
   }
 
   if (!(await hasPermission(c, circleId, "sales:read"))) {
-    return c.json({ error: "権限がありません" }, 403);
+    apiError("FORBIDDEN", "権限がありません");
   }
 
   let query = db

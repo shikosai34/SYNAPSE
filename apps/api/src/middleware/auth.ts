@@ -12,6 +12,7 @@
 import type { Context, Next } from "hono";
 import { auth } from "@fesflow/auth";
 import { getAdminSession } from "../utils/auth";
+import { apiError } from "../http-error";
 
 /** better-auth の getSession が返す型 (Awaited<ReturnType<...>>)。 */
 export type Session = NonNullable<
@@ -34,7 +35,7 @@ export async function requireAuth(
 ) {
   const session = await auth.api.getSession({ headers: c.req.raw.headers });
   if (!session || !session.user) {
-    return c.json({ error: "認証されていません" }, 401);
+    apiError("UNAUTHORIZED", "認証されていません");
   }
   c.set("session", session);
   await next();
@@ -51,7 +52,7 @@ export async function requireSuperAdmin(
 ) {
   const session = await getAdminSession(c);
   if (!session) {
-    return c.json({ error: "システム管理者権限が必要です" }, 403);
+    apiError("FORBIDDEN", "システム管理者権限が必要です");
   }
   c.set("session", session);
   await next();

@@ -10,6 +10,9 @@
 		"./brand": {
 			"default": "./src/brand.ts"
 		},
+		"./api-error": {
+			"default": "./src/api-error.ts"
+		},
 		"./tsconfig.base.json": "./tsconfig.base.json"
 	}
 }

@@ -1,11 +1,12 @@
 import { Hono } from "hono";
-import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import { db, wristband, eventUser, event } from "@fesflow/db";
 import { eq, and, desc, or, like } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { auth } from "@fesflow/auth";
 import { hasPermission } from "../utils/auth";
+import { zBody, zQuery } from "../z-validator";
+import { apiError } from "../http-error";
 
 
 const wristbandRoutes = new Hono();
@@ -13,8 +14,7 @@ const wristbandRoutes = new Hono();
 // 来場者の検索 (ニックネーム、呼出ID、誕生日) - スタッフ権限必須
 wristbandRoutes.get(
   "/search",
-  zValidator(
-    "query",
+  zQuery(
     z.object({
       eventId: z.string().min(1),
       query: z.string().min(1),
@@ -26,7 +26,7 @@ wristbandRoutes.get(
     // 権限チェック (イベントスタッフ権限 member:read が必要)
     const allowed = await hasPermission(c, null, "member:read", eventId);
     if (!allowed) {
-      return c.json({ error: "この操作にはスタッフ権限が必要です" }, 403);
+      apiError("FORBIDDEN", "この操作にはスタッフ権限が必要です");
     }
 
     const queryNum = parseInt(query, 10);
@@ -142,7 +142,7 @@ wristbandRoutes.get("/lookup/:code", async (c) => {
   // DB膨張/コスト増/DoSの温床になっていたため。lookup はあくまで「既存の照会」に徹し、
   // 未知のコードは 404 を返す。正規の来場者ID発行は POST /issue (セッション必須) や
   // POST /register (能動的なリストバンド登録操作) で行う。
-  return c.json({ error: "ユーザーが見つかりません" }, 404);
+  apiError("NOT_FOUND", "ユーザーが見つかりません");
 });
 
 
@@ -151,8 +151,7 @@ wristbandRoutes.get("/lookup/:code", async (c) => {
 // リストバンドの新規登録・再発行 (紐付け)
 wristbandRoutes.post(
   "/register",
-  zValidator(
-    "json",
+  zBody(
     z.object({
       userId: z.string(),
       wristbandId: z.string(), // 新しいリストバンドのQR/コード値
@@ -212,10 +211,7 @@ wristbandRoutes.post(
       }
       const allowed = await hasPermission(c, null, "member:write", evId);
       if (!allowed) {
-        return c.json(
-          { error: "このリストバンドの再割り当てにはスタッフ権限が必要です" },
-          403
-        );
+        apiError("FORBIDDEN", "このリストバンドの再割り当てにはスタッフ権限が必要です");
       }
     }
 
@@ -269,10 +265,10 @@ wristbandRoutes.post(
     //  紛失報告を本人セッション or スタッフ権限で保護する再設計が望ましい。)
     const wbs = await db.select().from(wristband).where(eq(wristband.id, id));
     if (wbs.length === 0) {
-      return c.json({ error: "リストバンドが見つかりません" }, 404);
+      apiError("NOT_FOUND", "リストバンドが見つかりません");
     }
     if (wbs[0]!.status !== "active") {
-      return c.json({ error: "このリストバンドは既に無効です" }, 400);
+      apiError("BAD_REQUEST", "このリストバンドは既に無効です");
     }
 
     await db
@@ -289,8 +285,7 @@ wristbandRoutes.post(
 // (ベアラーモデル)。初回のみ onboardedAt を刻む。
 wristbandRoutes.post(
   "/onboard",
-  zValidator(
-    "json",
+  zBody(
     z.object({
       userId: z.string().min(1),
       nickname: z.string().trim().min(1).max(30),
@@ -302,7 +297,7 @@ wristbandRoutes.post(
 
     const users = await db.select().from(eventUser).where(eq(eventUser.id, userId));
     if (users.length === 0) {
-      return c.json({ error: "ユーザーが見つかりません" }, 404);
+      apiError("NOT_FOUND", "ユーザーが見つかりません");
     }
     const u = users[0]!;
 
@@ -310,10 +305,7 @@ wristbandRoutes.post(
     // userId さえ知っていれば誰でも他人のニックネーム/誕生日を無制限に上書きできてしまう
     // 経路を塞ぐ。初回のセルフ登録(onboardedAt が null)のみ許可し、以降の変更はスタッフ経由に限定する。
     if (u.onboardedAt) {
-      return c.json(
-        { error: "既に登録済みです。変更にはスタッフにお問い合わせください" },
-        409
-      );
+      apiError("CONFLICT", "既に登録済みです。変更にはスタッフにお問い合わせください");
     }
 
     await db
@@ -344,8 +336,7 @@ wristbandRoutes.post(
 // register(イベント管理)側から呼ぶ想定のためログインセッション必須。
 wristbandRoutes.post(
   "/issue",
-  zValidator(
-    "json",
+  zBody(
     z.object({
       eventId: z.string().min(1),
       wristbandId: z.string().optional(), // 物理バンドのコード (任意)
@@ -354,13 +345,13 @@ wristbandRoutes.post(
   async (c) => {
     const session = await auth.api.getSession({ headers: c.req.raw.headers });
     if (!session || !session.user) {
-      return c.json({ error: "認証されていません" }, 401);
+      apiError("UNAUTHORIZED", "認証されていません");
     }
     const { eventId, wristbandId } = c.req.valid("json");
 
     const events = await db.select().from(event).where(eq(event.id, eventId));
     if (events.length === 0) {
-      return c.json({ error: "イベントが見つかりません" }, 404);
+      apiError("NOT_FOUND", "イベントが見つかりません");
     }
 
     const userId = `usr_${nanoid(12)}`;

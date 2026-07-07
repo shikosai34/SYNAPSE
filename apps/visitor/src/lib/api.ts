@@ -1,3 +1,5 @@
+import { apiErrorFromResponse, networkApiError } from "./api-error";
+
 function getApiBaseUrl(): string {
   let url = import.meta.env.VITE_API_URL || "https://localhost:8787";
   if (typeof window !== "undefined" && (url.includes("localhost") || url.includes("127.0.0.1"))) {
@@ -51,25 +53,20 @@ async function fetchApi<T>(
     config.body = JSON.stringify(body);
   }
 
+  // Phase4: register と同様、失敗時は型付き ApiError を throw する (code/fields/requestId 保持)。
+  let response: Response;
   try {
     const baseUrl = getApiBaseUrl();
-    const response = await fetch(`${baseUrl}${endpoint}`, config);
-
-    if (!response.ok) {
-      const errorData = await response
-        .json()
-        .catch(() => null);
-      const errorMessage = errorData?.error || errorData?.message || `HTTP error! status: ${response.status}`;
-      throw new Error(errorMessage);
-    }
-
-    return await response.json();
-  } catch (err: any) {
-    if (err.name === "TypeError" || err.message?.includes("fetch")) {
-      throw new Error("サーバー通信エラー: ネットワーク接続を確認してください");
-    }
-    throw err;
+    response = await fetch(`${baseUrl}${endpoint}`, config);
+  } catch (err) {
+    throw networkApiError(err);
   }
+
+  if (!response.ok) {
+    throw await apiErrorFromResponse(response);
+  }
+
+  return await response.json();
 }
 
 // Event API
@@ -314,17 +311,19 @@ export const uploadImage = async (
   formData.append("file", file);
 
   const baseUrl = getApiBaseUrl();
-  const response = await fetch(`${baseUrl}/api/upload`, {
-    method: "POST",
-    body: formData,
-    credentials: "include",
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${baseUrl}/api/upload`, {
+      method: "POST",
+      body: formData,
+      credentials: "include",
+    });
+  } catch (err) {
+    throw networkApiError(err);
+  }
 
   if (!response.ok) {
-    const error = await response
-      .json()
-      .catch(() => ({ error: "Unknown error" }));
-    throw new Error(error.error || "アップロードに失敗しました");
+    throw await apiErrorFromResponse(response);
   }
 
   return response.json();

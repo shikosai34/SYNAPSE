@@ -1,5 +1,6 @@
 import { Hono } from "hono";
-import { zValidator } from "@hono/zod-validator";
+import { zBody } from "../z-validator";
+import { apiError } from "../http-error";
 import { z } from "zod";
 import { db, menu, menuTopping, topping } from "@fesflow/db";
 import { eq, inArray } from "drizzle-orm";
@@ -13,7 +14,7 @@ menuRoutes.get("/", async (c) => {
   const circleId = c.req.query("circleId");
 
   if (!circleId) {
-    return c.json({ error: "circleIdが必要です" }, 400);
+    apiError("BAD_REQUEST", "circleIdが必要です");
   }
 
   // メニューを取得
@@ -62,7 +63,7 @@ menuRoutes.get("/:id", async (c) => {
   const menus = await db.select().from(menu).where(eq(menu.id, id));
 
   if (menus.length === 0) {
-    return c.json({ error: "メニューが見つかりません" }, 404);
+    apiError("NOT_FOUND", "メニューが見つかりません");
   }
 
   const foundMenu = menus[0]!;
@@ -89,8 +90,7 @@ menuRoutes.get("/:id", async (c) => {
 // メニュー作成
 menuRoutes.post(
   "/",
-  zValidator(
-    "json",
+  zBody(
     z.object({
       circleId: z.string(),
       name: z.string().min(1, "メニュー名は必須です"),
@@ -112,7 +112,7 @@ menuRoutes.post(
     const input = c.req.valid("json");
 
     if (!(await hasPermission(c, input.circleId, "menu:write"))) {
-      return c.json({ error: "権限がありません" }, 403);
+      apiError("FORBIDDEN", "権限がありません");
     }
 
     const id = nanoid();
@@ -149,8 +149,7 @@ menuRoutes.post(
 // メニュー更新
 menuRoutes.put(
   "/:id",
-  zValidator(
-    "json",
+  zBody(
     z.object({
       name: z.string().min(1).optional(),
       price: z.number().optional(), // 負値許可 (割引メニュー)
@@ -169,10 +168,10 @@ menuRoutes.put(
 
     // Get circleId first
     const existingMenu = await db.select().from(menu).where(eq(menu.id, id));
-    if (existingMenu.length === 0) return c.json({ error: "見つかりません" }, 404);
+    if (existingMenu.length === 0) apiError("NOT_FOUND", "見つかりません");
     
     if (!(await hasPermission(c, existingMenu[0]!.circleId, "menu:write"))) {
-      return c.json({ error: "権限がありません" }, 403);
+      apiError("FORBIDDEN", "権限がありません");
     }
 
     const updates: Partial<typeof menu.$inferSelect> = {};
@@ -220,10 +219,10 @@ menuRoutes.delete("/:id", async (c) => {
   const id = c.req.param("id");
 
   const existingMenu = await db.select().from(menu).where(eq(menu.id, id));
-  if (existingMenu.length === 0) return c.json({ error: "見つかりません" }, 404);
+  if (existingMenu.length === 0) apiError("NOT_FOUND", "見つかりません");
   
   if (!(await hasPermission(c, existingMenu[0]!.circleId, "menu:delete"))) {
-    return c.json({ error: "権限がありません" }, 403);
+    apiError("FORBIDDEN", "権限がありません");
   }
 
   // トッピング関連を削除
@@ -238,8 +237,7 @@ menuRoutes.delete("/:id", async (c) => {
 // 在庫更新
 menuRoutes.patch(
   "/:id/stock",
-  zValidator(
-    "json",
+  zBody(
     z.object({
       stockQuantity: z.number().min(0),
     })
@@ -249,10 +247,10 @@ menuRoutes.patch(
     const input = c.req.valid("json");
 
     const existingMenu = await db.select().from(menu).where(eq(menu.id, id));
-    if (existingMenu.length === 0) return c.json({ error: "見つかりません" }, 404);
+    if (existingMenu.length === 0) apiError("NOT_FOUND", "見つかりません");
     
     if (!(await hasPermission(c, existingMenu[0]!.circleId, "stock:write"))) {
-      return c.json({ error: "権限がありません" }, 403);
+      apiError("FORBIDDEN", "権限がありません");
     }
 
     // 2026-07-06 (L-4): 在庫補充時にsoldOutを戻さない非対称を是正。

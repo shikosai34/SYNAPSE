@@ -1,10 +1,11 @@
 import { Hono } from "hono";
-import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import { db, staff } from "@fesflow/db";
 import { eq, and, isNull } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { hasPermission } from "../utils/auth";
+import { apiError } from "../http-error";
+import { zBody } from "../z-validator";
 
 const staffRoutes = new Hono();
 
@@ -13,12 +14,12 @@ staffRoutes.get("/", async (c) => {
   const circleId = c.req.query("circleId");
 
   if (!circleId) {
-    return c.json({ error: "circleIdが必要です" }, 400);
+    apiError("BAD_REQUEST", "circleIdが必要です");
   }
 
   // 2026-07-05: 認可チェックが皆無だったため追加（他サークルのスタッフ情報漏洩を防止）
   if (!(await hasPermission(c, circleId, "staff:read"))) {
-    return c.json({ error: "権限がありません" }, 403);
+    apiError("FORBIDDEN", "権限がありません");
   }
 
   const staffList = await db
@@ -35,12 +36,12 @@ staffRoutes.get("/:id", async (c) => {
   const staffList = await db.select().from(staff).where(eq(staff.id, id));
 
   if (staffList.length === 0) {
-    return c.json({ error: "スタッフが見つかりません" }, 404);
+    apiError("NOT_FOUND", "スタッフが見つかりません");
   }
 
   // 2026-07-05: 認可チェックが皆無だったため追加。対象スタッフのcircleIdで判定
   if (!(await hasPermission(c, staffList[0]!.circleId, "staff:read"))) {
-    return c.json({ error: "権限がありません" }, 403);
+    apiError("FORBIDDEN", "権限がありません");
   }
 
   return c.json(staffList[0]);
@@ -49,8 +50,7 @@ staffRoutes.get("/:id", async (c) => {
 // スタッフ作成
 staffRoutes.post(
   "/",
-  zValidator(
-    "json",
+  zBody(
     z.object({
       circleId: z.string(),
       name: z.string().min(1, "スタッフ名は必須です"),
@@ -61,7 +61,7 @@ staffRoutes.post(
 
     // 2026-07-05: 認可チェックが皆無だったため追加
     if (!(await hasPermission(c, input.circleId, "staff:write"))) {
-      return c.json({ error: "権限がありません" }, 403);
+      apiError("FORBIDDEN", "権限がありません");
     }
 
     const id = nanoid();
@@ -79,8 +79,7 @@ staffRoutes.post(
 // スタッフ更新
 staffRoutes.put(
   "/:id",
-  zValidator(
-    "json",
+  zBody(
     z.object({
       name: z.string().min(1).optional(),
     })
@@ -92,11 +91,11 @@ staffRoutes.put(
     // 2026-07-05: 認可チェックが皆無だったため追加。対象のcircleIdを先に取得して判定
     const existingStaff = await db.select().from(staff).where(eq(staff.id, id));
     if (existingStaff.length === 0) {
-      return c.json({ error: "スタッフが見つかりません" }, 404);
+      apiError("NOT_FOUND", "スタッフが見つかりません");
     }
 
     if (!(await hasPermission(c, existingStaff[0]!.circleId, "staff:write"))) {
-      return c.json({ error: "権限がありません" }, 403);
+      apiError("FORBIDDEN", "権限がありません");
     }
 
     if (input.name) {
@@ -114,11 +113,11 @@ staffRoutes.delete("/:id", async (c) => {
   // 2026-07-05: 認可チェックが皆無だったため追加。対象のcircleIdを先に取得して判定
   const existingStaff = await db.select().from(staff).where(eq(staff.id, id));
   if (existingStaff.length === 0) {
-    return c.json({ error: "スタッフが見つかりません" }, 404);
+    apiError("NOT_FOUND", "スタッフが見つかりません");
   }
 
   if (!(await hasPermission(c, existingStaff[0]!.circleId, "staff:delete"))) {
-    return c.json({ error: "権限がありません" }, 403);
+    apiError("FORBIDDEN", "権限がありません");
   }
 
   await db.delete(staff).where(eq(staff.id, id));
@@ -130,12 +129,12 @@ staffRoutes.get("/shift/current", async (c) => {
   const circleId = c.req.query("circleId");
 
   if (!circleId) {
-    return c.json({ error: "circleIdが必要です" }, 400);
+    apiError("BAD_REQUEST", "circleIdが必要です");
   }
 
   // 2026-07-05: 認可チェックが皆無だったため追加
   if (!(await hasPermission(c, circleId, "staff:read"))) {
-    return c.json({ error: "権限がありません" }, 403);
+    apiError("FORBIDDEN", "権限がありません");
   }
 
   const staffList = await db
@@ -156,11 +155,11 @@ staffRoutes.post("/:id/clock-in", async (c) => {
   // 2026-07-05: 認可チェックが皆無だったため追加。対象のcircleIdを先に取得して判定
   const existingStaff = await db.select().from(staff).where(eq(staff.id, id));
   if (existingStaff.length === 0) {
-    return c.json({ error: "スタッフが見つかりません" }, 404);
+    apiError("NOT_FOUND", "スタッフが見つかりません");
   }
 
   if (!(await hasPermission(c, existingStaff[0]!.circleId, "staff:write"))) {
-    return c.json({ error: "権限がありません" }, 403);
+    apiError("FORBIDDEN", "権限がありません");
   }
 
   await db
@@ -178,11 +177,11 @@ staffRoutes.post("/:id/clock-out", async (c) => {
   // 2026-07-05: 認可チェックが皆無だったため追加。対象のcircleIdを先に取得して判定
   const existingStaff = await db.select().from(staff).where(eq(staff.id, id));
   if (existingStaff.length === 0) {
-    return c.json({ error: "スタッフが見つかりません" }, 404);
+    apiError("NOT_FOUND", "スタッフが見つかりません");
   }
 
   if (!(await hasPermission(c, existingStaff[0]!.circleId, "staff:write"))) {
-    return c.json({ error: "権限がありません" }, 403);
+    apiError("FORBIDDEN", "権限がありません");
   }
 
   await db.update(staff).set({ shiftEnd: new Date() }).where(eq(staff.id, id));

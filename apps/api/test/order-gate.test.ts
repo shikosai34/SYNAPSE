@@ -31,8 +31,11 @@ describe("注文の wristband ゲート", () => {
 			items: [{ menuId: "m1", quantity: 1 }],
 		});
 		expect(res.status).toBe(403);
-		const data = (await res.json()) as { error: string };
-		expect(data.error).toContain("リストバンド");
+		// 2026-07-07 (Phase4): エラーエンベロープが { error } から { code, message, requestId } に
+		// 変わったため message 側を見るよう更新。
+		const data = (await res.json()) as { code: string; message: string };
+		expect(data.code).toBe("FORBIDDEN");
+		expect(data.message).toContain("リストバンド");
 	});
 
 	it("発行済み userId なら wristband ゲートは通過する", async () => {

@@ -1,5 +1,6 @@
 import { Hono } from "hono";
-import { zValidator } from "@hono/zod-validator";
+import { zBody } from "../z-validator";
+import { apiError } from "../http-error";
 import { z } from "zod";
 import { db, circle, event, membership } from "@fesflow/db";
 import { eq, and, isNull } from "drizzle-orm";
@@ -87,7 +88,7 @@ circleRoutes.get("/:id", async (c) => {
     .where(and(eq(circle.id, id), isNull(circle.deletedAt)));
 
   if (circles.length === 0) {
-    return c.json({ error: "サークルが見つかりません" }, 404);
+    apiError("NOT_FOUND", "サークルが見つかりません");
   }
 
   const found = circles[0]!;
@@ -110,8 +111,7 @@ circleRoutes.get("/:id", async (c) => {
 circleRoutes.post(
   "/",
   requireAuth,
-  zValidator(
-    "json",
+  zBody(
     z.object({
       eventId: z.string(),
       name: z.string().min(1, "サークル名は必須です"),
@@ -129,7 +129,7 @@ circleRoutes.post(
       .from(event)
       .where(eq(event.id, input.eventId));
     if (events.length === 0) {
-      return c.json({ error: "イベントが見つかりません" }, 404);
+      apiError("NOT_FOUND", "イベントが見つかりません");
     }
 
     // 同じイベント内で同じ名前のサークルがないか確認
@@ -141,7 +141,7 @@ circleRoutes.post(
       );
 
     if (existingCircles.length > 0) {
-      return c.json({ error: "同じ名前のサークルが既に存在します" }, 400);
+      apiError("BAD_REQUEST", "同じ名前のサークルが既に存在します");
     }
 
     // サークルと代表者メンバーシップを作成
@@ -170,7 +170,7 @@ circleRoutes.post(
       });
     } catch (e) {
       await db.delete(circle).where(eq(circle.id, id));
-      return c.json({ error: "サークルの作成に失敗しました" }, 500);
+      apiError("INTERNAL", "サークルの作成に失敗しました");
     }
 
     return c.json({ id }, 201);
@@ -184,8 +184,7 @@ circleRoutes.post(
 // (POST /:id/transfer-owner, 下記) 側に委ねる。
 circleRoutes.put(
   "/:id",
-  zValidator(
-    "json",
+  zBody(
     z.object({
       name: z.string().min(1).optional(),
       description: z.string().optional(),
@@ -194,7 +193,7 @@ circleRoutes.put(
   async (c) => {
     const session = await getAdminSession(c);
     if (!session) {
-      return c.json({ error: "管理者権限が必要です" }, 403);
+      apiError("FORBIDDEN", "管理者権限が必要です");
     }
 
     const id = c.req.param("id");
@@ -206,7 +205,7 @@ circleRoutes.put(
       .from(circle)
       .where(eq(circle.id, id));
     if (existingCircle.length === 0) {
-      return c.json({ error: "サークルが見つかりません" }, 404);
+      apiError("NOT_FOUND", "サークルが見つかりません");
     }
 
     const updates: Partial<typeof circle.$inferSelect> = {};
@@ -231,7 +230,7 @@ circleRoutes.delete("/:id", async (c) => {
 
   const allowed = await hasPermission(c, id, "circle:delete");
   if (!allowed) {
-    return c.json({ error: "削除する権限がありません" }, 403);
+    apiError("FORBIDDEN", "削除する権限がありません");
   }
 
   // 物理削除せず deletedAt に時刻を書き込む (論理削除)
@@ -242,8 +241,7 @@ circleRoutes.delete("/:id", async (c) => {
 // サークル運用設定 (注文モード・組み込み拡張のON/OFF等) の更新
 circleRoutes.patch(
   "/:id/settings",
-  zValidator(
-    "json",
+  zBody(
     z.object({
       settings: z.record(z.string(), z.any()),
     })
@@ -254,12 +252,12 @@ circleRoutes.patch(
 
     const allowed = await hasPermission(c, id, "circle:write");
     if (!allowed) {
-      return c.json({ error: "権限がありません" }, 403);
+      apiError("FORBIDDEN", "権限がありません");
     }
 
     const existingCircle = await db.select().from(circle).where(eq(circle.id, id));
     if (existingCircle.length === 0) {
-      return c.json({ error: "サークルが見つかりません" }, 404);
+      apiError("NOT_FOUND", "サークルが見つかりません");
     }
 
     await db
@@ -276,8 +274,7 @@ circleRoutes.patch(
 // 上位管理者(event_manager / super_admin)のみ実行可能。
 circleRoutes.post(
   "/:id/transfer-owner",
-  zValidator(
-    "json",
+  zBody(
     z.object({
       membershipId: z.string(),
     })
@@ -289,7 +286,7 @@ circleRoutes.post(
     // 譲渡は「メンバーの権限変更」に相当するため circle:write 権限で判定
     const allowed = await hasPermission(c, id, "circle:write");
     if (!allowed) {
-      return c.json({ error: "権限がありません" }, 403);
+      apiError("FORBIDDEN", "権限がありません");
     }
 
     // 譲渡先メンバーが当該サークルに所属しているか確認
@@ -298,7 +295,7 @@ circleRoutes.post(
       .from(membership)
       .where(and(eq(membership.id, membershipId), eq(membership.circleId, id)));
     if (targets.length === 0) {
-      return c.json({ error: "譲渡先のメンバーが見つかりません" }, 404);
+      apiError("NOT_FOUND", "譲渡先のメンバーが見つかりません");
     }
 
     // 既存の circle_manager を circle_staff に降格 (譲渡先自身は除く)
@@ -329,8 +326,7 @@ circleRoutes.post(
 // サークルの拡張機能（モッド）設定の更新
 circleRoutes.patch(
   "/:id/mods",
-  zValidator(
-    "json",
+  zBody(
     z.object({
       mods: z.record(z.string(), z.any()),
     })
@@ -342,7 +338,7 @@ circleRoutes.patch(
     // 該当サークルへの書き込み権限をチェック
     const allowed = await hasPermission(c, id, "circle:write");
     if (!allowed) {
-      return c.json({ error: "権限がありません" }, 403);
+      apiError("FORBIDDEN", "権限がありません");
     }
 
     // 対象サークルの存在確認
@@ -351,7 +347,7 @@ circleRoutes.patch(
       .from(circle)
       .where(eq(circle.id, id));
     if (existingCircle.length === 0) {
-      return c.json({ error: "サークルが見つかりません" }, 404);
+      apiError("NOT_FOUND", "サークルが見つかりません");
     }
 
     // データベースの更新

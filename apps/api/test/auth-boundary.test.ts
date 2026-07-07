@@ -1,12 +1,14 @@
 /**
  * 認証・認可境界の回帰テスト。
  * これまで手動 (curl/ブラウザ) で確認していた「未認証・無権限は入れない」を固定化する。
- * ステータスだけでなくエラー形状 ({ error: string }) も検証する
- * (Phase4 でエラーエンベロープを刷新する際、この形状アサーションを更新する)。
+ * ステータスだけでなくエラー形状も検証する。
+ * 2026-07-07 (Phase4): エラーエンベロープを { error: string } から
+ * { code, message, requestId } に刷新したため、アサーションをここで新形状に更新する。
  */
 import { describe, expect, it } from "vitest";
 import { and, eq } from "drizzle-orm";
 import { circle, event, membership } from "@fesflow/db";
+import type { ApiErrorCode } from "@fesflow/config";
 import { postJson, request, testDb, uid } from "./helpers";
 
 function extractCookieHeader(res: Response): string {
@@ -16,41 +18,52 @@ function extractCookieHeader(res: Response): string {
 	return raw.map((c) => c.split(";")[0]).join("; ");
 }
 
-async function expectErrorJson(res: Response): Promise<string> {
-	const data = (await res.json()) as { error?: unknown };
-	expect(typeof data.error).toBe("string");
-	return data.error as string;
+/**
+ * 新エンベロープ ({ code, message, requestId, fields? }) を検証するヘルパ。
+ * code を渡した場合はコードの一致まで確認する (401→UNAUTHORIZED, 403→FORBIDDEN 等)。
+ */
+async function expectErrorJson(res: Response, code?: ApiErrorCode): Promise<string> {
+	const data = (await res.json()) as {
+		code?: unknown;
+		message?: unknown;
+		requestId?: unknown;
+	};
+	expect(typeof data.code).toBe("string");
+	expect(typeof data.message).toBe("string");
+	expect(typeof data.requestId).toBe("string");
+	if (code) expect(data.code).toBe(code);
+	return data.message as string;
 }
 
 describe("認証・認可境界", () => {
 	it("未認証の GET /api/account/me は 401", async () => {
 		const res = await request("/api/account/me");
 		expect(res.status).toBe(401);
-		await expectErrorJson(res);
+		await expectErrorJson(res, "UNAUTHORIZED");
 	});
 
 	it("未認証の GET /api/admin/users は 403 (super_admin ガード)", async () => {
 		const res = await request("/api/admin/users");
 		expect(res.status).toBe(403);
-		await expectErrorJson(res);
+		await expectErrorJson(res, "FORBIDDEN");
 	});
 
 	it("未認証の POST /api/upload は 401 (監査M4: 無認証アップロード禁止)", async () => {
 		const res = await request("/api/upload", { method: "POST" });
 		expect(res.status).toBe(401);
-		await expectErrorJson(res);
+		await expectErrorJson(res, "UNAUTHORIZED");
 	});
 
 	it("無権限の GET /api/orders?circleId=x は 403 (他サークルの売上漏洩防止)", async () => {
 		const res = await request("/api/orders?circleId=some-circle");
 		expect(res.status).toBe(403);
-		await expectErrorJson(res);
+		await expectErrorJson(res, "FORBIDDEN");
 	});
 
 	it("未認証の GET /api/festivals は 401 (イベント一覧は所属ベースで絞るため要セッション)", async () => {
 		const res = await request("/api/festivals");
 		expect(res.status).toBe(401);
-		await expectErrorJson(res);
+		await expectErrorJson(res, "UNAUTHORIZED");
 	});
 
 	// 2026-07-07 (Phase 3a): hasPermission の「X-Active-Membership-Id が無ければ

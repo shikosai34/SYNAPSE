@@ -28,6 +28,7 @@ import {
   clearAttempts,
   lockoutMessage,
 } from "./utils/rate-limit";
+import { apiError, registerErrorHandlers } from "./http-error";
 
 // Hono REST ルート
 import {
@@ -49,6 +50,11 @@ import {
 type AppBindings = { Bindings: WorkerEnv };
 
 const app = new Hono<AppBindings>();
+
+// Phase4: 統一エラーエンベロープ ({ code, message, fields?, requestId }) を
+// app.onError / app.notFound に一元的に仕込む。以降のルートは AppError/apiError を
+// throw するだけでよく、エンベロープ整形やログ出力をここに集約する。
+registerErrorHandlers(app);
 
 // 2026-07-06: logger() は全リクエストの URL をそのまま出力する。URL に userId/wristbandId 等の
 // 識別子が含まれ得る点に注意 (本番でのログ保持/マスキング方針を要検討)。
@@ -145,8 +151,9 @@ app.on(["POST", "GET"], "/api/auth/*", async (c) => {
     ipKey = `auth:ip:${clientIp(c)}`;
     const retryAfterSec = await isLocked([ipKey]);
     if (retryAfterSec > 0) {
-      c.header("Retry-After", String(retryAfterSec));
-      return c.json({ error: lockoutMessage(retryAfterSec) }, 429);
+      // Phase4: RATE_LIMITED エンベロープに統一。Retry-After はエンベロープと併用して
+      // AppError 側に持たせ、onError で一括してヘッダに反映させる。
+      apiError("RATE_LIMITED", lockoutMessage(retryAfterSec), { status: 429, retryAfterSec });
     }
   }
 
@@ -201,70 +208,69 @@ const ALLOWED_EXTS = [
   "woff2",
 ];
 
+// Phase4: 従来は try/catch で握りつぶして 500 に丸めていたが、AppError による
+// 早期 return (401/403/400) を onError に委譲するため try/catch を廃止した。
+// storage.put 等で予期しない例外が起きた場合も onError が 500 INTERNAL + requestId ログに
+// 変換するので、ここで個別に catch する必要はない。
 app.post("/api/upload", async (c) => {
-  try {
-    const session = await getSession(c);
-    if (!session || !session.user) {
-      return c.json({ error: "認証が必要です" }, 401);
-    }
-
-    // 2026-07-06: アップロード濫用対策 (監査 M4)。単純ログインのみを要件にすると、
-    // 自己登録した来場者を含む「誰でも」10MBファイルを無制限にアップロードできてしまう。
-    // アップロード導線はイベント/サークル/メニュー管理者の操作に限られるため、
-    // 何らかのアクティブなメンバーシップ (スタッフ以上の所属) を持つことを要件にする。
-    const email = session.user.email.toLowerCase();
-    const memberships = await db
-      .select()
-      .from(membership)
-      .where(and(eq(membership.userEmail, email), eq(membership.isActive, true)));
-    if (memberships.length === 0) {
-      return c.json({ error: "アップロード権限がありません" }, 403);
-    }
-
-    const body = await c.req.parseBody();
-    const file = body["file"];
-
-    if (!file || !(file instanceof File)) {
-      return c.json({ error: "ファイルがありません" }, 400);
-    }
-
-    const ext = file.name.split(".").pop()?.toLowerCase() || "";
-    if (!ALLOWED_EXTS.includes(ext)) {
-      return c.json(
-        {
-          error:
-            "許可されていないファイル形式です (画像: jpg, png, webp / フォント: ttf, otf, woff, woff2)",
-        },
-        400,
-      );
-    }
-
-    if (file.size > 10 * 1024 * 1024) {
-      return c.json({ error: "ファイルサイズは10MB以下にしてください" }, 400);
-    }
-
-    const key = `uploads/${nanoid()}.${ext}`;
-    const storage = createStorage(c.env as WorkerEnv);
-    await storage.put(key, await file.arrayBuffer(), {
-      contentType: file.type || undefined,
-      cacheControl: "public, max-age=31536000, immutable",
-    });
-
-    // 2026-07-04: 本番ドメインに自動追従させるため、リクエストの Origin から動的に公開 URL を生成。
-    // 2026-07-07 単一ドメイン化: 配信パスを /api/uploads/* に統一 (key は "uploads/xxx")。
-    const url = new URL(c.req.url);
-    const publicUrl = `${url.origin}/api/${key}`;
-
-    return c.json({ path: publicUrl, key, ext });
-  } catch (error) {
-    console.error("Upload error:", error);
-    return c.json({ error: "アップロードに失敗しました" }, 500);
+  const session = await getSession(c);
+  if (!session || !session.user) {
+    apiError("UNAUTHORIZED", "認証が必要です");
   }
+
+  // 2026-07-06: アップロード濫用対策 (監査 M4)。単純ログインのみを要件にすると、
+  // 自己登録した来場者を含む「誰でも」10MBファイルを無制限にアップロードできてしまう。
+  // アップロード導線はイベント/サークル/メニュー管理者の操作に限られるため、
+  // 何らかのアクティブなメンバーシップ (スタッフ以上の所属) を持つことを要件にする。
+  const email = session.user.email.toLowerCase();
+  const memberships = await db
+    .select()
+    .from(membership)
+    .where(and(eq(membership.userEmail, email), eq(membership.isActive, true)));
+  if (memberships.length === 0) {
+    apiError("FORBIDDEN", "アップロード権限がありません");
+  }
+
+  const body = await c.req.parseBody();
+  const file = body["file"];
+
+  if (!file || !(file instanceof File)) {
+    apiError("BAD_REQUEST", "ファイルがありません");
+  }
+
+  const ext = file.name.split(".").pop()?.toLowerCase() || "";
+  if (!ALLOWED_EXTS.includes(ext)) {
+    apiError(
+      "BAD_REQUEST",
+      "許可されていないファイル形式です (画像: jpg, png, webp / フォント: ttf, otf, woff, woff2)",
+    );
+  }
+
+  if (file.size > 10 * 1024 * 1024) {
+    apiError("BAD_REQUEST", "ファイルサイズは10MB以下にしてください");
+  }
+
+  const key = `uploads/${nanoid()}.${ext}`;
+  const storage = createStorage(c.env as WorkerEnv);
+  await storage.put(key, await file.arrayBuffer(), {
+    contentType: file.type || undefined,
+    cacheControl: "public, max-age=31536000, immutable",
+  });
+
+  // 2026-07-04: 本番ドメインに自動追従させるため、リクエストの Origin から動的に公開 URL を生成。
+  // 2026-07-07 単一ドメイン化: 配信パスを /api/uploads/* に統一 (key は "uploads/xxx")。
+  const url = new URL(c.req.url);
+  const publicUrl = `${url.origin}/api/${key}`;
+
+  return c.json({ path: publicUrl, key, ext });
 });
 
 // R2 / MinIO からアップロードファイルを配信するルート。
 // 2026-07-07 単一ドメイン化: api Worker は /api/* のみを受けるため配信パスは /api/uploads/*。
 // (旧 /uploads/* の後方互換ルートは 2026-07-07 リファクタリング Phase1 で撤去済み)
+// Phase4: この配信ルートは画像/フォントの静的配信であり、<img src> や @font-face から
+// 直接読み込まれる (JSON を期待するフロントの fetchApi 経由ではない) ため、
+// 統一エラーエンベロープ (JSON) 化の対象外とする。404/500 とも従来通り text で返す。
 const serveUpload = async (c: any) => {
   try {
     // 先頭の "/api/" または "/" を除去して R2 キー (uploads/xxx) を得る

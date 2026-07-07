@@ -1,5 +1,6 @@
 import { Hono } from "hono";
-import { zValidator } from "@hono/zod-validator";
+import { zBody } from "../z-validator";
+import { apiError } from "../http-error";
 import { z } from "zod";
 import { db, membership, inviteToken, circle, event, getEnv, notification } from "@fesflow/db";
 import { eq, and, inArray, gt, isNull, lt } from "drizzle-orm";
@@ -128,7 +129,7 @@ async function checkMemberWritePermission(
   // 2. システムロールの操作はシステム管理者のみ可能
   const isSystemRole = (role: string) => role === "super_admin";
   if (isSystemRole(targetCurrentRole) || (targetNewRole && isSystemRole(targetNewRole))) {
-    return { error: "システム管理者権限を操作する権限がありません", status: 403 as const };
+    return { code: "FORBIDDEN" as const, error: "システム管理者権限を操作する権限がありません", status: 403 as const };
   }
 
   // 3. イベントレベル (event_manager) の操作は、そのイベントの event_manager のみ可能
@@ -140,7 +141,7 @@ async function checkMemberWritePermission(
       checkEventId = circles[0]?.eventId;
     }
     if (!checkEventId) {
-      return { error: "イベントレベルのメンバーを操作する権限がありません", status: 403 as const };
+      return { code: "FORBIDDEN" as const, error: "イベントレベルのメンバーを操作する権限がありません", status: 403 as const };
     }
     const eventManagerMemberships = await db
       .select()
@@ -154,7 +155,7 @@ async function checkMemberWritePermission(
         )
       );
     if (eventManagerMemberships.length === 0) {
-      return { error: "このイベントのメンバーを管理する権限がありません", status: 403 as const };
+      return { code: "FORBIDDEN" as const, error: "このイベントのメンバーを管理する権限がありません", status: 403 as const };
     }
     return null;
   }
@@ -162,7 +163,7 @@ async function checkMemberWritePermission(
   // 4. サークルレベルの操作 (circle_manager / circle_staff) の確認
   const circles = await db.select().from(circle).where(eq(circle.id, targetCircleId));
   if (circles.length === 0) {
-    return { error: "対象のサークルが存在しません", status: 404 as const };
+    return { code: "NOT_FOUND" as const, error: "対象のサークルが存在しません", status: 404 as const };
   }
   const eventId = circles[0]!.eventId;
 
@@ -196,12 +197,12 @@ async function checkMemberWritePermission(
     );
 
   if (managerMemberships.length === 0) {
-    return { error: "このサークルのメンバーを管理する権限がありません", status: 403 as const };
+    return { code: "FORBIDDEN" as const, error: "このサークルのメンバーを管理する権限がありません", status: 403 as const };
   }
 
   // サークルマネージャーは一般スタッフ (circle_staff) のみ管理可能
   if (targetCurrentRole === "circle_manager" || targetNewRole === "circle_manager") {
-    return { error: "サークルマネージャー権限を操作する権限がありません", status: 403 as const };
+    return { code: "FORBIDDEN" as const, error: "サークルマネージャー権限を操作する権限がありません", status: 403 as const };
   }
 
   return null;
@@ -309,11 +310,11 @@ membershipRoutes.get("/circle/:circleId", async (c) => {
 
   const circles = await db.select().from(circle).where(eq(circle.id, circleId));
   if (circles.length === 0) {
-    return c.json({ error: "サークルが見つかりません" }, 404);
+    apiError("NOT_FOUND", "サークルが見つかりません");
   }
 
   const err = await checkMemberWritePermission(c, circleId, "viewer", undefined, circles[0]!.eventId);
-  if (err) return c.json({ error: err.error }, err.status);
+  if (err) apiError(err.code, err.error, { status: err.status });
 
   const memberships = await db
     .select()
@@ -332,7 +333,7 @@ membershipRoutes.get("/event/:eventId", async (c) => {
   const eventId = c.req.param("eventId");
 
   const err = await checkMemberWritePermission(c, null, "viewer", undefined, eventId);
-  if (err) return c.json({ error: err.error }, err.status);
+  if (err) apiError(err.code, err.error, { status: err.status });
 
   const memberships = await db
     .select()
@@ -349,8 +350,7 @@ membershipRoutes.get("/event/:eventId", async (c) => {
 // 呼び出し自体が存在せず、他人のメールを渡す用途もないため「本人チェックのみ許可」で十分)。
 membershipRoutes.post(
   "/check-permission",
-  zValidator(
-    "json",
+  zBody(
     z.object({
       userEmail: z.string(),
       circleId: z.string().optional(),
@@ -363,7 +363,7 @@ membershipRoutes.post(
 
     const session = c.get("session");
     if (session.user.email.toLowerCase() !== input.userEmail.toLowerCase()) {
-      return c.json({ error: "他のユーザーの権限は照会できません" }, 403);
+      apiError("FORBIDDEN", "他のユーザーの権限は照会できません");
     }
 
     // メンバーシップを検索
@@ -391,7 +391,7 @@ membershipRoutes.post(
           )
         );
     } else {
-      return c.json({ error: "circleIdまたはeventIdが必要です" }, 400);
+      apiError("BAD_REQUEST", "circleIdまたはeventIdが必要です");
     }
 
     const memberships = await membershipQuery;
@@ -412,8 +412,7 @@ membershipRoutes.post(
 // メンバーはこの後 better-auth アカウントでログインする前提になる。
 membershipRoutes.post(
   "/",
-  zValidator(
-    "json",
+  zBody(
     z.object({
       userEmail: z.string(),
       userName: z.string(),
@@ -427,7 +426,7 @@ membershipRoutes.post(
     const id = nanoid();
 
     const err = await checkMemberWritePermission(c, input.circleId || null, "viewer", input.role, input.eventId);
-    if (err) return c.json({ error: err.error }, err.status);
+    if (err) apiError(err.code, err.error, { status: err.status });
 
     await db.insert(membership).values({
       id,
@@ -446,8 +445,7 @@ membershipRoutes.post(
 // ロール更新
 membershipRoutes.patch(
   "/:id/role",
-  zValidator(
-    "json",
+  zBody(
     z.object({
       role: z.enum(ROLES),
     })
@@ -457,11 +455,11 @@ membershipRoutes.patch(
     const input = c.req.valid("json");
 
     const targets = await db.select().from(membership).where(eq(membership.id, id));
-    if (targets.length === 0) return c.json({ error: "メンバーが見つかりません" }, 404);
+    if (targets.length === 0) apiError("NOT_FOUND", "メンバーが見つかりません");
     
     const target = targets[0]!;
     const err = await checkMemberWritePermission(c, target.circleId, target.role, input.role, target.eventId);
-    if (err) return c.json({ error: err.error }, err.status);
+    if (err) apiError(err.code, err.error, { status: err.status });
 
     await db
       .update(membership)
@@ -477,11 +475,11 @@ membershipRoutes.patch("/:id/deactivate", async (c) => {
   const id = c.req.param("id");
 
   const targets = await db.select().from(membership).where(eq(membership.id, id));
-  if (targets.length === 0) return c.json({ error: "メンバーが見つかりません" }, 404);
+  if (targets.length === 0) apiError("NOT_FOUND", "メンバーが見つかりません");
   
   const target = targets[0]!;
   const err = await checkMemberWritePermission(c, target.circleId, target.role, undefined, target.eventId);
-  if (err) return c.json({ error: err.error }, err.status);
+  if (err) apiError(err.code, err.error, { status: err.status });
 
   await db
     .update(membership)
@@ -496,11 +494,11 @@ membershipRoutes.delete("/:id", async (c) => {
   const id = c.req.param("id");
 
   const targets = await db.select().from(membership).where(eq(membership.id, id));
-  if (targets.length === 0) return c.json({ error: "メンバーが見つかりません" }, 404);
+  if (targets.length === 0) apiError("NOT_FOUND", "メンバーが見つかりません");
   
   const target = targets[0]!;
   const err = await checkMemberWritePermission(c, target.circleId, target.role, undefined, target.eventId);
-  if (err) return c.json({ error: err.error }, err.status);
+  if (err) apiError(err.code, err.error, { status: err.status });
 
   await db.delete(membership).where(eq(membership.id, id));
 
@@ -510,8 +508,7 @@ membershipRoutes.delete("/:id", async (c) => {
 // 招待トークン作成
 membershipRoutes.post(
   "/invite",
-  zValidator(
-    "json",
+  zBody(
     z.object({
       circleId: z.string().optional(),
       eventId: z.string().optional(),
@@ -528,7 +525,7 @@ membershipRoutes.post(
     const token = nanoid(32);
 
     const err = await checkMemberWritePermission(c, input.circleId || null, "viewer", input.role, input.eventId);
-    if (err) return c.json({ error: err.error }, err.status);
+    if (err) apiError(err.code, err.error, { status: err.status });
 
     const expiresAt = new Date();
     expiresAt.setHours(expiresAt.getHours() + input.expiresInHours);
@@ -593,8 +590,7 @@ membershipRoutes.post(
 //   `WHERE used_count < max_uses` 付き条件UPDATEを行い、更新0件なら中断する。
 membershipRoutes.post(
   "/invite/accept",
-  zValidator(
-    "json",
+  zBody(
     z.object({
       token: z.string(),
       userName: z.string(),
@@ -618,14 +614,14 @@ membershipRoutes.post(
       );
 
     if (tokens.length === 0) {
-      return c.json({ error: "無効または期限切れの招待トークンです" }, 400);
+      apiError("BAD_REQUEST", "無効または期限切れの招待トークンです");
     }
 
     const foundToken = tokens[0]!;
 
     // targetEmail が指定されたトークンは、そのメール宛のセッションでしか使えない
     if (foundToken.targetEmail && foundToken.targetEmail.toLowerCase() !== userEmail) {
-      return c.json({ error: "この招待は別のメールアドレス宛です" }, 403);
+      apiError("FORBIDDEN", "この招待は別のメールアドレス宛です");
     }
 
     // 使用回数チェック（事前チェック。確定は下の条件付きUPDATEで行う）
@@ -633,7 +629,7 @@ membershipRoutes.post(
       foundToken.maxUses !== null &&
       foundToken.usedCount >= foundToken.maxUses
     ) {
-      return c.json({ error: "招待トークンの使用回数上限に達しました" }, 400);
+      apiError("BAD_REQUEST", "招待トークンの使用回数上限に達しました");
     }
 
     // 既存のメンバーシップをチェック
@@ -652,7 +648,7 @@ membershipRoutes.post(
       );
 
     if (existingMembership.length > 0) {
-      return c.json({ error: "既にメンバーとして登録されています" }, 400);
+      apiError("BAD_REQUEST", "既にメンバーとして登録されています");
     }
 
     // トークンの使用回数を条件付きで更新する（TOCTOU対策）。
@@ -673,7 +669,7 @@ membershipRoutes.post(
 
     const changes = (updateResult as unknown as { meta?: { changes?: number } })?.meta?.changes ?? 0;
     if (changes === 0) {
-      return c.json({ error: "招待トークンの使用回数上限に達しました" }, 400);
+      apiError("BAD_REQUEST", "招待トークンの使用回数上限に達しました");
     }
 
     // メンバーシップを作成
@@ -704,20 +700,20 @@ membershipRoutes.get("/invite/list", async (c) => {
   let query;
   if (circleId) {
     const err = await checkMemberWritePermission(c, circleId, "viewer", undefined, eventId || undefined);
-    if (err) return c.json({ error: err.error }, err.status);
+    if (err) apiError(err.code, err.error, { status: err.status });
     query = db
       .select()
       .from(inviteToken)
       .where(eq(inviteToken.circleId, circleId));
   } else if (eventId) {
     const err = await checkMemberWritePermission(c, null, "viewer", undefined, eventId);
-    if (err) return c.json({ error: err.error }, err.status);
+    if (err) apiError(err.code, err.error, { status: err.status });
     query = db
       .select()
       .from(inviteToken)
       .where(eq(inviteToken.eventId, eventId));
   } else {
-    return c.json({ error: "circleIdまたはeventIdが必要です" }, 400);
+    apiError("BAD_REQUEST", "circleIdまたはeventIdが必要です");
   }
 
   const tokens = await query;
@@ -747,11 +743,11 @@ membershipRoutes.delete("/invite/:id", async (c) => {
   const id = c.req.param("id");
 
   const tokens = await db.select().from(inviteToken).where(eq(inviteToken.id, id));
-  if (tokens.length === 0) return c.json({ error: "トークンが見つかりません" }, 404);
+  if (tokens.length === 0) apiError("NOT_FOUND", "トークンが見つかりません");
 
   const targetToken = tokens[0]!;
   const err = await checkMemberWritePermission(c, targetToken.circleId, "viewer", undefined, targetToken.eventId);
-  if (err) return c.json({ error: err.error }, err.status);
+  if (err) apiError(err.code, err.error, { status: err.status });
 
   await db.delete(inviteToken).where(eq(inviteToken.id, id));
 
@@ -795,8 +791,7 @@ membershipRoutes.post("/notifications/:id/read", async (c) => {
 // 招待に対する回答 (承認 / 拒否)
 membershipRoutes.post(
   "/notifications/:id/respond",
-  zValidator(
-    "json",
+  zBody(
     z.object({
       action: z.enum(["accept", "decline"]),
       userName: z.string().optional(),
@@ -815,14 +810,14 @@ membershipRoutes.post(
       .where(and(eq(notification.id, id), eq(notification.userEmail, email)));
 
     if (notifications.length === 0) {
-      return c.json({ error: "通知が見つかりません" }, 404);
+      apiError("NOT_FOUND", "通知が見つかりません");
     }
 
     const notif = notifications[0]!;
 
     if (input.action === "accept") {
       if (!notif.token) {
-        return c.json({ error: "無効な招待です" }, 400);
+        apiError("BAD_REQUEST", "無効な招待です");
       }
 
       // トークンを検索
@@ -837,19 +832,19 @@ membershipRoutes.post(
         );
 
       if (tokens.length === 0) {
-        return c.json({ error: "無効または期限切れの招待トークンです" }, 400);
+        apiError("BAD_REQUEST", "無効または期限切れの招待トークンです");
       }
 
       const foundToken = tokens[0]!;
 
       // 2026-07-05: targetEmail 指定付きトークンは、そのメール宛のセッションでしか使えない
       if (foundToken.targetEmail && foundToken.targetEmail.toLowerCase() !== email) {
-        return c.json({ error: "この招待は別のメールアドレス宛です" }, 403);
+        apiError("FORBIDDEN", "この招待は別のメールアドレス宛です");
       }
 
       // 使用上限チェック（事前チェック。確定は下の条件付きUPDATEで行う）
       if (foundToken.maxUses !== null && foundToken.usedCount >= foundToken.maxUses) {
-        return c.json({ error: "招待の上限に達しています" }, 400);
+        apiError("BAD_REQUEST", "招待の上限に達しています");
       }
 
       // 既存のメンバーシップがあるかチェック
@@ -865,7 +860,7 @@ membershipRoutes.post(
         );
 
       if (existing.length > 0) {
-        return c.json({ error: "既にメンバーとして登録されています" }, 400);
+        apiError("BAD_REQUEST", "既にメンバーとして登録されています");
       }
 
       // 2026-07-05: トークンの使用回数を条件付きで更新する（TOCTOU対策）。
@@ -886,7 +881,7 @@ membershipRoutes.post(
 
       const changes = (updateResult as unknown as { meta?: { changes?: number } })?.meta?.changes ?? 0;
       if (changes === 0) {
-        return c.json({ error: "招待の上限に達しています" }, 400);
+        apiError("BAD_REQUEST", "招待の上限に達しています");
       }
 
       // メンバーシップ作成

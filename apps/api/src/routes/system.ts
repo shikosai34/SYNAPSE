@@ -1,5 +1,6 @@
 import { Hono } from "hono";
-import { zValidator } from "@hono/zod-validator";
+import { zBody } from "../z-validator";
+import { apiError } from "../http-error";
 import { z } from "zod";
 import {
   db,
@@ -94,8 +95,7 @@ adminRoutes.get("/settings", async (c) => {
 // メンテナンス設定の更新
 adminRoutes.put(
   "/settings",
-  zValidator(
-    "json",
+  zBody(
     z.object({
       maintenance: z
         .object({ enabled: z.boolean(), message: z.string().max(500) })
@@ -126,7 +126,7 @@ adminRoutes.get("/announcements", async (c) => {
   return c.json(rows);
 });
 
-adminRoutes.post("/announcements", zValidator("json", announcementInput), async (c) => {
+adminRoutes.post("/announcements", zBody(announcementInput), async (c) => {
   const input = c.req.valid("json");
   const id = nanoid();
   await db.insert(announcement).values({ id, ...input });
@@ -135,7 +135,7 @@ adminRoutes.post("/announcements", zValidator("json", announcementInput), async 
 
 adminRoutes.patch(
   "/announcements/:id",
-  zValidator("json", announcementInput.partial()),
+  zBody(announcementInput.partial()),
   async (c) => {
     const id = c.req.param("id");
     const input = c.req.valid("json");
@@ -219,8 +219,7 @@ adminRoutes.get("/users", async (c) => {
 // メンバーシップのロール/有効状態を更新 (付与・剥奪・無効化)
 adminRoutes.patch(
   "/memberships/:id",
-  zValidator(
-    "json",
+  zBody(
     z.object({
       role: z
         .enum(["super_admin", "event_manager", "circle_manager", "staff", "viewer"])
@@ -235,7 +234,7 @@ adminRoutes.patch(
 
     const rows = await db.select().from(membership).where(eq(membership.id, id));
     if (rows.length === 0) {
-      return c.json({ error: "メンバーシップが見つかりません" }, 404);
+      apiError("NOT_FOUND", "メンバーシップが見つかりません");
     }
     const target = rows[0]!;
 
@@ -246,10 +245,7 @@ adminRoutes.patch(
       isSelfSuperAdmin &&
       (input.isActive === false || (input.role && input.role !== "super_admin"))
     ) {
-      return c.json(
-        { error: "自分自身のシステム管理者権限は変更できません" },
-        400,
-      );
+      apiError("BAD_REQUEST", "自分自身のシステム管理者権限は変更できません");
     }
 
     // 最後の super_admin を失わないようガード
@@ -262,10 +258,7 @@ adminRoutes.patch(
         .from(membership)
         .where(and(eq(membership.role, "super_admin"), eq(membership.isActive, true)));
       if (admins.length <= 1) {
-        return c.json(
-          { error: "最後のシステム管理者は変更できません" },
-          400,
-        );
+        apiError("BAD_REQUEST", "最後のシステム管理者は変更できません");
       }
     }
 

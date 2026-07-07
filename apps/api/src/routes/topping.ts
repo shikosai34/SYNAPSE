@@ -1,5 +1,6 @@
 import { Hono } from "hono";
-import { zValidator } from "@hono/zod-validator";
+import { zBody } from "../z-validator";
+import { apiError } from "../http-error";
 import { z } from "zod";
 import { db, topping, menuTopping } from "@fesflow/db";
 import { eq } from "drizzle-orm";
@@ -13,12 +14,12 @@ toppingRoutes.get("/", async (c) => {
   const circleId = c.req.query("circleId");
 
   if (!circleId) {
-    return c.json({ error: "circleIdが必要です" }, 400);
+    apiError("BAD_REQUEST", "circleIdが必要です");
   }
 
   // 2026-07-05: 認可チェックが皆無だったため追加（専用権限がないためmenu:*を流用）
   if (!(await hasPermission(c, circleId, "menu:read"))) {
-    return c.json({ error: "権限がありません" }, 403);
+    apiError("FORBIDDEN", "権限がありません");
   }
 
   const toppings = await db
@@ -35,12 +36,12 @@ toppingRoutes.get("/:id", async (c) => {
   const toppings = await db.select().from(topping).where(eq(topping.id, id));
 
   if (toppings.length === 0) {
-    return c.json({ error: "トッピングが見つかりません" }, 404);
+    apiError("NOT_FOUND", "トッピングが見つかりません");
   }
 
   // 2026-07-05: 認可チェックが皆無だったため追加。対象のcircleIdで判定
   if (!(await hasPermission(c, toppings[0]!.circleId, "menu:read"))) {
-    return c.json({ error: "権限がありません" }, 403);
+    apiError("FORBIDDEN", "権限がありません");
   }
 
   return c.json(toppings[0]);
@@ -49,8 +50,7 @@ toppingRoutes.get("/:id", async (c) => {
 // トッピング作成
 toppingRoutes.post(
   "/",
-  zValidator(
-    "json",
+  zBody(
     z.object({
       circleId: z.string(),
       name: z.string().min(1, "トッピング名は必須です"),
@@ -66,7 +66,7 @@ toppingRoutes.post(
 
     // 2026-07-05: 認可チェックが皆無だったため追加（専用権限がないためmenu:*を流用）
     if (!(await hasPermission(c, input.circleId, "menu:write"))) {
-      return c.json({ error: "権限がありません" }, 403);
+      apiError("FORBIDDEN", "権限がありません");
     }
 
     const id = nanoid();
@@ -88,8 +88,7 @@ toppingRoutes.post(
 // トッピング更新
 toppingRoutes.put(
   "/:id",
-  zValidator(
-    "json",
+  zBody(
     z.object({
       name: z.string().min(1).optional(),
       price: z.number().optional(), // 負値許可 (割引トッピング)
@@ -108,11 +107,11 @@ toppingRoutes.put(
       .from(topping)
       .where(eq(topping.id, id));
     if (existingTopping.length === 0) {
-      return c.json({ error: "トッピングが見つかりません" }, 404);
+      apiError("NOT_FOUND", "トッピングが見つかりません");
     }
 
     if (!(await hasPermission(c, existingTopping[0]!.circleId, "menu:write"))) {
-      return c.json({ error: "権限がありません" }, 403);
+      apiError("FORBIDDEN", "権限がありません");
     }
 
     const updates: Partial<typeof topping.$inferSelect> = {};
@@ -141,11 +140,11 @@ toppingRoutes.delete("/:id", async (c) => {
     .from(topping)
     .where(eq(topping.id, id));
   if (existingTopping.length === 0) {
-    return c.json({ error: "トッピングが見つかりません" }, 404);
+    apiError("NOT_FOUND", "トッピングが見つかりません");
   }
 
   if (!(await hasPermission(c, existingTopping[0]!.circleId, "menu:delete"))) {
-    return c.json({ error: "権限がありません" }, 403);
+    apiError("FORBIDDEN", "権限がありません");
   }
 
   // 2026-07-05: 関連するmenu_topping中間テーブル行を連動削除（menu.tsの削除実装に準拠）

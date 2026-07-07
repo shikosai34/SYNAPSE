@@ -13,7 +13,8 @@
  *   FK が無いため明示的に削除する。
  */
 import { Hono, type Context } from "hono";
-import { zValidator } from "@hono/zod-validator";
+import { zBody } from "../z-validator";
+import { apiError } from "../http-error";
 import { z } from "zod";
 import { db, user, membership, notification } from "@fesflow/db";
 import { eq, and } from "drizzle-orm";
@@ -35,11 +36,11 @@ async function getSelf(c: Context) {
 // 自分のアカウント情報を取得 (localStorage が古い場合の正本)
 accountRoutes.get("/me", async (c) => {
   const self = await getSelf(c);
-  if (!self) return c.json({ error: "認証されていません" }, 401);
+  if (!self) apiError("UNAUTHORIZED", "認証されていません");
 
   const rows = await db.select().from(user).where(eq(user.id, self.id));
   const u = rows[0];
-  if (!u) return c.json({ error: "ユーザーが見つかりません" }, 404);
+  if (!u) apiError("NOT_FOUND", "ユーザーが見つかりません");
 
   return c.json({
     id: u.id,
@@ -53,8 +54,7 @@ accountRoutes.get("/me", async (c) => {
 // プロフィール更新 (ユーザー名 / アイコン画像)
 accountRoutes.patch(
   "/profile",
-  zValidator(
-    "json",
+  zBody(
     z.object({
       name: z.string().trim().min(1).max(60).optional(),
       // 画像は URL 文字列。空文字/null でアイコン削除を許可。
@@ -63,7 +63,7 @@ accountRoutes.patch(
   ),
   async (c) => {
     const self = await getSelf(c);
-    if (!self) return c.json({ error: "認証されていません" }, 401);
+    if (!self) apiError("UNAUTHORIZED", "認証されていません");
     const input = c.req.valid("json");
 
     const patch: Record<string, unknown> = {};
@@ -71,7 +71,7 @@ accountRoutes.patch(
     if (input.image !== undefined) patch.image = input.image || null;
 
     if (Object.keys(patch).length === 0) {
-      return c.json({ error: "更新項目がありません" }, 400);
+      apiError("BAD_REQUEST", "更新項目がありません");
     }
 
     await db.update(user).set(patch).where(eq(user.id, self.id));
@@ -91,25 +91,24 @@ accountRoutes.patch(
 // メールアドレス変更 (membership / notification へカスケード)
 accountRoutes.patch(
   "/email",
-  zValidator(
-    "json",
+  zBody(
     z.object({
       newEmail: z.string().email(),
     })
   ),
   async (c) => {
     const self = await getSelf(c);
-    if (!self) return c.json({ error: "認証されていません" }, 401);
+    if (!self) apiError("UNAUTHORIZED", "認証されていません");
     const newEmail = c.req.valid("json").newEmail.toLowerCase();
 
     if (newEmail === self.email) {
-      return c.json({ error: "現在のメールアドレスと同じです" }, 400);
+      apiError("BAD_REQUEST", "現在のメールアドレスと同じです");
     }
 
     // 重複チェック (user.email は unique)
     const dup = await db.select().from(user).where(eq(user.email, newEmail));
     if (dup.length > 0) {
-      return c.json({ error: "このメールアドレスは既に使われています" }, 409);
+      apiError("CONFLICT", "このメールアドレスは既に使われています");
     }
 
     // user 本体を更新。メール変更後は再検証扱いにする (email_verified=false)
@@ -139,15 +138,15 @@ accountRoutes.patch(
 // 先にオーナー権限を他のメンバーに譲渡(ロール変更)するよう促す。
 accountRoutes.delete("/membership/:id", async (c) => {
   const self = await getSelf(c);
-  if (!self) return c.json({ error: "認証されていません" }, 401);
+  if (!self) apiError("UNAUTHORIZED", "認証されていません");
   const id = c.req.param("id");
 
   const rows = await db.select().from(membership).where(eq(membership.id, id));
   const m = rows[0];
-  if (!m) return c.json({ error: "所属が見つかりません" }, 404);
+  if (!m) apiError("NOT_FOUND", "所属が見つかりません");
   // 本人の所属のみ削除可 (他人の権限は管理者APIから)
   if (m.userEmail.toLowerCase() !== self.email) {
-    return c.json({ error: "この権限を削除する権限がありません" }, 403);
+    apiError("FORBIDDEN", "この権限を削除する権限がありません");
   }
 
   if (m.role === "circle_manager" && m.circleId) {
@@ -162,10 +161,7 @@ accountRoutes.delete("/membership/:id", async (c) => {
         )
       );
     if (otherManagers.filter((om) => om.id !== m.id).length === 0) {
-      return c.json(
-        { error: "オーナー権限を他のメンバーに譲渡してから退出してください" },
-        403
-      );
+      apiError("FORBIDDEN", "オーナー権限を他のメンバーに譲渡してから退出してください");
     }
   }
 
@@ -181,10 +177,7 @@ accountRoutes.delete("/membership/:id", async (c) => {
         )
       );
     if (otherEventManagers.filter((om) => om.id !== m.id).length === 0) {
-      return c.json(
-        { error: "オーナー権限を他のメンバーに譲渡してから退出してください" },
-        403
-      );
+      apiError("FORBIDDEN", "オーナー権限を他のメンバーに譲渡してから退出してください");
     }
   }
 
@@ -195,7 +188,7 @@ accountRoutes.delete("/membership/:id", async (c) => {
 // アカウント削除 (本人)。所属・通知を消してから user を削除 (session/account は FK cascade)
 accountRoutes.delete("/", async (c) => {
   const self = await getSelf(c);
-  if (!self) return c.json({ error: "認証されていません" }, 401);
+  if (!self) apiError("UNAUTHORIZED", "認証されていません");
 
   await db.delete(membership).where(eq(membership.userEmail, self.email));
   await db.delete(notification).where(eq(notification.userEmail, self.email));

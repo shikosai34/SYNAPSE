@@ -16,6 +16,7 @@
       "name": "api",
       "dependencies": {
         "@fesflow/auth": "workspace:*",
+        "@fesflow/config": "workspace:*",
         "@fesflow/db": "workspace:*",
         "@fesflow/storage": "workspace:*",
         "@hono/zod-validator": "^0.7.5",
@@ -29,7 +30,6 @@
       "devDependencies": {
         "@cloudflare/vitest-pool-workers": "^0.18.0",
         "@cloudflare/workers-types": "^4.20250620.0",
-        "@fesflow/config": "workspace:*",
         "@types/bcryptjs": "^2.4.6",
         "@types/node": "^22.13.11",
         "typescript": "^5.8.2",

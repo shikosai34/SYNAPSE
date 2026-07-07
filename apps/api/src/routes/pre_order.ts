@@ -1,5 +1,6 @@
 import { Hono } from "hono";
-import { zValidator } from "@hono/zod-validator";
+import { zBody } from "../z-validator";
+import { AppError, apiError } from "../http-error";
 import { z } from "zod";
 import {
   db,
@@ -54,8 +55,7 @@ async function generateOrderNumber(circleId: string): Promise<string> {
 // 事前オーダー作成 (ユーザー端末側)
 preOrderRoutes.post(
   "/",
-  zValidator(
-    "json",
+  zBody(
     z.object({
       userId: z.string(),
       circleId: z.string(),
@@ -79,7 +79,7 @@ preOrderRoutes.post(
         .from(circle)
         .where(eq(circle.id, circleId));
       if (circles.length === 0) {
-        return c.json({ error: `サークル ${circleId} が存在しません` }, 404);
+        apiError("NOT_FOUND", `サークル ${circleId} が存在しません`);
       }
       const eventId = circles[0]!.eventId;
 
@@ -91,12 +91,9 @@ preOrderRoutes.post(
       if (existingUser.length === 0) {
         // 2026-07-06: 「発行しないと使えない」方針。任意の userId から eventUser を
         // 自動作成する自己発行の抜け穴を撤去。未発行の userId での事前オーダーは拒否する。
-        return c.json(
-          {
-            error:
-              "リストバンドが発行されていません。受付でリストバンドの発行を受けてください。",
-          },
-          403,
+        apiError(
+          "FORBIDDEN",
+          "リストバンドが発行されていません。受付でリストバンドの発行を受けてください。",
         );
       } else if (existingUser[0]!.eventId !== eventId) {
         // 2026-07-06: クロスイベント混入対策 (H-3, ベストエフォート)。
@@ -104,10 +101,7 @@ preOrderRoutes.post(
         // 他人へのなりすましスタンプ付与/抽選不正を狙える。完全な防止にはセッションが
         // 必要でありスコープ外だが、最低限「他イベントの userId を事前オーダーに使う」
         // 経路はここで塞ぐ。同一イベント内でのなりすましは本対応では防げない(残存リスク)。
-        return c.json(
-          { error: "ユーザーとサークルのイベントが一致しません" },
-          400
-        );
+        apiError("BAD_REQUEST", "ユーザーとサークルのイベントが一致しません");
       }
 
       // メニュー取得
@@ -123,20 +117,17 @@ preOrderRoutes.post(
       for (const item of items) {
         const m = menus.find((menuItem) => menuItem.id === item.menuId);
         if (!m) {
-          return c.json({ error: `メニュー ${item.menuId} が存在しません` }, 404);
+          apiError("NOT_FOUND", `メニュー ${item.menuId} が存在しません`);
         }
 
         // 2026-07-05: クロスサークルIDOR対策。他サークルのメニューが混入していないか検証する
         if (m.circleId !== circleId) {
-          return c.json(
-            { error: `メニュー ${m.name} は指定サークルに属していません` },
-            400
-          );
+          apiError("BAD_REQUEST", `メニュー ${m.name} は指定サークルに属していません`);
         }
 
         // 2026-07-05: 売り切れメニューの事前オーダーをハードゲートで拒否する
         if (m.soldOut) {
-          return c.json({ error: `${m.name}は売り切れです` }, 400);
+          apiError("BAD_REQUEST", `${m.name}は売り切れです`);
         }
 
         totalPrice += m.price * item.quantity;
@@ -168,8 +159,11 @@ preOrderRoutes.post(
 
       return c.json({ id: preOrderId, totalPrice }, 201);
     } catch (error) {
+      // Phase4: apiError/AppError による意図的な 4xx (NOT_FOUND/BAD_REQUEST/FORBIDDEN 等) を
+      // ここで握りつぶして 500 に丸めないよう、AppError はそのまま再 throw して onError に委ねる。
+      if (error instanceof AppError) throw error;
       console.error("PreOrder creation error:", error);
-      return c.json({ error: "事前オーダーの作成に失敗しました" }, 500);
+      apiError("INTERNAL", "事前オーダーの作成に失敗しました");
     }
   }
 );
@@ -250,8 +244,7 @@ preOrderRoutes.get("/user/:code", async (c) => {
 // 店頭レジでの確定処理 (正規注文への引き継ぎ)
 preOrderRoutes.post(
   "/:id/claim",
-  zValidator(
-    "json",
+  zBody(
     z.object({
       cashierId: z.string().optional(),
     })
@@ -263,18 +256,18 @@ preOrderRoutes.post(
 
       const pos = await db.select().from(preOrder).where(eq(preOrder.id, id));
       if (pos.length === 0) {
-        return c.json({ error: "事前オーダーが見つかりません" }, 404);
+        apiError("NOT_FOUND", "事前オーダーが見つかりません");
       }
       const po = pos[0]!;
 
       // 2026-07-05: レジでの確定処理はスタッフ操作のため order:write 必須にする
       // (register の qr-scanner-modal のみが呼び出しており visitor からの呼び出しはない)
       if (!(await hasPermission(c, po.circleId, "order:write"))) {
-        return c.json({ error: "権限がありません" }, 403);
+        apiError("FORBIDDEN", "権限がありません");
       }
 
       if (po.status !== "pending") {
-        return c.json({ error: "この事前オーダーは既に処理されているかキャンセルされています" }, 400);
+        apiError("BAD_REQUEST", "この事前オーダーは既に処理されているかキャンセルされています");
       }
 
       // アイテム取得
@@ -345,8 +338,9 @@ preOrderRoutes.post(
 
       return c.json({ success: true, orderId: newOrderId, orderNumber });
     } catch (error) {
+      if (error instanceof AppError) throw error;
       console.error("PreOrder claim error:", error);
-      return c.json({ error: "受取確定処理に失敗しました" }, 500);
+      apiError("INTERNAL", "受取確定処理に失敗しました");
     }
   }
 );
