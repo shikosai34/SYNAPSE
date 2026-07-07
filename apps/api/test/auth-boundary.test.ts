@@ -5,7 +5,16 @@
  * (Phase4 でエラーエンベロープを刷新する際、この形状アサーションを更新する)。
  */
 import { describe, expect, it } from "vitest";
-import { request } from "./helpers";
+import { and, eq } from "drizzle-orm";
+import { circle, event, membership } from "@fesflow/db";
+import { postJson, request, testDb, uid } from "./helpers";
+
+function extractCookieHeader(res: Response): string {
+	const raw =
+		(res.headers as unknown as { getSetCookie?: () => string[] }).getSetCookie?.() ??
+		(res.headers.get("set-cookie") ? [res.headers.get("set-cookie") as string] : []);
+	return raw.map((c) => c.split(";")[0]).join("; ");
+}
 
 async function expectErrorJson(res: Response): Promise<string> {
 	const data = (await res.json()) as { error?: unknown };
@@ -42,5 +51,61 @@ describe("認証・認可境界", () => {
 		const res = await request("/api/festivals");
 		expect(res.status).toBe(401);
 		await expectErrorJson(res);
+	});
+
+	// 2026-07-07 (Phase 3a): hasPermission の「X-Active-Membership-Id が無ければ
+	// 全 membership を評価する」互換フォールバックを撤去した。このテストは、
+	// サークルの circle_manager 権限を持つユーザーであっても、そのサークルを
+	// アクティブスペースとして明示 (ヘッダー付与) しない限り書き込み系操作が
+	// 通らないことを固定化する (フォールバック復活のリグレッション防止)。
+	it("circle_manager でも X-Active-Membership-Id 未指定なら PATCH /api/circles/:id/mods は 403", async () => {
+		const email = `${uid("manager")}@example.com`;
+		const signUp = await postJson("/api/auth/sign-up/email", {
+			email,
+			password: "correct-horse-battery-staple",
+			name: "サークル代表",
+		});
+		expect(signUp.status).toBeLessThan(400);
+		const cookie = extractCookieHeader(signUp);
+
+		const db = testDb();
+		const eventId = uid("ev");
+		const circleId = uid("ci");
+		await db.insert(event).values({ id: eventId, eventName: uid("テスト学園祭") });
+		await db.insert(circle).values({ id: circleId, eventId, name: uid("テスト模擬店") });
+		await db.insert(membership).values({
+			id: uid("mem"),
+			userEmail: email.toLowerCase(),
+			userName: "サークル代表",
+			circleId,
+			role: "circle_manager",
+			isActive: true,
+		});
+
+		// ヘッダーなし: フォールバックが無いため権限なし扱いになるはず
+		const withoutHeader = await request(`/api/circles/${circleId}/mods`, {
+			method: "PATCH",
+			headers: { "Content-Type": "application/json", Cookie: cookie },
+			body: JSON.stringify({ mods: { stock: true } }),
+		});
+		expect(withoutHeader.status).toBe(403);
+
+		// ヘッダーあり (アクティブスペースを明示): 同じユーザーで許可されることも確認する
+		const managerRows = await db
+			.select()
+			.from(membership)
+			.where(and(eq(membership.circleId, circleId), eq(membership.role, "circle_manager")));
+		const membershipId = managerRows[0]!.id;
+
+		const withHeader = await request(`/api/circles/${circleId}/mods`, {
+			method: "PATCH",
+			headers: {
+				"Content-Type": "application/json",
+				Cookie: cookie,
+				"X-Active-Membership-Id": membershipId,
+			},
+			body: JSON.stringify({ mods: { stock: true } }),
+		});
+		expect(withHeader.status).toBe(200);
 	});
 });

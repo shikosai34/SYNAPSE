@@ -1,21 +1,18 @@
 import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
-import { db, membership, inviteToken, circle, event, user, getEnv, notification } from "@fesflow/db";
+import { db, membership, inviteToken, circle, event, getEnv, notification } from "@fesflow/db";
 import { eq, and, inArray, gt, isNull, lt } from "drizzle-orm";
 import { nanoid } from "nanoid";
-import { auth } from "@fesflow/auth";
 import { Context } from "hono";
-import {
-  clientIp,
-  isLocked,
-  recordFailure,
-  clearAttempts,
-  lockoutMessage,
-} from "../utils/rate-limit";
-import { hashSecret, verifySecret, isLegacyHash } from "../utils/password";
+import { requireAuth, type AuthVariables } from "../middleware/auth";
 
-const membershipRoutes = new Hono();
+// 2026-07-07 (Phase 3a): 独自 PIN 認証 (authenticate-pin) を廃止したのに伴い、
+// このルーター配下の全エンドポイントが better-auth セッション必須になったため、
+// requireAuth middleware で一括ガードする (下記 membershipRoutes.use("*", requireAuth))。
+// 各ハンドラ内で個別に auth.api.getSession を呼んでいた定型コードはこれで不要になる。
+const membershipRoutes = new Hono<{ Variables: AuthVariables }>();
+membershipRoutes.use("*", requireAuth);
 
 // ロール定義 (SaaS対応 - 2026-07-04)
 const ROLES = [
@@ -88,21 +85,17 @@ function hasPermission(role: Role, permission: string): boolean {
 }
 
 // 管理者権限チェック（権限の序列チェック - 2026-07-04 SaaS対応）
+// 2026-07-07 (Phase 3a): membershipRoutes.use("*", requireAuth) により、この関数が
+// 呼ばれる時点でセッションは既に確立済みなので c.get("session") から取得する
+// (auth.api.getSession の再呼び出しをやめる)。
 async function checkMemberWritePermission(
-  c: Context,
+  c: Context<{ Variables: AuthVariables }>,
   targetCircleId: string | null,
   targetCurrentRole: string,
   targetNewRole?: string,
   targetEventId?: string | null
 ) {
-  const session = await auth.api.getSession({
-    headers: c.req.raw.headers,
-  });
-
-  if (!session || !session.user) {
-    return { error: "認証されていません", status: 401 as const };
-  }
-
+  const session = c.get("session");
   const email = session.user.email.toLowerCase();
   const initialAdminEmail = getEnv().INITIAL_SUPER_ADMIN_EMAIL;
 
@@ -231,10 +224,7 @@ membershipRoutes.get("/roles", (c) => {
 // super_admin 自動生成は getAdminSession 側で既にセッション必須で行われているため、
 // ここでの自動生成ロジックは完全に削除する。
 membershipRoutes.get("/my", async (c) => {
-  const session = await auth.api.getSession({ headers: c.req.raw.headers });
-  if (!session || !session.user) {
-    return c.json({ error: "認証されていません" }, 401);
-  }
+  const session = c.get("session");
   const userEmail = session.user.email;
 
   const initialAdminEmail = getEnv().INITIAL_SUPER_ADMIN_EMAIL;
@@ -310,16 +300,12 @@ membershipRoutes.get("/my", async (c) => {
 });
 
 // サークルのメンバー一覧取得
-// 2026-07-05: 無認証で全カラム(PINハッシュ+メール含む)を返していた脆弱性を修正。
-// セッション必須化し、対象サークルのメンバー閲覧権限(member:read)を要求したうえで、
-// 返却カラムから pin を明示的に除外する。
+// 2026-07-05: 無認証で全カラム(メール含む)を返していた脆弱性を修正。
+// セッション必須化し、対象サークルのメンバー閲覧権限(member:read)を要求する。
+// 2026-07-07 (Phase 3a): membership.pin カラム自体を廃止したため、pin 除外の
+// サニタイズ処理は不要になった (返却カラムに元々含まれない)。
 membershipRoutes.get("/circle/:circleId", async (c) => {
   const circleId = c.req.param("circleId");
-
-  const session = await auth.api.getSession({ headers: c.req.raw.headers });
-  if (!session || !session.user) {
-    return c.json({ error: "認証されていません" }, 401);
-  }
 
   const circles = await db.select().from(circle).where(eq(circle.id, circleId));
   if (circles.length === 0) {
@@ -334,23 +320,16 @@ membershipRoutes.get("/circle/:circleId", async (c) => {
     .from(membership)
     .where(eq(membership.circleId, circleId));
 
-  // pin(ハッシュ)を返却対象から除外する
-  const sanitized = memberships.map(({ pin, ...rest }) => rest);
-
-  return c.json(sanitized);
+  return c.json(memberships);
 });
 
 // イベントのメンバー一覧取得
-// 2026-07-05: 無認証で全カラム(PINハッシュ+メール含む)を返していた脆弱性を修正。
-// セッション必須化し、対象イベントのメンバー閲覧権限(member:read)を要求したうえで、
-// 返却カラムから pin を明示的に除外する。
+// 2026-07-05: 無認証で全カラム(メール含む)を返していた脆弱性を修正。
+// セッション必須化し、対象イベントのメンバー閲覧権限(member:read)を要求する。
+// 2026-07-07 (Phase 3a): membership.pin カラム自体を廃止したため、pin 除外の
+// サニタイズ処理は不要になった。
 membershipRoutes.get("/event/:eventId", async (c) => {
   const eventId = c.req.param("eventId");
-
-  const session = await auth.api.getSession({ headers: c.req.raw.headers });
-  if (!session || !session.user) {
-    return c.json({ error: "認証されていません" }, 401);
-  }
 
   const err = await checkMemberWritePermission(c, null, "viewer", undefined, eventId);
   if (err) return c.json({ error: err.error }, err.status);
@@ -360,10 +339,7 @@ membershipRoutes.get("/event/:eventId", async (c) => {
     .from(membership)
     .where(eq(membership.eventId, eventId));
 
-  // pin(ハッシュ)を返却対象から除外する
-  const sanitized = memberships.map(({ pin, ...rest }) => rest);
-
-  return c.json(sanitized);
+  return c.json(memberships);
 });
 
 // 権限チェック
@@ -385,10 +361,7 @@ membershipRoutes.post(
   async (c) => {
     const input = c.req.valid("json");
 
-    const session = await auth.api.getSession({ headers: c.req.raw.headers });
-    if (!session || !session.user) {
-      return c.json({ error: "認証されていません" }, 401);
-    }
+    const session = c.get("session");
     if (session.user.email.toLowerCase() !== input.userEmail.toLowerCase()) {
       return c.json({ error: "他のユーザーの権限は照会できません" }, 403);
     }
@@ -435,6 +408,8 @@ membershipRoutes.post(
 );
 
 // メンバー追加
+// 2026-07-07 (Phase 3a): 独自 PIN 認証の廃止に伴い pin フィールドを撤去。
+// メンバーはこの後 better-auth アカウントでログインする前提になる。
 membershipRoutes.post(
   "/",
   zValidator(
@@ -445,7 +420,6 @@ membershipRoutes.post(
       circleId: z.string().optional(),
       eventId: z.string().optional(),
       role: z.enum(ROLES),
-      pin: z.string().optional(),
     })
   ),
   async (c) => {
@@ -455,14 +429,6 @@ membershipRoutes.post(
     const err = await checkMemberWritePermission(c, input.circleId || null, "viewer", input.role, input.eventId);
     if (err) return c.json({ error: err.error }, err.status);
 
-    // PINをハッシュ化
-    // 2026-07-06: bcrypt(saltRounds=4) は強度が低すぎるため、PBKDF2 ベースの
-    // hashSecret に置換 (H1)。
-    let pinHash: string | null = null;
-    if (input.pin) {
-      pinHash = await hashSecret(input.pin);
-    }
-
     await db.insert(membership).values({
       id,
       userEmail: input.userEmail.toLowerCase(),
@@ -470,7 +436,6 @@ membershipRoutes.post(
       circleId: input.circleId,
       eventId: input.eventId,
       role: input.role,
-      pin: pinHash,
       isActive: true,
     });
 
@@ -633,16 +598,12 @@ membershipRoutes.post(
     z.object({
       token: z.string(),
       userName: z.string(),
-      pin: z.string().optional(),
     })
   ),
   async (c) => {
     const input = c.req.valid("json");
 
-    const session = await auth.api.getSession({ headers: c.req.raw.headers });
-    if (!session || !session.user) {
-      return c.json({ error: "認証されていません" }, 401);
-    }
+    const session = c.get("session");
     const userEmail = session.user.email.toLowerCase();
 
     // トークンを検索
@@ -715,15 +676,8 @@ membershipRoutes.post(
       return c.json({ error: "招待トークンの使用回数上限に達しました" }, 400);
     }
 
-    // PINをハッシュ化
-    // 2026-07-06: bcrypt(saltRounds=4) は強度が低すぎるため、PBKDF2 ベースの
-    // hashSecret に置換 (H1)。
-    let pinHash: string | null = null;
-    if (input.pin) {
-      pinHash = await hashSecret(input.pin);
-    }
-
     // メンバーシップを作成
+    // 2026-07-07 (Phase 3a): 独自 PIN 認証の廃止に伴い pin 保存を撤去。
     const membershipId = nanoid();
     await db.insert(membership).values({
       id: membershipId,
@@ -732,7 +686,6 @@ membershipRoutes.post(
       circleId: foundToken.circleId,
       eventId: foundToken.eventId,
       role: foundToken.role,
-      pin: pinHash,
       isActive: true,
     });
 
@@ -805,169 +758,14 @@ membershipRoutes.delete("/invite/:id", async (c) => {
   return c.json({ success: true });
 });
 
-// PIN認証
-membershipRoutes.post(
-  "/authenticate-pin",
-  zValidator(
-    "json",
-    z.object({
-      circleId: z.string().optional(),
-      eventId: z.string().optional(),
-      // 2026-07-05 (H4): email を必須化。従来は任意で、未指定だとサークル/イベント配下の
-      // 全メンバーの PIN に対して総当たりできてしまい (探索空間 = 人数 × PIN空間)、
-      // かつ「当たった誰か」でログインできる横取りも可能だった。email を要求することで
-      // 探索対象を 1 名に限定し、ロックアウトも本人単位で効かせる。
-      // フロント (register の circle-login-only-form) は元々 email を必須送信している。
-      email: z.string().email(),
-      pin: z.string(),
-    })
-  ),
-  async (c) => {
-    const input = c.req.valid("json");
-
-    const targetId = input.circleId ?? input.eventId;
-    if (!targetId) {
-      return c.json({ error: "circleIdまたはeventIdが必要です" }, 400);
-    }
-    const email = input.email.toLowerCase();
-
-    // 2026-07-05 (H4): PIN 総当たり対策。IP バケットと対象(本人)バケットの双方を見て、
-    // どちらかがロック中なら ハッシュ照合(verifySecret) を実行する前に 429 で弾く。
-    const ip = clientIp(c);
-    const ipKey = `pin:ip:${ip}`;
-    const targetKey = `pin:target:${targetId}:${email}`;
-    const keys = [ipKey, targetKey];
-
-    const retryAfter = await isLocked(keys);
-    if (retryAfter > 0) {
-      return c.json({ error: lockoutMessage(retryAfter) }, 429, {
-        "Retry-After": String(retryAfter),
-      });
-    }
-
-    // メンバーシップを検索 (email 必須になったため対象は最大 1 件)
-    const conditions = input.circleId
-      ? [eq(membership.circleId, input.circleId), eq(membership.isActive, true), eq(membership.userEmail, email)]
-      : [eq(membership.eventId, input.eventId!), eq(membership.isActive, true), eq(membership.userEmail, email)];
-
-    const memberships = await db
-      .select()
-      .from(membership)
-      .where(and(...conditions));
-
-    // PINがnullでないメンバーシップをチェック
-    for (const m of memberships) {
-      if (m.pin) {
-        const isValid = await verifySecret(input.pin, m.pin);
-        if (isValid) {
-          // 認証成功: 失敗履歴を消去して正当な利用者を巻き込まないようにする。
-          await clearAttempts(keys);
-
-          // 2026-07-06 (H1 任意対応): 旧 bcrypt ハッシュで認証できた場合、
-          // 新形式 (PBKDF2) へ移行 (rehash-on-verify)。失敗しても認証自体は
-          // 成功として扱いたいため try/catch で保護し、エラーは握りつぶす。
-          if (isLegacyHash(m.pin)) {
-            try {
-              const rehashed = await hashSecret(input.pin);
-              await db
-                .update(membership)
-                .set({ pin: rehashed })
-                .where(eq(membership.id, m.id));
-            } catch {
-              // 移行に失敗しても認証結果には影響させない。
-            }
-          }
-
-          // 該当メンバーシップの user テーブルのレコードを検索
-          const users = await db
-            .select()
-            .from(user)
-            .where(eq(user.email, m.userEmail.toLowerCase()));
-          
-          const matchedUser = users[0];
-
-          return c.json({
-            success: true,
-            membership: {
-              ...m,
-              pin: undefined,
-            },
-            // user が見つからない場合は、名前とメールの一時オブジェクトを組み立てて返す
-            user: matchedUser
-              ? {
-                  id: matchedUser.id,
-                  name: matchedUser.name,
-                  email: matchedUser.email,
-                }
-              : {
-                  id: m.id, // 一時的なIDとしてmembership IDを使用
-                  name: m.userName,
-                  email: m.userEmail,
-                },
-          });
-        }
-      }
-    }
-
-    // 認証失敗: IP/対象バケットに失敗を記録し、しきい値到達で以降ロックする。
-    await recordFailure([
-      { key: ipKey, scope: "pin" },
-      { key: targetKey, scope: "pin" },
-    ]);
-    return c.json({ error: "PINが正しくありません" }, 401);
-  }
-);
-
-// PIN更新
-membershipRoutes.patch(
-  "/:id/pin",
-  zValidator(
-    "json",
-    z.object({
-      pin: z.string().min(4, "PINは4文字以上必要です"),
-    })
-  ),
-  async (c) => {
-    const id = c.req.param("id");
-    const input = c.req.valid("json");
-
-    const targets = await db.select().from(membership).where(eq(membership.id, id));
-    if (targets.length === 0) return c.json({ error: "メンバーが見つかりません" }, 404);
-    
-    const target = targets[0]!;
-
-    // 権限チェック: 自分自身か、管理者（circle_manager or event_admin）のみPINを変更可能
-    const session = await auth.api.getSession({ headers: c.req.raw.headers });
-    if (!session || !session.user) {
-      return c.json({ error: "認証されていません" }, 401);
-    }
-    
-    const isSelf = session.user.email.toLowerCase() === target.userEmail.toLowerCase();
-    
-    if (!isSelf) {
-      const err = await checkMemberWritePermission(c, target.circleId, target.role, undefined, target.eventId);
-      if (err) return c.json({ error: err.error }, err.status);
-    }
-
-    // 2026-07-06: bcrypt(saltRounds=4) は強度が低すぎるため、PBKDF2 ベースの
-    // hashSecret に置換 (H1)。
-    const pinHash = await hashSecret(input.pin);
-
-    await db
-      .update(membership)
-      .set({ pin: pinHash })
-      .where(eq(membership.id, id));
-
-    return c.json({ success: true });
-  }
-);
+// 2026-07-07 (Phase 3a): 独自 PIN 認証 (POST /authenticate-pin) と PIN 更新
+// (PATCH /:id/pin) ルートを廃止。認証は better-auth (メール/パスワード + passkey +
+// Google) に一本化する。並行して存在していた PIN ベースの簡易ログイン導線は撤去済み
+// (フロント側の呼び出し・PINフォームは Phase 3b で対応する)。
 
 // 通知一覧取得 (2026-07-04 SaaS通知対応)
 membershipRoutes.get("/notifications/list", async (c) => {
-  const session = await auth.api.getSession({ headers: c.req.raw.headers });
-  if (!session || !session.user) {
-    return c.json({ error: "認証されていません" }, 401);
-  }
+  const session = c.get("session");
   const email = session.user.email.toLowerCase();
 
   const list = await db
@@ -984,10 +782,7 @@ membershipRoutes.get("/notifications/list", async (c) => {
 // 通知を既読にする
 membershipRoutes.post("/notifications/:id/read", async (c) => {
   const id = c.req.param("id");
-  const session = await auth.api.getSession({ headers: c.req.raw.headers });
-  if (!session || !session.user) {
-    return c.json({ error: "認証されていません" }, 401);
-  }
+  const session = c.get("session");
 
   await db
     .update(notification)
@@ -1005,16 +800,12 @@ membershipRoutes.post(
     z.object({
       action: z.enum(["accept", "decline"]),
       userName: z.string().optional(),
-      pin: z.string().optional(),
     })
   ),
   async (c) => {
     const id = c.req.param("id");
     const input = c.req.valid("json");
-    const session = await auth.api.getSession({ headers: c.req.raw.headers });
-    if (!session || !session.user) {
-      return c.json({ error: "認証されていません" }, 401);
-    }
+    const session = c.get("session");
     const email = session.user.email.toLowerCase();
 
     // 通知を検索
@@ -1098,15 +889,8 @@ membershipRoutes.post(
         return c.json({ error: "招待の上限に達しています" }, 400);
       }
 
-      // PINハッシュ化
-      // 2026-07-06: bcrypt(saltRounds=4) は強度が低すぎるため、PBKDF2 ベースの
-      // hashSecret に置換 (H1)。
-      let pinHash: string | null = null;
-      if (input.pin) {
-        pinHash = await hashSecret(input.pin);
-      }
-
       // メンバーシップ作成
+      // 2026-07-07 (Phase 3a): 独自 PIN 認証の廃止に伴い pin 保存を撤去。
       await db.insert(membership).values({
         id: nanoid(),
         userEmail: email,
@@ -1114,7 +898,6 @@ membershipRoutes.post(
         circleId: foundToken.circleId,
         eventId: foundToken.eventId,
         role: foundToken.role,
-        pin: pinHash,
         isActive: true,
       });
 

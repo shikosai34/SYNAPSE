@@ -145,7 +145,10 @@ export const circle = sqliteTable(
       .references(() => event.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
     description: text("description"),
-    password: text("password").notNull(),
+    // 2026-07-07 (Phase 3a): 独自パスワード認証 (POST /api/festivals/login) の廃止に伴い
+    // password カラムを削除。認証は better-auth (メール/パスワード + passkey + Google) に
+    // 一本化され、サークル代表者は作成者本人の better-auth アカウントで判定するため
+    // このカラムは不要 (後方互換のランダムパスワードを入れているだけの死にカラムだった)。
     iconImagePath: text("icon_image_path"),
     backgroundImagePath: text("background_image_path"),
     // サークル拡張機能フラグ (在庫/スタッフ管理などのON/OFF) をJSON文字列で保持する。
@@ -212,8 +215,9 @@ export const membership = sqliteTable(
     }),
     // ロール
     role: text("role").notNull().default("viewer"),
-    // PIN（簡易認証用）
-    pin: text("pin"),
+    // 2026-07-07 (Phase 3a): 独自 PIN 認証 (POST /api/memberships/authenticate-pin) の
+    // 廃止に伴い pin カラムを削除。認証は better-auth (メール/パスワード + passkey +
+    // Google) に一本化する。
     // アクティブ状態
     isActive: integer("is_active", { mode: "boolean" }).default(true).notNull(),
     // 招待状態

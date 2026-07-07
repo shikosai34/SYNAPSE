@@ -12,7 +12,7 @@ import {
 } from "@fesflow/db";
 import { eq, and, gt, isNotNull, desc } from "drizzle-orm";
 import { nanoid } from "nanoid";
-import { getAdminSession } from "../utils/auth";
+import { requireSuperAdmin, type AuthVariables } from "../middleware/auth";
 
 // ── 公開システム設定 (メンテナンス/お知らせ) ────────────────────────────
 // 全アプリが起動時に読む。認証不要。value は JSON 文字列で保存。
@@ -71,14 +71,16 @@ systemRoutes.get("/announcements", async (c) => {
 });
 
 // ── 管理ルート (super_admin 限定) ───────────────────────────────────────
-export const adminRoutes = new Hono<{ Variables: { adminEmail: string } }>();
+export const adminRoutes = new Hono<{
+  Variables: AuthVariables & { adminEmail: string };
+}>();
 
 // 全ルート super_admin ガード
+// 2026-07-07 (Phase 3a): getAdminSession 呼び出しを middleware/auth.ts の
+// requireSuperAdmin に集約。ここでは session から adminEmail を取り出すだけにする。
+adminRoutes.use("*", requireSuperAdmin);
 adminRoutes.use("*", async (c, next) => {
-  const session = await getAdminSession(c);
-  if (!session) {
-    return c.json({ error: "システム管理者権限が必要です" }, 403);
-  }
+  const session = c.get("session");
   c.set("adminEmail", session.user.email.toLowerCase());
   await next();
 });

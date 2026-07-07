@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "43c31069-3a74-4df2-9aa5-84fe13369531",
+  "id": "f3e62679-f144-47dc-ac74-f40e176c4f1e",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "account": {
@@ -482,13 +482,6 @@
           "notNull": false,
           "autoincrement": false
         },
-        "password": {
-          "name": "password",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
         "icon_image_path": {
           "name": "icon_image_path",
           "type": "text",
@@ -907,13 +900,6 @@
           "notNull": true,
           "autoincrement": false,
           "default": "'viewer'"
-        },
-        "pin": {
-          "name": "pin",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
         },
         "is_active": {
           "name": "is_active",

@@ -12,11 +12,12 @@ async function seedCircle() {
 	const eventId = uid("ev");
 	const circleId = uid("ci");
 	await db.insert(event).values({ id: eventId, eventName: uid("テスト学園祭") });
+	// 2026-07-07 (Phase 3a): circle.password カラムを廃止 (独自パスワード認証の撤去) したため
+	// シードから password を削除。
 	await db.insert(circle).values({
 		id: circleId,
 		eventId,
 		name: "テスト模擬店",
-		password: "dummy-hash",
 	});
 	return { eventId, circleId };
 }

@@ -88,31 +88,23 @@ export async function hasPermission(
   const email = session.user.email.toLowerCase();
   const activeMembershipId = c.req.header("X-Active-Membership-Id");
 
-  let memberships = [];
-  if (activeMembershipId) {
-    // アクティブなメンバーシップが明示されている場合は、そのメンバーシップのみを対象に評価する (SaaSコンテキスト分離)
-    memberships = await db
-      .select()
-      .from(membership)
-      .where(
-        and(
-          eq(membership.id, activeMembershipId),
-          eq(membership.userEmail, email),
-          eq(membership.isActive, true)
-        )
-      );
-  } else {
-    // 互換性維持: 明示されない場合は、ユーザーのすべてのアクティブメンバーシップを取得
-    memberships = await db
-      .select()
-      .from(membership)
-      .where(
-        and(
-          eq(membership.userEmail, email),
-          eq(membership.isActive, true)
-        )
-      );
-  }
+  // 2026-07-07 (Phase 3a): 「X-Active-Membership-Id が無ければ全 membership を評価する」
+  // 互換フォールバックを撤去。このフォールバックがあると、どれか1つでも super_admin
+  // membership を持つ人が、アクティブスペースを明示していなくても全ルートを通過できてしまい、
+  // 「明示されたスペースの権限だけを見る」という SaaS のコンテキスト分離の前提が崩れていた。
+  // ヘッダー必須化: 無ければ常に権限なし (false) として扱う。
+  if (!activeMembershipId) return false;
+
+  const memberships = await db
+    .select()
+    .from(membership)
+    .where(
+      and(
+        eq(membership.id, activeMembershipId),
+        eq(membership.userEmail, email),
+        eq(membership.isActive, true)
+      )
+    );
 
   if (memberships.length === 0) return false;
 

@@ -1,8 +1,12 @@
 /**
  * 認証レート制限 / アカウントロックアウト (2026-07-05 追加, 監査 High: H4)
  *
- * PIN 総当たり (POST /api/memberships/authenticate-pin) とサークルパスワード総当たり
- * (POST /api/festivals/login) のオンライン総当たりを抑止するための共通ヘルパ。
+ * 元々は PIN 総当たり (POST /api/memberships/authenticate-pin) とサークルパスワード
+ * 総当たり (POST /api/festivals/login) のオンライン総当たりを抑止するために作った
+ * 共通ヘルパ。2026-07-07 (Phase 3a) でこの2ルートは廃止されたが、index.ts の
+ * better-auth ハンドラ (POST /api/auth/sign-in, /api/auth/sign-up) の IP レート制限に
+ * 引き続き使われているため、このファイル自体は残す (pin/circle_login スコープの
+ * バケットは使われなくなり、auth スコープのみが現役)。
  *
  * 設計:
  * - 状態は D1 の `auth_attempt` テーブルに保持する (Cloudflare の Rate Limiting binding は
