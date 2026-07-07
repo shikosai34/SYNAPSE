@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
+import { Modal } from "@/components/ui/Modal";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 
 // ローカルタイムの YYYY-MM-DD キー (日付ごとの集計・切り替えに使用)
@@ -30,6 +31,8 @@ function SalesManagementContent() {
   const [circleName, setCircleName] = useState<string>("サークルダッシュボード");
   // 表示対象の日付 (日にちごとに切り替えながら見られるようにする)
   const [selectedDate, setSelectedDate] = useState<string>("");
+  // グラフ拡大モーダル用状態
+  const [isChartExpanded, setIsChartExpanded] = useState(false);
 
   useEffect(() => {
     const storedCircleId = localStorage.getItem("circleId");
@@ -165,9 +168,9 @@ function SalesManagementContent() {
         {/* 日付切り替えバー (日にちごとに売上を表示) */}
         <Card className="rounded-none shadow-none">
           <CardContent className="p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 font-mono">
-            <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">[表示する営業日]</span>
+            <span className="text-sm font-bold uppercase tracking-wider text-muted-foreground">[表示する営業日]</span>
             {availableDates.length === 0 ? (
-              <span className="text-xs text-muted-foreground">注文データがありません</span>
+              <span className="text-sm text-muted-foreground">注文データがありません</span>
             ) : (
               <div className="flex items-center gap-2">
                 <Button
@@ -182,7 +185,7 @@ function SalesManagementContent() {
                 <select
                   value={selectedDate}
                   onChange={(e) => setSelectedDate(e.target.value)}
-                  className="h-10 border-thick border-border rounded-none bg-background px-3 text-xs font-bold uppercase font-mono min-w-[160px] text-center"
+                  className="h-10 border-thick border-border rounded-none bg-background px-3 text-sm font-bold uppercase font-mono min-w-[160px] text-center"
                 >
                   {availableDates.map((d) => (
                     <option key={d} value={d}>
@@ -208,7 +211,7 @@ function SalesManagementContent() {
         <div className="grid gap-4 md:grid-cols-3">
           <Card className="rounded-none shadow-none">
             <CardHeader className="pb-2">
-              <CardTitle className="text-xs uppercase font-bold text-muted-foreground">総注文数</CardTitle>
+              <CardTitle className="text-sm uppercase font-bold text-muted-foreground">総注文数</CardTitle>
             </CardHeader>
             <CardContent>
               <p className="text-2xl font-black">{ordersForDay.length}件</p>
@@ -217,7 +220,7 @@ function SalesManagementContent() {
 
           <Card className="rounded-none shadow-none">
             <CardHeader className="pb-2">
-              <CardTitle className="text-xs uppercase font-bold text-muted-foreground">完了注文数</CardTitle>
+              <CardTitle className="text-sm uppercase font-bold text-muted-foreground">完了注文数</CardTitle>
             </CardHeader>
             <CardContent>
               <p className="text-2xl font-black">{completedOrders.length}件</p>
@@ -226,7 +229,7 @@ function SalesManagementContent() {
 
           <Card className="rounded-none shadow-none bg-primary text-primary-foreground">
             <CardHeader className="pb-2">
-              <CardTitle className="text-xs uppercase font-bold text-primary-foreground/75">完了売上</CardTitle>
+              <CardTitle className="text-sm uppercase font-bold text-primary-foreground/75">完了売上</CardTitle>
             </CardHeader>
             <CardContent>
               <p className="text-2xl font-black">
@@ -241,11 +244,15 @@ function SalesManagementContent() {
           {/* 時間帯別売上グラフ (SVG) */}
           <Card className="rounded-none shadow-none">
             <CardHeader>
-              <CardTitle className="text-sm font-bold uppercase">[時間帯別売上推移]</CardTitle>
-              <CardDescription className="text-[10px]">9:00 - 18:00 の時間帯別売上 (円)</CardDescription>
+              <CardTitle className="text-base font-bold uppercase">[時間帯別売上推移]</CardTitle>
+              <CardDescription className="text-xs">9:00 - 18:00 の時間帯別売上 (円)</CardDescription>
             </CardHeader>
             <CardContent className="flex justify-center">
-              <div className="w-full max-w-[500px]">
+              <div 
+                className="w-full max-w-[500px] cursor-pointer hover:opacity-80 transition-opacity" 
+                onClick={() => setIsChartExpanded(true)}
+                title="クリックして拡大"
+              >
                 <svg viewBox={`0 0 ${svgWidth} ${svgHeight}`} className="w-full h-auto overflow-visible">
                   {/* グリッド・目盛り */}
                   {Array.from({ length: 5 }).map((_, i) => {
@@ -265,7 +272,7 @@ function SalesManagementContent() {
                         <text
                           x={padding - 6}
                           y={y + 3}
-                          className="font-mono text-[8px] fill-muted-foreground"
+                          className="font-mono text-[10px] fill-muted-foreground"
                           textAnchor="end"
                         >
                           ¥{val.toLocaleString()}
@@ -280,7 +287,7 @@ function SalesManagementContent() {
                       key={i}
                       x={p.x}
                       y={svgHeight - padding + 15}
-                      className="font-mono text-[8px] fill-muted-foreground"
+                      className="font-mono text-[10px] fill-muted-foreground"
                       textAnchor="middle"
                     >
                       {p.hour}
@@ -318,8 +325,8 @@ function SalesManagementContent() {
           {/* メニュー別売上グラフ (HTML棒) */}
           <Card className="rounded-none shadow-none">
             <CardHeader>
-              <CardTitle className="text-sm font-bold uppercase">[メニュー別売上構成]</CardTitle>
-              <CardDescription className="text-[10px]">完了したメニューごとの合計売上</CardDescription>
+              <CardTitle className="text-base font-bold uppercase">[メニュー別売上構成]</CardTitle>
+              <CardDescription className="text-xs">完了したメニューごとの合計売上</CardDescription>
             </CardHeader>
             <CardContent>
               {menuSalesData.length > 0 ? (
@@ -328,7 +335,7 @@ function SalesManagementContent() {
                     const pct = (item.sales / maxMenuSales) * 100;
                     return (
                       <div key={idx} className="space-y-1">
-                        <div className="flex justify-between text-[11px] font-bold uppercase font-mono">
+                        <div className="flex justify-between text-xs font-bold uppercase font-mono">
                           <span>{item.name} ({item.count}点)</span>
                           <span>¥{item.sales.toLocaleString()}</span>
                         </div>
@@ -343,7 +350,7 @@ function SalesManagementContent() {
                   })}
                 </div>
               ) : (
-                <p className="text-xs text-muted-foreground text-center py-12 uppercase">No menu sales data</p>
+                <p className="text-sm text-muted-foreground text-center py-12 uppercase">No menu sales data</p>
               )}
             </CardContent>
           </Card>
@@ -352,18 +359,18 @@ function SalesManagementContent() {
         {/* 注文履歴カード */}
         <Card className="rounded-none shadow-none">
           <CardHeader>
-            <CardTitle className="text-sm font-bold uppercase">注文履歴</CardTitle>
+            <CardTitle className="text-base font-bold uppercase">注文履歴</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="space-y-2 max-h-[300px] overflow-y-auto pr-2">
               {ordersForDay.map((order) => (
                 <div
                   key={order.id}
-                  className="flex justify-between items-center p-3 border-thick border-border rounded-none text-xs font-mono"
+                  className="flex justify-between items-center p-3 border-thick border-border rounded-none text-sm font-mono"
                 >
                   <div>
                     <p className="font-bold">{order.orderNumber}</p>
-                    <p className="text-[10px] text-muted-foreground">
+                    <p className="text-xs text-muted-foreground">
                       {order.createdAt
                         ? new Date(order.createdAt).toLocaleString("ja-JP")
                         : "-"}
@@ -373,7 +380,7 @@ function SalesManagementContent() {
                     <p className="font-black">
                       ¥{(order.totalPrice ?? 0).toLocaleString()}
                     </p>
-                    <p className="text-[10px] uppercase font-bold text-muted-foreground">
+                    <p className="text-xs uppercase font-bold text-muted-foreground">
                       {order.status}
                     </p>
                   </div>
@@ -383,6 +390,86 @@ function SalesManagementContent() {
           </CardContent>
         </Card>
       </div>
+
+      <Modal
+        isOpen={isChartExpanded}
+        onClose={() => setIsChartExpanded(false)}
+        title="[時間帯別売上推移]"
+        maxWidth="xl"
+      >
+        <div className="w-full">
+          <svg viewBox={`0 0 ${svgWidth} ${svgHeight}`} className="w-full h-auto overflow-visible">
+            {/* グリッド・目盛り */}
+            {Array.from({ length: 5 }).map((_, i) => {
+              const y = padding + (i / 4) * chartHeight;
+              const val = Math.round(maxHourlySales * (1 - i / 4));
+              return (
+                <g key={i}>
+                  <line
+                    x1={padding}
+                    y1={y}
+                    x2={svgWidth - padding}
+                    y2={y}
+                    stroke="#E5E5E5"
+                    strokeWidth="1"
+                    strokeDasharray="2 2"
+                  />
+                  <text
+                    x={padding - 6}
+                    y={y + 3}
+                    className="font-mono text-[10px] fill-muted-foreground"
+                    textAnchor="end"
+                  >
+                    ¥{val.toLocaleString()}
+                  </text>
+                </g>
+              );
+            })}
+
+            {/* X軸目盛り */}
+            {points.map((p, i) => (
+              <text
+                key={i}
+                x={p.x}
+                y={svgHeight - padding + 15}
+                className="font-mono text-[10px] fill-muted-foreground"
+                textAnchor="middle"
+              >
+                {p.hour}
+              </text>
+            ))}
+
+            {/* 折れ線 */}
+            <path
+              d={linePath}
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              className="text-foreground"
+            />
+
+            {/* データ点 */}
+            {points.map((p, i) => (
+              <g key={i} className="group">
+                <rect
+                  x={p.x - 3}
+                  y={p.y - 3}
+                  width="6"
+                  height="6"
+                  fill="currentColor"
+                  className="text-foreground cursor-pointer hover:scale-150 transition-all"
+                />
+                <title>{`${p.hour}: ¥${p.sales.toLocaleString()} (${p.count}件)`}</title>
+              </g>
+            ))}
+          </svg>
+        </div>
+        <div className="mt-4 text-center">
+          <Button onClick={() => setIsChartExpanded(false)} className="px-8 border-thick font-bold uppercase rounded-none">
+            閉じる
+          </Button>
+        </div>
+      </Modal>
     </DashboardLayout>
   );
 }

@@ -1,5 +1,8 @@
+import { useState } from "react";
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/components/ui/card";
 import { TrendingUp } from "lucide-react";
+import { Modal } from "@/components/ui/Modal";
+import { Button } from "@/components/ui/button";
 
 interface SalesTabProps {
   allCirclesOrders: any[] | undefined;
@@ -10,6 +13,8 @@ export function SalesTab({
   allCirclesOrders,
   ordersLoading
 }: SalesTabProps) {
+  const [isChartExpanded, setIsChartExpanded] = useState(false);
+
   // Sales Aggregations
   const salesStats = (() => {
     if (!allCirclesOrders) return { totalSales: 0, completedOrdersCount: 0, totalOrdersCount: 0 };
@@ -106,7 +111,7 @@ export function SalesTab({
           <div className="grid gap-4 md:grid-cols-3 font-mono">
             <Card className="rounded-none shadow-none">
               <CardHeader className="p-3 pb-1 bg-muted/20 border-b-thin border-border">
-                <CardTitle className="text-[10px] uppercase font-bold text-muted-foreground">総注文数</CardTitle>
+                <CardTitle className="text-xs uppercase font-bold text-muted-foreground">総注文数</CardTitle>
               </CardHeader>
               <CardContent className="p-3 pt-4">
                 <p className="text-xl font-black">{salesStats.totalOrdersCount}件</p>
@@ -115,7 +120,7 @@ export function SalesTab({
 
             <Card className="rounded-none shadow-none">
               <CardHeader className="p-3 pb-1 bg-muted/20 border-b-thin border-border">
-                <CardTitle className="text-[10px] uppercase font-bold text-muted-foreground">完了取引数</CardTitle>
+                <CardTitle className="text-xs uppercase font-bold text-muted-foreground">完了取引数</CardTitle>
               </CardHeader>
               <CardContent className="p-3 pt-4">
                 <p className="text-xl font-black">{salesStats.completedOrdersCount}件</p>
@@ -124,7 +129,7 @@ export function SalesTab({
 
             <Card className="rounded-none shadow-none bg-primary text-primary-foreground">
               <CardHeader className="p-3 pb-1 bg-primary border-b-thin border-primary-foreground/30">
-                <CardTitle className="text-[10px] uppercase font-bold text-primary-foreground/75">イベント総売上</CardTitle>
+                <CardTitle className="text-xs uppercase font-bold text-primary-foreground/75">イベント総売上</CardTitle>
               </CardHeader>
               <CardContent className="p-3 pt-4">
                 <p className="text-xl font-black">¥{salesStats.totalSales.toLocaleString()}</p>
@@ -137,7 +142,7 @@ export function SalesTab({
             {/* サークル別売上 (横棒) */}
             <Card className="rounded-none shadow-none">
               <CardHeader className="p-4 border-b-thin border-border bg-muted/20">
-                <CardTitle className="text-xs font-bold uppercase">[サークル別売上比率]</CardTitle>
+                <CardTitle className="text-sm font-bold uppercase">[サークル別売上比率]</CardTitle>
               </CardHeader>
               <CardContent className="p-4 pt-4">
                 {circleSalesData.length > 0 ? (
@@ -146,7 +151,7 @@ export function SalesTab({
                       const pct = (cir.sales / maxCircleSales) * 100;
                       return (
                         <div key={idx} className="space-y-1">
-                          <div className="flex justify-between text-[10px] font-bold uppercase font-mono">
+                          <div className="flex justify-between text-xs font-bold uppercase font-mono">
                             <span>{cir.name}</span>
                             <span>¥{cir.sales.toLocaleString()}</span>
                           </div>
@@ -161,7 +166,7 @@ export function SalesTab({
                     })}
                   </div>
                 ) : (
-                  <p className="text-[10px] text-muted-foreground text-center py-12">売上データはありません</p>
+                  <p className="text-sm text-muted-foreground text-center py-12">売上データはありません</p>
                 )}
               </CardContent>
             </Card>
@@ -169,10 +174,14 @@ export function SalesTab({
             {/* 時間帯別売上推移 (折れ線SVG) */}
             <Card className="rounded-none shadow-none">
               <CardHeader className="p-4 border-b-thin border-border bg-muted/20">
-                <CardTitle className="text-xs font-bold uppercase">[イベント時間帯別売上]</CardTitle>
+                <CardTitle className="text-sm font-bold uppercase">[イベント時間帯別売上]</CardTitle>
               </CardHeader>
               <CardContent className="p-4 pt-4 flex justify-center">
-                <div className="w-full max-w-[450px]">
+                <div 
+                  className="w-full max-w-[450px] cursor-pointer hover:opacity-80 transition-opacity"
+                  onClick={() => setIsChartExpanded(true)}
+                  title="クリックして拡大"
+                >
                   <svg viewBox={`0 0 ${svgWidth} ${svgHeight}`} className="w-full h-auto overflow-visible">
                     {Array.from({ length: 5 }).map((_, i) => {
                       const y = padding + (i / 4) * chartHeight;
@@ -191,7 +200,7 @@ export function SalesTab({
                           <text
                             x={padding - 6}
                             y={y + 3}
-                            className="font-mono text-[7px] fill-muted-foreground"
+                            className="font-mono text-[10px] fill-muted-foreground"
                             textAnchor="end"
                           >
                             ¥{val.toLocaleString()}
@@ -205,7 +214,7 @@ export function SalesTab({
                         key={i}
                         x={p.x}
                         y={svgHeight - padding + 12}
-                        className="font-mono text-[7px] fill-muted-foreground"
+                        className="font-mono text-[10px] fill-muted-foreground"
                         textAnchor="middle"
                       >
                         {p.hour}
@@ -240,6 +249,82 @@ export function SalesTab({
           </div>
         </div>
       )}
+
+      <Modal
+        isOpen={isChartExpanded}
+        onClose={() => setIsChartExpanded(false)}
+        title="[イベント時間帯別売上]"
+        maxWidth="xl"
+      >
+        <div className="w-full">
+          <svg viewBox={`0 0 ${svgWidth} ${svgHeight}`} className="w-full h-auto overflow-visible">
+            {Array.from({ length: 5 }).map((_, i) => {
+              const y = padding + (i / 4) * chartHeight;
+              const val = Math.round(maxHourlySales * (1 - i / 4));
+              return (
+                <g key={i}>
+                  <line
+                    x1={padding}
+                    y1={y}
+                    x2={svgWidth - padding}
+                    y2={y}
+                    stroke="#E5E5E5"
+                    strokeWidth="1"
+                    strokeDasharray="2 2"
+                  />
+                  <text
+                    x={padding - 6}
+                    y={y + 3}
+                    className="font-mono text-[10px] fill-muted-foreground"
+                    textAnchor="end"
+                  >
+                    ¥{val.toLocaleString()}
+                  </text>
+                </g>
+              );
+            })}
+
+            {points.map((p, i) => (
+              <text
+                key={i}
+                x={p.x}
+                y={svgHeight - padding + 12}
+                className="font-mono text-[10px] fill-muted-foreground"
+                textAnchor="middle"
+              >
+                {p.hour}
+              </text>
+            ))}
+
+            <path
+              d={linePath}
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              className="text-foreground"
+            />
+
+            {points.map((p, i) => (
+              <g key={i} className="group">
+                <rect
+                  x={p.x - 2.5}
+                  y={p.y - 2.5}
+                  width="5"
+                  height="5"
+                  fill="currentColor"
+                  className="text-foreground cursor-pointer"
+                />
+                <title>{`${p.hour}: ¥${p.sales.toLocaleString()}`}</title>
+              </g>
+            ))}
+          </svg>
+        </div>
+        <div className="mt-4 text-center">
+          <Button onClick={() => setIsChartExpanded(false)} className="px-8 border-thick font-bold uppercase rounded-none">
+            閉じる
+          </Button>
+        </div>
+      </Modal>
     </div>
   );
 }
