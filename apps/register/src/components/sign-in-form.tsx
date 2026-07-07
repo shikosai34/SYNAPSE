@@ -51,7 +51,7 @@ export default function SignInForm({
 									circleName: null,
 									isEventAdmin: true,
 								});
-								navigate((callbackUrl as any) || "/admin/dashboard");
+								navigate((callbackUrl as any) || "/sys/dashboard");
 								toast.success(`システム管理スペースにログインしました (${systemMembership.role})`);
 							} else if (eventMembership) {
 								saveAuthInfo({

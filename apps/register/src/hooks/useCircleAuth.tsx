@@ -277,7 +277,7 @@ export function useCircleAuth() {
       if (authInfo?.isEventAdmin || authInfo?.role === "event_manager" || authInfo?.role === "super_admin") {
         setCircleId(null);
       } else {
-        navigate("/login");
+        navigate("/circle/login");
       }
     } else {
       setCircleId(authInfo.circleId);
@@ -326,7 +326,7 @@ export function useAuth() {
   const logout = useCallback(() => {
     clearAuthInfo();
     setAuthInfo(null);
-    navigate("/login");
+    navigate("/circle/login");
   }, [navigate]);
 
   // event_manager / super_admin はイベント管理者扱い
@@ -431,7 +431,7 @@ export function CircleAuthGuard({ children }: { children: React.ReactNode }) {
       setCircleId(null);
       setIsBypassAdmin(true);
     } else {
-      navigate("/login");
+      navigate("/circle/login");
     }
     setIsLoading(false);
   }, [navigate]);
@@ -493,7 +493,7 @@ export function SystemAdminGuard({ children }: { children: React.ReactNode }) {
   // 過渡状態で誤って /login に飛ぶのを防ぐ (2026-07-04 権限切替時のログイン画面表示を修正)
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
-      navigate("/login");
+      navigate("/circle/login");
     }
   }, [isLoading, isAuthenticated, navigate]);
 
@@ -529,7 +529,7 @@ export function EventAdminGuard({ children }: { children: React.ReactNode }) {
   // 未認証のときだけ /login へ送る (SystemAdminGuard と同じ理由)
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
-      navigate("/login");
+      navigate("/circle/login");
     }
   }, [isLoading, isAuthenticated, navigate]);
 

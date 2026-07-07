@@ -22,6 +22,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { OptionCard } from "@/components/ui/OptionCard";
 import { ToggleSwitch } from "@/components/ui/ToggleSwitch";
+import { ExtensionsManager } from "@/components/circle/ExtensionsManager";
 import { toast } from "sonner";
 import { Save, Package, UserCheck, Crown, Clock, ChefHat, CheckCircle2 } from "lucide-react";
 
@@ -280,6 +281,9 @@ function CircleSettingsContent() {
             {updateSettings.isPending ? "保存中..." : "運用設定を保存"}
           </Button>
         </div>
+
+        {/* 拡張設定 (モッド管理): 旧「拡張機能 (モッド)」ダッシュボードページをここへ統合 */}
+        {circleId && <ExtensionsManager circleId={circleId} />}
 
         {/* オーナー権限の譲渡 */}
         {canTransfer && (

@@ -4,11 +4,16 @@
 	"$schema": "node_modules/wrangler/config-schema.json",
 	"name": "fesflow-register",
 	"compatibility_date": "2025-06-01",
-	// register は1つのSPAでロール別にセクション分けするため、スタッフ用と管理用の
-	// 2つのカスタムドメインを同一 Worker に割り当てる (2026-07-04 本番設定)。
+	// 2026-07-07 単一ドメイン化: サブドメイン (staff./admin.) を廃し、apex fesflow.shikosai.net の
+	// パスプレフィックスで配信する。register は circle/event/sys の3スペースを兼ねる1SPA。
+	//   - /circle/* /event/* /sys/* : 各スペースの画面 (SPA フォールバックで index.html)
+	//   - /console/*                : ビルド済み JS/CSS 等の固定 asset プレフィックス
+	// custom_domain はホスト単位専用のため、パス単位は zone_name 付き route パターンを使う。
 	"routes": [
-		{ "pattern": "staff.fesflow.shikosai.net", "custom_domain": true },
-		{ "pattern": "admin.fesflow.shikosai.net", "custom_domain": true }
+		{ "pattern": "fesflow.shikosai.net/circle/*", "zone_name": "shikosai.net" },
+		{ "pattern": "fesflow.shikosai.net/event/*", "zone_name": "shikosai.net" },
+		{ "pattern": "fesflow.shikosai.net/sys/*", "zone_name": "shikosai.net" },
+		{ "pattern": "fesflow.shikosai.net/console/*", "zone_name": "shikosai.net" }
 	],
 	"assets": {
 		"directory": "./dist",

@@ -1,6 +1,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import { useMutation } from "@tanstack/react-query";
+import jsQR from "jsqr";
 import { preOrderApi, wristbandApi, type PreOrderWithDetails } from "@/lib/api";
 import { extractIdFromCode } from "@/lib/utils";
 
@@ -32,6 +33,11 @@ export function QrScannerModal({
   const [isCameraActive, setIsCameraActive] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  // jsQR デコード用の作業キャンバス (画面には出さない)
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const rafRef = useRef<number | null>(null);
+  // 連続検出で同じコードを何度も submit しないためのロック
+  const lockedRef = useRef(false);
 
   useEffect(() => {
     if (isOpen) {
@@ -51,18 +57,62 @@ export function QrScannerModal({
       });
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
-        videoRef.current.play();
+        await videoRef.current.play();
       }
+      lockedRef.current = false;
       setIsCameraActive(true);
       toast.info("カメラを起動しました。QRコードにかざしてください");
+      // フレーム走査ループ開始 (jsQR で実際にデコードする)
+      rafRef.current = requestAnimationFrame(scanFrame);
     } catch (err) {
       console.error("Camera error:", err);
       toast.error("カメラの起動に失敗しました。キーボードまたはスキャナー入力をご利用ください");
     }
   };
 
+  // 毎フレーム: video → canvas → jsQR。検出したら該当コードを自動照会する。
+  const scanFrame = () => {
+    const video = videoRef.current;
+    if (!video || video.readyState !== video.HAVE_ENOUGH_DATA) {
+      rafRef.current = requestAnimationFrame(scanFrame);
+      return;
+    }
+    const canvas = canvasRef.current ?? (canvasRef.current = document.createElement("canvas"));
+    const w = video.videoWidth;
+    const h = video.videoHeight;
+    if (w === 0 || h === 0) {
+      rafRef.current = requestAnimationFrame(scanFrame);
+      return;
+    }
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    if (!ctx) return;
+    ctx.drawImage(video, 0, 0, w, h);
+    const imageData = ctx.getImageData(0, 0, w, h);
+    const result = jsQR(imageData.data, w, h, { inversionAttempts: "dontInvert" });
+    if (result && result.data && !lockedRef.current) {
+      // 一度検出したらロックして重複 submit を防ぎ、カメラを止めてから照会
+      lockedRef.current = true;
+      const code = result.data.trim();
+      setScannedCode(code);
+      stopCamera();
+      if (mode === "customer") {
+        lookupCustomerMutation.mutate(code);
+      } else {
+        searchMutation.mutate(code);
+      }
+      return;
+    }
+    rafRef.current = requestAnimationFrame(scanFrame);
+  };
+
   // カメラ停止
   const stopCamera = () => {
+    if (rafRef.current != null) {
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
+    }
     if (videoRef.current && videoRef.current.srcObject) {
       const stream = videoRef.current.srcObject as MediaStream;
       stream.getTracks().forEach((track) => track.stop());

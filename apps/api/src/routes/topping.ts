@@ -54,7 +54,8 @@ toppingRoutes.post(
     z.object({
       circleId: z.string(),
       name: z.string().min(1, "トッピング名は必須です"),
-      price: z.number().min(0, "価格は0以上である必要があります"),
+      // 価格は負値も許可 (割引トッピング等。2026-07-07 に min(0) を撤廃)。
+      price: z.number(),
       description: z.string().optional(),
       imagePath: z.string().optional(),
       soldOut: z.boolean().optional(),
@@ -91,7 +92,7 @@ toppingRoutes.put(
     "json",
     z.object({
       name: z.string().min(1).optional(),
-      price: z.number().min(0).optional(),
+      price: z.number().optional(), // 負値許可 (割引トッピング)
       description: z.string().optional(),
       imagePath: z.string().optional(),
       soldOut: z.boolean().optional(),

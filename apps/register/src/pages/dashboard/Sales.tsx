@@ -11,10 +11,25 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Button } from "@/components/ui/button";
+import { ChevronLeft, ChevronRight } from "lucide-react";
+
+// ローカルタイムの YYYY-MM-DD キー (日付ごとの集計・切り替えに使用)
+const dayKey = (d: Date) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
+const formatDayLabel = (key: string) => {
+  const [y, m, d] = key.split("-").map(Number);
+  const date = new Date(y, m - 1, d);
+  const weekday = ["日", "月", "火", "水", "木", "金", "土"][date.getDay()];
+  return `${m}月${d}日 (${weekday})`;
+};
 
 function SalesManagementContent() {
   const [circleId, setCircleId] = useState<string>("");
   const [circleName, setCircleName] = useState<string>("サークルダッシュボード");
+  // 表示対象の日付 (日にちごとに切り替えながら見られるようにする)
+  const [selectedDate, setSelectedDate] = useState<string>("");
 
   useEffect(() => {
     const storedCircleId = localStorage.getItem("circleId");
@@ -38,10 +53,35 @@ function SalesManagementContent() {
     enabled: !!circleId,
   });
 
-  const totalSales =
-    orders?.reduce((sum, order) => sum + (order.totalPrice || 0), 0) || 0;
-  const completedOrders =
-    orders?.filter((order) => order.status === "completed") || [];
+  // 注文が存在する日付の一覧 (新しい順)。切り替え用のセレクト・前後ナビに使う。
+  const availableDates = Array.from(
+    new Set((orders ?? []).filter((o) => o.createdAt).map((o) => dayKey(new Date(o.createdAt!))))
+  ).sort((a, b) => (a < b ? 1 : -1));
+
+  // orders 取得後、まだ日付未選択なら最新の営業日を既定にする。
+  useEffect(() => {
+    if (!selectedDate && availableDates.length > 0) {
+      setSelectedDate(availableDates[0]);
+    }
+  }, [availableDates, selectedDate]);
+
+  // 選択中の日付の注文のみを対象に集計する。
+  const ordersForDay = (orders ?? []).filter(
+    (o) => o.createdAt && dayKey(new Date(o.createdAt)) === selectedDate
+  );
+
+  const currentIndex = availableDates.indexOf(selectedDate);
+  const goPrevDay = () => {
+    // availableDates は新しい順なので「前の日 (古い方)」は index+1
+    if (currentIndex >= 0 && currentIndex < availableDates.length - 1) {
+      setSelectedDate(availableDates[currentIndex + 1]);
+    }
+  };
+  const goNextDay = () => {
+    if (currentIndex > 0) setSelectedDate(availableDates[currentIndex - 1]);
+  };
+
+  const completedOrders = ordersForDay.filter((order) => order.status === "completed");
   const completedSales = completedOrders.reduce(
     (sum, order) => sum + (order.totalPrice || 0),
     0
@@ -122,6 +162,48 @@ function SalesManagementContent() {
   return (
     <DashboardLayout title={circleName} subtitle="売上管理" type="circle">
       <div className="space-y-6">
+        {/* 日付切り替えバー (日にちごとに売上を表示) */}
+        <Card className="rounded-none shadow-none">
+          <CardContent className="p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 font-mono">
+            <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">[表示する営業日]</span>
+            {availableDates.length === 0 ? (
+              <span className="text-xs text-muted-foreground">注文データがありません</span>
+            ) : (
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  onClick={goPrevDay}
+                  disabled={currentIndex >= availableDates.length - 1}
+                  className="h-10 w-10 p-0 border-thick border-border rounded-none"
+                  aria-label="前の日"
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </Button>
+                <select
+                  value={selectedDate}
+                  onChange={(e) => setSelectedDate(e.target.value)}
+                  className="h-10 border-thick border-border rounded-none bg-background px-3 text-xs font-bold uppercase font-mono min-w-[160px] text-center"
+                >
+                  {availableDates.map((d) => (
+                    <option key={d} value={d}>
+                      {formatDayLabel(d)}
+                    </option>
+                  ))}
+                </select>
+                <Button
+                  variant="outline"
+                  onClick={goNextDay}
+                  disabled={currentIndex <= 0}
+                  className="h-10 w-10 p-0 border-thick border-border rounded-none"
+                  aria-label="次の日"
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
         {/* サマリーカード */}
         <div className="grid gap-4 md:grid-cols-3">
           <Card className="rounded-none shadow-none">
@@ -129,7 +211,7 @@ function SalesManagementContent() {
               <CardTitle className="text-xs uppercase font-bold text-muted-foreground">総注文数</CardTitle>
             </CardHeader>
             <CardContent>
-              <p className="text-2xl font-black">{orders?.length || 0}件</p>
+              <p className="text-2xl font-black">{ordersForDay.length}件</p>
             </CardContent>
           </Card>
 
@@ -274,7 +356,7 @@ function SalesManagementContent() {
           </CardHeader>
           <CardContent>
             <div className="space-y-2 max-h-[300px] overflow-y-auto pr-2">
-              {orders?.map((order) => (
+              {ordersForDay.map((order) => (
                 <div
                   key={order.id}
                   className="flex justify-between items-center p-3 border-thick border-border rounded-none text-xs font-mono"
