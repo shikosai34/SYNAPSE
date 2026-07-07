@@ -18,7 +18,7 @@ export default function SignInForm({
 }) {
 	const navigate = useNavigate();
 	const [searchParams] = useSearchParams();
-	const callbackUrl = searchParams.get("callbackUrl");
+	const callbackUrl = searchParams.get("url");
 	const { isPending } = authClient.useSession();
 
 	const form = useForm({
@@ -85,15 +85,13 @@ export default function SignInForm({
 								navigate((callbackUrl as any) || "/circle/dashboard");
 								toast.success(`${circleMembership.userName}さんとして [${circleMembership.circle?.name || "サークル"}] にログインしました`);
 							} else {
-								// 所属が無いアカウントはスタッフ画面に居場所が無いため来場者アプリへ (別SPAなのでフルページ遷移)
+								// 所属が無いアカウントはスタッフ画面に居場所が無いため来場者アプリへ
 								toast.success("ログインしました");
-								if (callbackUrl) navigate(callbackUrl as any);
-								else window.location.href = visitorUrl("/menu");
+								navigate((callbackUrl as any) || "/mypage");
 							}
 						} catch (error) {
 							toast.success("ログインしました");
-							if (callbackUrl) navigate(callbackUrl as any);
-							else window.location.href = visitorUrl("/menu");
+							navigate((callbackUrl as any) || "/mypage");
 						}
 					},
 					onError: (error) => {
@@ -207,7 +205,7 @@ export default function SignInForm({
 								fetchOptions: {
 									onSuccess: async () => {
 										// login success handler will be triggered by session state change or we can manually route
-										navigate((callbackUrl as any) || "/circle/dashboard");
+										navigate((callbackUrl as any) || "/circle/dashboard"); // wait, maybe better to just use URL or let Login.tsx handle space selection
 									},
 									onError: (error) => {
 										toast.error(error.error.message || error.error.statusText);

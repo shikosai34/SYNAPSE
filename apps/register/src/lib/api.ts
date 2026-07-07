@@ -695,6 +695,7 @@ export interface WristbandLookupResult {
     status: string;
     nickname?: string | null;
     birthday?: string | null;
+    onboardedAt?: string | null;
   };
   wristband: {
     id: string;
@@ -707,7 +708,7 @@ export interface WristbandLookupResult {
 export const wristbandApi = {
   lookup: (code: string) =>
     fetchApi<WristbandLookupResult>(`/api/wristbands/lookup/${encodeURIComponent(code)}`).catch(() => ({
-      user: { id: code, eventId: "evt_default", displayId: 999, status: "available" },
+      user: { id: code, eventId: "evt_default", displayId: 999, status: "available", nickname: null, birthday: null, onboardedAt: null },
       wristband: null,
     })),
   search: (eventId: string, query: string) =>
@@ -728,6 +729,24 @@ export const wristbandApi = {
     fetchApi<{ userId: string; displayId: number; wristbandId: string | null }>("/api/wristbands/issue", {
       method: "POST",
       body: { eventId, wristbandId },
+    }),
+};
+
+// 来場者オンボーディング API (2026-07-04)
+export interface VisitorProfile {
+  id: string;
+  eventId: string;
+  displayId: number;
+  nickname: string | null;
+  birthday: string | null;
+  onboardedAt: string | null;
+}
+
+export const visitorApi = {
+  onboard: (data: { userId: string; nickname: string; birthday?: string }) =>
+    fetchApi<VisitorProfile>("/api/wristbands/onboard", {
+      method: "POST",
+      body: data,
     }),
 };
 

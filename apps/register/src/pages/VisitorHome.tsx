@@ -7,9 +7,6 @@ import { PRODUCT_NAME } from "@fesflow/config";
  * apex ドメイン (fesflow.shikosai.net) のトップ。来場者・サークルスタッフ・イベント管理の
  * 3つの入口を提示し、スタッフ/管理はそれぞれのサブドメインへ移動してログインする流れ。
  */
-const STAFF_URL = (import.meta.env.VITE_STAFF_URL as string) || "http://localhost:3000";
-const ADMIN_URL = (import.meta.env.VITE_ADMIN_URL as string) || "http://localhost:3000";
-
 export default function Home() {
   const navigate = useNavigate();
 
@@ -45,20 +42,20 @@ export default function Home() {
           desc="模擬店の注文受付・厨房・売上管理を行う方。スタッフ用ページでログインします。"
           cta="スタッフページへ"
           onClick={() => {
-            // 単一ドメイン化 (2026-07-07): サークルスタッフ入口は /circle/login
-            window.location.href = `${STAFF_URL}/circle/login`;
+            // 単一ドメイン化 (2026-07-08): サークルスタッフ入口は /login?url=/circle/dashboard
+            navigate("/login?url=/circle/dashboard");
           }}
         />
 
-        {/* イベント管理: admin サブドメインへ */}
+        {/* イベント管理: /login へ */}
         <PortalCard
           icon={CalendarCog}
           title="イベント管理"
           desc="イベント全体やシステムを管理する方。管理者用ページでログインします。"
           cta="管理ページへ"
           onClick={() => {
-            // 単一ドメイン化 (2026-07-07): イベント/システム管理入口は /event/login
-            window.location.href = `${ADMIN_URL}/event/login`;
+            // 単一ドメイン化 (2026-07-08): イベント/システム管理入口は /login?url=/event/dashboard
+            navigate("/login?url=/event/dashboard");
           }}
         />
       </div>

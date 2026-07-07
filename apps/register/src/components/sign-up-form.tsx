@@ -16,7 +16,7 @@ export default function SignUpForm({
 }) {
 	const navigate = useNavigate();
 	const [searchParams] = useSearchParams();
-	const callbackUrl = searchParams.get("callbackUrl");
+	const callbackUrl = searchParams.get("url");
 	const { isPending } = authClient.useSession();
 
 	// サインアップ直後は「メール認証→パスキー作成」の理想フローに沿って、

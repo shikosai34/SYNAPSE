@@ -15,8 +15,16 @@ import { getRequestStore, type DB, type WorkerEnv } from "@fesflow/db";
 import * as schema from "@fesflow/db/schema/auth";
 import { passkey } from "@better-auth/passkey";
 
+// createAuth の戻り値型を事前に確定させるためのダミー呼び出し型。
+// TypeScript がオプション引数の具体型を推論すると .bun/ キャッシュ内の
+// @simplewebauthn/server を指す非ポータブルな型名を生成してしまう。
+// BetterAuthOptions を使った上位型 Auth<BetterAuthOptions> として固定し
+// ポータブルな型参照だけで完結させる (2026-07-08)。
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type Auth = ReturnType<typeof betterAuth<any>>;
+
 /** db と env から better-auth インスタンスを生成する。 */
-export function createAuth(db: DB, env: WorkerEnv) {
+export function createAuth(db: DB, env: WorkerEnv): Auth {
 	return betterAuth({
 		database: drizzleAdapter(db, {
 			provider: "sqlite",
@@ -56,10 +64,8 @@ export function createAuth(db: DB, env: WorkerEnv) {
 				httpOnly: true,
 			},
 		},
-	});
+	}) as Auth;
 }
-
-export type Auth = ReturnType<typeof createAuth>;
 
 /**
  * ALS のリクエストストアから better-auth 実体を解決する Proxy。

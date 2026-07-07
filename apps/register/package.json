@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite --port 3000 --host",
-    "build": "rm -rf dist && vite build && cp dist/console/index.html dist/index.html",
+    "build": "vite build",
     "preview": "vite preview",
     "check-types": "tsc --noEmit",
     "deploy": "CI=true WRANGLER_SEND_METRICS=false wrangler deploy"
