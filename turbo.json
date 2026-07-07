@@ -13,6 +13,9 @@
 		"check-types": {
 			"dependsOn": ["^check-types"]
 		},
+		"test": {
+			"inputs": ["$TURBO_DEFAULT$", ".env*"]
+		},
 		"dev": {
 			"cache": false,
 			"persistent": true

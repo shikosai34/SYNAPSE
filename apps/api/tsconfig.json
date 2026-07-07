@@ -3,7 +3,13 @@
 	"compilerOptions": {
 		"composite": true,
 		"outDir": "dist",
-		"types": ["node", "@cloudflare/workers-types"]
+		"types": [
+			"node",
+			"@cloudflare/workers-types",
+			// cloudflare:test モジュールの型 (test/ 配下の統合テスト用)。
+			// 0.18 ではパッケージルートは pool 実装の型なので /types を明示する
+			"@cloudflare/vitest-pool-workers/types"
+		]
 	},
-	"include": ["src", "worker-configuration.d.ts"]
+	"include": ["src", "test", "vitest.config.ts", "worker-configuration.d.ts"]
 }

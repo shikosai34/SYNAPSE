@@ -6,6 +6,8 @@
     "dev": "wrangler dev --ip 0.0.0.0 --local-protocol https",
     "deploy": "CI=true WRANGLER_SEND_METRICS=false wrangler deploy",
     "check-types": "tsc -b",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "cf-typegen": "wrangler types",
     "db:migrate:local": "CI=true wrangler d1 migrations apply fesflow-db --local",
     "db:migrate:remote": "CI=true wrangler d1 migrations apply fesflow-db --remote"
@@ -23,11 +25,13 @@
     "zod": "catalog:"
   },
   "devDependencies": {
-    "@fesflow/config": "workspace:*",
+    "@cloudflare/vitest-pool-workers": "^0.18.0",
     "@cloudflare/workers-types": "^4.20250620.0",
+    "@fesflow/config": "workspace:*",
     "@types/bcryptjs": "^2.4.6",
     "@types/node": "^22.13.11",
     "typescript": "^5.8.2",
+    "vitest": "^4.1.10",
     "wrangler": "^4.20.0"
   }
 }
