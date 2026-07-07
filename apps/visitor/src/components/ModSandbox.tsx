@@ -196,10 +196,10 @@ export function ModSandbox({
         isFullscreen
           ? {
               position: "fixed",
-              top: 0,
-              left: 0,
-              width: "100vw",
-              height: "100vh",
+              // inset:0 + width/height:100% を使う (100vw はスクロールバー幅を含み横あふれの原因になるため)
+              inset: 0,
+              width: "100%",
+              height: "100%",
               border: "none",
               background: "transparent",
               zIndex: 9999,

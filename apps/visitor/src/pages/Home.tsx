@@ -45,7 +45,8 @@ export default function Home() {
           desc="模擬店の注文受付・厨房・売上管理を行う方。スタッフ用ページでログインします。"
           cta="スタッフページへ"
           onClick={() => {
-            window.location.href = `${STAFF_URL}/login`;
+            // 単一ドメイン化 (2026-07-07): サークルスタッフ入口は /circle/login
+            window.location.href = `${STAFF_URL}/circle/login`;
           }}
         />
 
@@ -56,7 +57,8 @@ export default function Home() {
           desc="イベント全体やシステムを管理する方。管理者用ページでログインします。"
           cta="管理ページへ"
           onClick={() => {
-            window.location.href = `${ADMIN_URL}/login`;
+            // 単一ドメイン化 (2026-07-07): イベント/システム管理入口は /event/login
+            window.location.href = `${ADMIN_URL}/event/login`;
           }}
         />
       </div>

@@ -57,7 +57,7 @@ export default function Home() {
             <span className="hidden sm:inline"><br />無駄を削ぎ落としたリアルタイムPOS/KITCHENソリューション。</span>
           </p>
           <div className="flex flex-col sm:flex-row gap-sp-3 justify-center items-stretch sm:items-center pt-sp-3">
-            <Link to="/login" className="w-full sm:w-auto">
+            <Link to="/circle/login" className="w-full sm:w-auto">
               <Button size="lg" variant="accent" className="w-full sm:w-auto">
                 ログインして始める
               </Button>
@@ -130,7 +130,7 @@ export default function Home() {
             イベント名とサークル名を選択し、PINコードで瞬時にログイン可能。
           </p>
           <div>
-            <Link to="/login" className="block sm:inline-block">
+            <Link to="/circle/login" className="block sm:inline-block">
               <Button
                 size="lg"
                 variant="accent"

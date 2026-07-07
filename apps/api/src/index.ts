@@ -251,9 +251,10 @@ app.post("/api/upload", async (c) => {
       cacheControl: "public, max-age=31536000, immutable",
     });
 
-    // 2026-07-04: 本番ドメインに自動追従させるため、リクエストの Origin から動的に公開 URL を生成
+    // 2026-07-04: 本番ドメインに自動追従させるため、リクエストの Origin から動的に公開 URL を生成。
+    // 2026-07-07 単一ドメイン化: 配信パスを /api/uploads/* に統一 (key は "uploads/xxx")。
     const url = new URL(c.req.url);
-    const publicUrl = `${url.origin}/${key}`;
+    const publicUrl = `${url.origin}/api/${key}`;
 
     return c.json({ path: publicUrl, key, ext });
   } catch (error) {
@@ -262,10 +263,14 @@ app.post("/api/upload", async (c) => {
   }
 });
 
-// 2026-07-04: R2 / MinIO からアップロードファイルを配信するルートを追加 (カスタムドメイン・公開設定不要化)
-app.get("/uploads/*", async (c) => {
+// R2 / MinIO からアップロードファイルを配信するルート。
+// 2026-07-07 単一ドメイン化: api Worker は /api/* のみを受けるため、配信パスを
+// /uploads/* → /api/uploads/* へ移設。旧 /uploads/* も後方互換で残す
+// (api. サブドメインを当面併存させる場合や既存の絶対URL救済のため)。
+const serveUpload = async (c: any) => {
   try {
-    const key = c.req.path.replace(/^\//, "");
+    // 先頭の "/api/" または "/" を除去して R2 キー (uploads/xxx) を得る
+    const key = c.req.path.replace(/^\/api\//, "").replace(/^\//, "");
     const storage = createStorage(c.env as WorkerEnv);
     const obj = await storage.get(key);
     if (!obj) {
@@ -283,7 +288,9 @@ app.get("/uploads/*", async (c) => {
     console.error("Failed to serve upload:", error);
     return c.text("Internal Server Error", 500);
   }
-});
+};
+app.get("/api/uploads/*", serveUpload);
+app.get("/uploads/*", serveUpload); // 後方互換 (旧絶対URL / api. サブドメイン併存時)
 
 app.get("/", (c) => c.text("OK"));
 

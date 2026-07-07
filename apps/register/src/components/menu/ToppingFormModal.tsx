@@ -83,6 +83,8 @@ export function ToppingFormModal({ circleId, isOpen, onClose, topping }: Topping
             label="価格"
             required
             type="number"
+            // 割引トッピング用に負値を許可 (FormField 既定の min=0 クランプを外す)
+            min={-1000000}
             value={form.price}
             onChange={(e) => {
               const n = Number(e.target.value);

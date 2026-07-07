@@ -17,21 +17,8 @@ import {
 } from "@/hooks/useCircleAuth";
 import { roleLabel, roleBadge } from "@/lib/roles";
 
-// register はスタッフ/管理で別サブドメイン配信 (staff. / admin.)。権限スイッチで
-// スペース種別に応じて正しいドメインへ移動する。未設定(ローカル単一ポート)なら現オリジン。
-// (2026-07-04 ドメイン分離対応)
-const STAFF_URL = (import.meta.env.VITE_STAFF_URL as string) || "";
-const ADMIN_URL = (import.meta.env.VITE_ADMIN_URL as string) || "";
-
-/** URL文字列からオリジンを取り出す。空/不正なら現在のオリジンを返す。 */
-function toOrigin(url: string): string {
-  if (!url) return window.location.origin;
-  try {
-    return new URL(url, window.location.href).origin;
-  } catch {
-    return window.location.origin;
-  }
-}
+// 2026-07-07 単一ドメイン化: register の circle/event/sys はすべて同一オリジンの同一SPA。
+// 旧来のスタッフ/管理サブドメイン (staff./admin.) 分離とクロスドメイン遷移は撤去した。
 
 export default function Header() {
   const navigate = useNavigate();
@@ -77,7 +64,7 @@ export default function Header() {
 
   // 現在のアクティブなスペース名
   const currentSpaceName = useMemo(() => {
-    if (pathname.startsWith("/admin")) {
+    if (pathname.startsWith("/sys")) {
       return "システム管理";
     }
     if (pathname.startsWith("/event")) {
@@ -148,7 +135,7 @@ export default function Header() {
     setProfileModalOpen(false);
     setNotifPopoverOpen(false);
     setMobileOpen(false);
-    navigate("/login");
+    navigate("/circle/login");
   };
 
   // 切り替え可能なスペース一覧。現在アクティブなロールに依存させず、ユーザーの所属
@@ -234,7 +221,7 @@ export default function Header() {
     let message = "";
 
     if (space.type === "system") {
-      target = "/admin/dashboard";
+      target = "/sys/dashboard";
       message = "システム管理へ切り替えました";
       payload = {
         circleId: null,
@@ -280,34 +267,24 @@ export default function Header() {
 
     if (!payload) return;
 
-    // スペース種別ごとの遷移先ドメイン: サークル=staff、イベント/システム=admin。
-    const base = space.type === "circle" ? STAFF_URL : ADMIN_URL;
-
-    if (toOrigin(base) === window.location.origin) {
-      // 同一オリジン (ローカル or 既に該当ドメイン) はクライアント遷移
-      navigate(target);
-      saveAuthInfo(payload);
-      toast.success(message);
-    } else {
-      // 別ドメインへ移動。localStorage はオリジン単位で共有されないため、アクティブ
-      // スペース(payload)を URL の _sw で引き継ぎ、遷移先の main.tsx で復元する。
-      // 認証セッション自体は api の Cookie 経由で全サブドメイン共通なので持ち越し不要。
-      // btoa は Latin1 のみのため encodeURIComponent で UTF-8(日本語名)を退避する。
-      const token = btoa(encodeURIComponent(JSON.stringify(payload)));
-      window.location.href = `${base}${target}?_sw=${token}`;
-    }
+    // 2026-07-07 単一ドメイン化: circle=/circle・event=/event・sys=/sys はすべて同一オリジンの
+    // 同一SPA になったため、旧来のクロスドメイン移動 (?_sw で authInfo を持ち越す) は不要。
+    // 常にクライアント側 navigate で切り替える。
+    navigate(target);
+    saveAuthInfo(payload);
+    toast.success(message);
   };
 
   // 来場者機能は apps/visitor に分離したため register の管理ヘッダーには来場者リンクを持たない (2026-07-04)
   const isCircleView = pathname.startsWith("/circle");
   const isEventView = pathname.startsWith("/event");
-  const isAdminView = pathname.startsWith("/admin");
+  const isAdminView = pathname.startsWith("/sys");
 
   let links: Array<{ to: string; label: string }> = [];
 
   if (isAdminView && role === "super_admin") {
     links = [
-      { to: "/admin/dashboard", label: "システム管理" },
+      { to: "/sys/dashboard", label: "システム管理" },
     ];
   } else if (isEventView && (role === "event_manager" || role === "super_admin")) {
     links = [
@@ -489,7 +466,7 @@ export default function Header() {
                   }}
                   className="flex items-center gap-2 bg-muted border-thick border-border px-3 py-1.5 font-mono text-[11px] font-bold hover:bg-muted/80 select-none cursor-pointer h-9 rounded-none"
                 >
-                  {pathname.startsWith("/admin") && <Shield className="h-3.5 w-3.5" />}
+                  {pathname.startsWith("/sys") && <Shield className="h-3.5 w-3.5" />}
                   {pathname.startsWith("/event") && <Calendar className="h-3.5 w-3.5" />}
                   {pathname.startsWith("/circle") && <Building2 className="h-3.5 w-3.5" />}
                   <span className="hidden sm:inline truncate max-w-[120px]">
@@ -591,7 +568,7 @@ export default function Header() {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => navigate("/login")}
+              onClick={() => navigate("/circle/login")}
               className="h-8 text-xs font-mono px-3 rounded-none"
             >
               ログイン

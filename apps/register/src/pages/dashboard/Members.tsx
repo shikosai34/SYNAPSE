@@ -179,7 +179,8 @@ function MembersContent() {
   };
 
   const copyInviteLink = (token: string) => {
-    const link = `${window.location.origin}/invite/${token}`;
+    // 単一ドメイン化 (2026-07-07): 招待受諾ページは /circle/invite/:token に移設
+    const link = `${window.location.origin}/circle/invite/${token}`;
     navigator.clipboard.writeText(link);
     setCopiedToken(token);
     setTimeout(() => setCopiedToken(null), 2000);

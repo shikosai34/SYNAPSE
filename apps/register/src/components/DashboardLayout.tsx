@@ -83,7 +83,7 @@ export default function DashboardLayout({
     ...(circleSettings.extensions.staff
       ? [{ title: "スタッフ管理", href: "/circle/dashboard/staff", icon: UserCheck }]
       : []),
-    { title: "拡張機能 (モッド)", href: "/circle/dashboard/mods", icon: Grid },
+    // 2026-07-07: 「拡張機能 (モッド)」の独立ページは廃止。モッド管理はサークル設定内へ統合済み。
   ];
 
   // イベント管理のメニュー項目 (タブ切り替え)
@@ -241,7 +241,9 @@ export default function DashboardLayout({
         </aside>
 
         {/* 右メインコンテンツ */}
-        <main className="flex-1 w-full border-thick border-border p-4 md:p-6 bg-background rounded-none shadow-none min-h-[500px]">
+        {/* min-w-0: flex 子要素の既定 min-width:auto により中身が広いと縮まず、
+            ビューポートを超えて横スクロール(モバイルの横幅ズレ)が発生するのを防ぐ。 */}
+        <main className="flex-1 w-full min-w-0 border-thick border-border p-4 md:p-6 bg-background rounded-none shadow-none min-h-[500px]">
           {children}
         </main>
       </div>

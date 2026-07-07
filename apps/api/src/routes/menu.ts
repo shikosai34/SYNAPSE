@@ -94,7 +94,8 @@ menuRoutes.post(
     z.object({
       circleId: z.string(),
       name: z.string().min(1, "メニュー名は必須です"),
-      price: z.number().min(0, "価格は0以上である必要があります"),
+      // 価格は負値も許可 (割引メニュー等を表現するため。2026-07-07 に min(0) を撤廃)。
+      price: z.number(),
       description: z.string().optional(),
       // 画像は任意。未指定でメニュー追加できるようにする (2026-07-06: 画像なしだと
       // imagePath が送られず 400 Bad Request になっていた不具合の修正)。
@@ -152,7 +153,7 @@ menuRoutes.put(
     "json",
     z.object({
       name: z.string().min(1).optional(),
-      price: z.number().min(0).optional(),
+      price: z.number().optional(), // 負値許可 (割引メニュー)
       description: z.string().optional(),
       imagePath: z.string().optional(),
       additionalInfo: z.string().optional(),

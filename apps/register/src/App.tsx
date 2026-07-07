@@ -15,7 +15,6 @@ import DashboardIndex from "@/pages/dashboard/Index";
 import DashboardCircle from "@/pages/dashboard/Circle";
 import DashboardMembers from "@/pages/dashboard/Members";
 import DashboardMenu from "@/pages/dashboard/Menu";
-import DashboardMods from "@/pages/dashboard/Mods";
 import DashboardQr from "@/pages/dashboard/Qr";
 import DashboardSales from "@/pages/dashboard/Sales";
 import DashboardStaff from "@/pages/dashboard/Staff";
@@ -32,12 +31,17 @@ export default function App() {
 				<SystemBanner />
 				<main>
 					<Routes>
-						{/* パブリック / 共通ルート */}
+						{/* パブリック / 共通ルート
+						    2026-07-07 単一ドメイン化: register は /circle・/event・/sys の3プレフィックスでのみ
+						    配信される (/ は来場者アプリ)。そのため共通の入口 (login/checkin/invite) を
+						    各スペース配下へ移設した。旧トップレベルパスは後方互換で下部にリダイレクトを残す。 */}
 						<Route path="/" element={<Home />} />
-						<Route path="/login" element={<Login />} />
-						<Route path="/circle-login" element={<CircleLogin />} />
-						<Route path="/checkin" element={<Checkin />} />
-						<Route path="/invite/:token" element={<Invite />} />
+						{/* ログインは3スペースとも同一の Login (ログイン後に所属で自動振り分け) */}
+						<Route path="/circle/login" element={<Login />} />
+						<Route path="/event/login" element={<Login />} />
+						<Route path="/sys/login" element={<Login />} />
+						<Route path="/circle/checkin" element={<Checkin />} />
+						<Route path="/circle/invite/:token" element={<Invite />} />
 						{/* 2026-07-05: 開発用デバッグ画面 /test-wristbands (TestWristbands) を撤去。
 						    wb_admin_001 等のテスト用リストバンドを列挙する画面で本番不要のため削除。 */}
 
@@ -95,14 +99,6 @@ export default function App() {
 							}
 						/>
 						<Route
-							path="/circle/dashboard/mods"
-							element={
-								<CircleAuthGuard>
-									<DashboardMods />
-								</CircleAuthGuard>
-							}
-						/>
-						<Route
 							path="/circle/dashboard/qr"
 							element={
 								<CircleAuthGuard>
@@ -145,9 +141,9 @@ export default function App() {
 							}
 						/>
 
-						{/* システム管理者専用ルート (/admin/*) */}
+						{/* システム管理者専用ルート (/sys/*)。2026-07-07 に /admin から /sys へ改名 */}
 						<Route
-							path="/admin/dashboard"
+							path="/sys/dashboard"
 							element={
 								<SystemAdminGuard>
 									<Admin />
@@ -155,13 +151,17 @@ export default function App() {
 							}
 						/>
 
-						{/* 後方互換・リダイレクト処理 */}
+						{/* 後方互換・リダイレクト処理 (旧トップレベルパス → 新プレフィックス) */}
 						<Route path="/menu" element={<ExternalRedirect to={`${VISITOR_BASE_URL}/menu`} />} />
 						<Route path="/my-order" element={<ExternalRedirect to={`${VISITOR_BASE_URL}/mypage`} />} />
+						<Route path="/login" element={<Navigate to="/circle/login" replace />} />
+						<Route path="/circle-login" element={<CircleLogin />} />
+						<Route path="/checkin" element={<Navigate to="/circle/checkin" replace />} />
 						<Route path="/register" element={<Navigate to="/circle/register" replace />} />
 						<Route path="/backyard" element={<Navigate to="/circle/backyard" replace />} />
 						<Route path="/dashboard" element={<Navigate to="/circle/dashboard" replace />} />
-						<Route path="/admin" element={<Navigate to="/admin/dashboard" replace />} />
+						<Route path="/admin" element={<Navigate to="/sys/dashboard" replace />} />
+						<Route path="/admin/dashboard" element={<Navigate to="/sys/dashboard" replace />} />
 
 						<Route path="*" element={<Placeholder />} />
 					</Routes>

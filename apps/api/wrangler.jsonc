@@ -7,10 +7,11 @@
 	"main": "src/index.ts",
 	"compatibility_date": "2025-06-01",
 	"compatibility_flags": ["nodejs_compat"],
-	// 本番はカスタムドメイン api.fesflow.shikosai.net で配信 (2026-07-04)。
+	// 2026-07-07 単一ドメイン化: api.fesflow サブドメインを廃し、apex の /api/* で配信する。
+	// 全ルートが既に /api/* 配下 (認証 /api/auth/*・配信 /api/uploads/*) なのでパス移設で完結。
 	// ゾーン shikosai.net が同一 Cloudflare アカウントにあることが前提。
 	"routes": [
-		{ "pattern": "api.fesflow.shikosai.net", "custom_domain": true }
+		{ "pattern": "fesflow.shikosai.net/api/*", "zone_name": "shikosai.net" }
 	],
 	"observability": {
 		"enabled": true
@@ -36,14 +37,16 @@
 		// (wrangler dev の仕様) ので、ここは本番値を書いてよい。
 		// 機密 (BETTER_AUTH_SECRET) だけは vars に書かず `wrangler secret put` で登録する。
 		"PRODUCT_NAME": "FesFlow",
-		"BETTER_AUTH_URL": "https://api.fesflow.shikosai.net",
-		// フロント3オリジンをカンマ区切りで信頼 (better-auth trustedOrigins が分割して読む)
-		"CORS_ORIGIN": "https://fesflow.shikosai.net,https://staff.fesflow.shikosai.net,https://admin.fesflow.shikosai.net",
+		// 2026-07-07 単一ドメイン化: 認証も配信もフロントと同一オリジン fesflow.shikosai.net。
+		// 認証ハンドラは /api/auth/* にマウント済みなので baseURL は apex でよい。
+		"BETTER_AUTH_URL": "https://fesflow.shikosai.net",
+		// 同一オリジンのみ信頼 (better-auth trustedOrigins が分割して読む)
+		"CORS_ORIGIN": "https://fesflow.shikosai.net",
 		// 2026-07-06: INITIAL_SUPER_ADMIN_EMAIL は個人を特定できるメールアドレスであり、
 		// このファイルはリポジトリにコミットされるため平文で置かない。
 		// `wrangler secret put INITIAL_SUPER_ADMIN_EMAIL` で機密として登録すること
 		// (コード側は getEnv().INITIAL_SUPER_ADMIN_EMAIL で参照しており、vars/secret どちらでも
 		// 同名で解決できるため実装変更は不要)。
-		"R2_PUBLIC_URL": "https://api.fesflow.shikosai.net/uploads"
+		"R2_PUBLIC_URL": "https://fesflow.shikosai.net/api/uploads"
 	}
 }
