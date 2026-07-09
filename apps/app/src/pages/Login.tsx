@@ -62,9 +62,6 @@ export default function Login() {
 									</div>
 								))}
 							</div>
-							<Button className="w-full" onClick={() => navigate("/")}>
-								トップへ戻る
-							</Button>
 						</>
 					) : (
 						<p className="font-mono text-[13px] text-center text-muted-foreground">
@@ -72,6 +69,24 @@ export default function Login() {
 							サークルを新規作成するか、管理者から招待リンクを受け取ってください。
 						</p>
 					)}
+					<div className="flex flex-col gap-2 pt-2">
+						<Button className="w-full" onClick={() => navigate("/")}>
+							トップへ戻る
+						</Button>
+						<Button
+							variant="outline"
+							className="w-full"
+							onClick={() => {
+								authClient.signOut({
+									fetchOptions: {
+										onSuccess: () => navigate(0),
+									},
+								});
+							}}
+						>
+							別のアカウントでログイン
+						</Button>
+					</div>
 				</div>
 			</div>
 		);
