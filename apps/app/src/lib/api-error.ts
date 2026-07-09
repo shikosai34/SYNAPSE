@@ -149,7 +149,7 @@ export function handleApiErrorToast(error: unknown, opts: { toastId?: string } =
   if (error.code === "UNAUTHORIZED") {
     if (isOnLoginPage()) return; // ログイン画面自身での401はループ防止のため無視
     const callbackUrl = typeof window !== "undefined" ? window.location.pathname + window.location.search : "/";
-    const loginPath = loginPathForCurrentSpace();
+    const loginPath = getLoginUrl();
     if (typeof window !== "undefined") {
       window.location.href = `${loginPath}?callbackUrl=${encodeURIComponent(callbackUrl)}`;
     }

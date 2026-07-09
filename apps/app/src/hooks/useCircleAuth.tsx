@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import Loader from "@/components/loader";
 import { useQuery } from "@tanstack/react-query";
 import { membershipApi } from "@/lib/api";
+import { authClient } from "@/lib/auth-client";
 
 // ロール定義（バックエンドと同期）
 export const ROLES = {
@@ -559,9 +560,15 @@ export function EventAdminGuard({ children }: { children: React.ReactNode }) {
 }
 
 // 所属スペース一覧取得用フック (2026-07-04)
+// 2026-07-09: クエリの有効化条件を localStorage(circleAuth) の userEmail から
+// better-auth セッションの email に変更した。旧実装はアクティブスペース未確定時
+// (サインアップ直後・ログアウト直後) に circleAuth が無く email=undefined となり、
+// スペース選択画面がまさにその状態を扱う画面であるにもかかわらず所属一覧を取得できず
+// 「所属していません」と誤表示していた。サーバの /my は元々クエリの userEmail を無視して
+// セッションの email で判定するため、セッション基準に揃えるのが正しい。
 export function useMySpaces() {
-  const authInfo = getAuthInfo();
-  const email = authInfo?.userEmail;
+  const { data: session } = authClient.useSession();
+  const email = session?.user?.email ?? null;
 
   return useQuery({
     queryKey: ["mySpaces", email],
@@ -571,4 +578,72 @@ export function useMySpaces() {
     },
     enabled: !!email,
   });
+}
+
+// サインイン/サインアップ直後に所属(memberships)を解決し、アクティブスペースを
+// localStorage(circleAuth)へ確定保存した上で遷移先パスを返す共通処理 (2026-07-09)。
+// 以前は sign-in-form にしか同等ロジックが無く、sign-up-form では所属解決も
+// saveAuthInfo も行わずに /circle/dashboard へ直行していたため、super_admin で
+// サインアップしても circleAuth 未設定のまま CircleAuthGuard に弾かれ、/login の
+// スペース選択で所属未確定状態に落ちていた。両フォームでこの関数を共有する。
+export type ResolvedSpaceKind = "system" | "event" | "circle" | "none";
+export interface ResolvedActiveSpace {
+  path: string;
+  kind: ResolvedSpaceKind;
+  membership: any | null;
+}
+
+export async function resolveActiveSpaceAfterAuth(
+  email: string
+): Promise<ResolvedActiveSpace> {
+  const memberships = await membershipApi.listMy(email);
+  const systemMembership = memberships.find((m: any) => m.role === "super_admin");
+  const eventMembership = memberships.find((m: any) => m.role === "event_manager");
+  const circleMembership = memberships.find((m: any) => m.circleId);
+
+  if (systemMembership) {
+    saveAuthInfo({
+      circleId: null,
+      eventId: null,
+      userEmail: systemMembership.userEmail,
+      userName: systemMembership.userName,
+      role: systemMembership.role,
+      membershipId: systemMembership.id,
+      circleName: null,
+      isEventAdmin: true,
+    });
+    return { path: "/sys/dashboard", kind: "system", membership: systemMembership };
+  }
+
+  if (eventMembership) {
+    saveAuthInfo({
+      circleId: null,
+      eventId: eventMembership.eventId,
+      userEmail: eventMembership.userEmail,
+      userName: eventMembership.userName,
+      role: eventMembership.role,
+      membershipId: eventMembership.id,
+      circleName: null,
+      isEventAdmin: true,
+    });
+    return { path: "/event/dashboard", kind: "event", membership: eventMembership };
+  }
+
+  if (circleMembership) {
+    saveAuthInfo({
+      circleId: circleMembership.circleId,
+      eventId: circleMembership.eventId,
+      userEmail: circleMembership.userEmail,
+      userName: circleMembership.userName,
+      role: circleMembership.role,
+      membershipId: circleMembership.id,
+      circleName: circleMembership.circle?.name || null,
+    });
+    if (circleMembership.circle) {
+      localStorage.setItem("circleName", circleMembership.circle.name);
+    }
+    return { path: "/circle/dashboard", kind: "circle", membership: circleMembership };
+  }
+
+  return { path: "/mypage", kind: "none", membership: null };
 }

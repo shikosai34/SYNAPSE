@@ -8,6 +8,7 @@ import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
 import { useSearchParams, useNavigate } from "react-router-dom";
+import { resolveActiveSpaceAfterAuth } from "@/hooks/useCircleAuth";
 
 export default function SignUpForm({
 	onSwitchToSignIn,
@@ -23,8 +24,21 @@ export default function SignUpForm({
 	// すぐ次の画面へ遷移させず一旦パスキー登録を促す画面を挟む
 	// (2026-07-07 Phase 3b パスキー導線)。
 	const [justSignedUp, setJustSignedUp] = useState(false);
+	// goNext で所属解決するためにサインアップしたメールを保持する
+	const [signedUpEmail, setSignedUpEmail] = useState("");
 
-	const goNext = () => navigate((callbackUrl as any) || "/circle/dashboard");
+	// 2026-07-09: 以前は無条件で /circle/dashboard へ直行していたため、super_admin 等
+	// でサインアップしても circleAuth 未設定のまま CircleAuthGuard に弾かれ、/login の
+	// スペース選択で所属未確定状態に落ちていた。sign-in と同じ所属解決を通して、
+	// アクティブスペースを確定してから適切な遷移先へ送る。
+	const goNext = async () => {
+		try {
+			const resolved = await resolveActiveSpaceAfterAuth(signedUpEmail);
+			navigate((callbackUrl as any) || resolved.path);
+		} catch {
+			navigate((callbackUrl as any) || "/mypage");
+		}
+	};
 
 	const form = useForm({
 		defaultValues: {
@@ -42,6 +56,7 @@ export default function SignUpForm({
 				{
 					onSuccess: () => {
 						toast.success("Sign up successful");
+						setSignedUpEmail(value.email);
 						setJustSignedUp(true);
 					},
 					onError: (error) => {

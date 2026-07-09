@@ -16,6 +16,7 @@ import {
   getAuthInfo,
 } from "@/hooks/useCircleAuth";
 import { roleLabel, roleBadge } from "@/lib/roles";
+import { authClient } from "@/lib/auth-client";
 
 // 2026-07-07 単一ドメイン化: register の circle/event/sys はすべて同一オリジンの同一SPA。
 // 旧来のスタッフ/管理サブドメイン (staff./admin.) 分離とクロスドメイン遷移は撤去した。
@@ -127,10 +128,18 @@ export default function Header() {
     },
   });
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    // ローカルのアクティブスペース(circleAuth)だけを消して better-auth の
+    // セッションを残すと、/login で「session あり + アクティブスペース無し」の
+    // 状態になり、サインインフォームの手前にあるスペース未選択ガードに捕まって
+    // ログインし直せなくなる。よって better-auth 側も必ず signOut する。
+    // (2026-07-09 ログアウト後に再ログインできない不具合を修正)
     clearAuthInfo();
     localStorage.removeItem("circleName");
     localStorage.removeItem("eventName");
+    await authClient.signOut();
+    // useSession のキャッシュや mySpaces 等の残存クエリを掃除してから遷移する
+    queryClient.clear();
     toast.success("ログアウトしました");
     setProfileModalOpen(false);
     setNotifPopoverOpen(false);

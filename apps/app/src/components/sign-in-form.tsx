@@ -8,8 +8,7 @@ import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
 import { useSearchParams, useNavigate } from "react-router-dom";
-import { saveAuthInfo } from "@/hooks/useCircleAuth";
-import { membershipApi } from "@/lib/api";
+import { resolveActiveSpaceAfterAuth } from "@/hooks/useCircleAuth";
 
 export default function SignInForm({
 	onSwitchToSignUp,
@@ -35,60 +34,25 @@ export default function SignInForm({
 				{
 					onSuccess: async () => {
 						try {
-							const memberships = await membershipApi.listMy(value.email);
-							
-							const systemMembership = memberships.find((m) => m.role === "super_admin");
-							const eventMembership = memberships.find((m) => m.role === "event_manager");
-							const circleMembership = memberships.find((m) => m.circleId);
-
-							if (systemMembership) {
-								saveAuthInfo({
-									circleId: null,
-									eventId: null,
-									userEmail: systemMembership.userEmail,
-									userName: systemMembership.userName,
-									role: systemMembership.role,
-									membershipId: systemMembership.id,
-									circleName: null,
-									isEventAdmin: true,
-								});
-								navigate((callbackUrl as any) || "/sys/dashboard");
-								toast.success(`システム管理スペースにログインしました (${systemMembership.role})`);
-							} else if (eventMembership) {
-								saveAuthInfo({
-									circleId: null,
-									eventId: eventMembership.eventId,
-									userEmail: eventMembership.userEmail,
-									userName: eventMembership.userName,
-									role: eventMembership.role,
-									membershipId: eventMembership.id,
-									circleName: null,
-									isEventAdmin: true,
-								});
-								navigate((callbackUrl as any) || "/event/dashboard");
-								toast.success(`イベント管理スペースにログインしました (${eventMembership.role})`);
-							} else if (circleMembership) {
-								saveAuthInfo({
-									circleId: circleMembership.circleId,
-									eventId: circleMembership.eventId,
-									userEmail: circleMembership.userEmail,
-									userName: circleMembership.userName,
-									role: circleMembership.role,
-									membershipId: circleMembership.id,
-									circleName: circleMembership.circle?.name || null,
-								});
-
-								if (circleMembership.circle) {
-									localStorage.setItem("circleName", circleMembership.circle.name);
-								}
-
-								navigate((callbackUrl as any) || "/circle/dashboard");
-								toast.success(`${circleMembership.userName}さんとして [${circleMembership.circle?.name || "サークル"}] にログインしました`);
-							} else {
-								// 所属が無いアカウントはスタッフ画面に居場所が無いため来場者アプリへ
-								toast.success("ログインしました");
-								navigate((callbackUrl as any) || "/mypage");
+							// 所属解決とアクティブスペース確定は sign-up-form と共通化した
+							// (2026-07-09 サインアップ後にスペース未所属表示になる不具合の修正に伴い集約)
+							const resolved = await resolveActiveSpaceAfterAuth(value.email);
+							const m = resolved.membership;
+							switch (resolved.kind) {
+								case "system":
+									toast.success(`システム管理スペースにログインしました (${m.role})`);
+									break;
+								case "event":
+									toast.success(`イベント管理スペースにログインしました (${m.role})`);
+									break;
+								case "circle":
+									toast.success(`${m.userName}さんとして [${m.circle?.name || "サークル"}] にログインしました`);
+									break;
+								default:
+									// 所属が無いアカウントはスタッフ画面に居場所が無いため来場者アプリへ
+									toast.success("ログインしました");
 							}
+							navigate((callbackUrl as any) || resolved.path);
 						} catch (error) {
 							toast.success("ログインしました");
 							navigate((callbackUrl as any) || "/mypage");
