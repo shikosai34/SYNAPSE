@@ -82,7 +82,7 @@ app.use(
  * 反射しており、任意サイトからログイン中ユーザーの Cookie を使った CSRF /
  * クレデンシャル窃取が可能だった。以下の許可リストに一致した場合のみ反射する。
  * - 本番: fesflow.shikosai.net (apex) と全サブドメイン (staff/admin 等)
- * - ローカル: localhost / 127.0.0.1 の 3000(register) / 3001(visitor)
+ * - ローカル: localhost / 127.0.0.1 は全ポートを許可 (単一 SPA apps/app は :3000)
  * - env.CORS_ORIGIN があればカンマ区切りで追加許可 (別ドメイン検証用の逃げ道)
  */
 function isAllowedOrigin(origin: string, env: WorkerEnv): boolean {
