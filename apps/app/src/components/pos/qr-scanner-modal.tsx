@@ -31,13 +31,83 @@ export function QrScannerModal({
   const [scannedCode, setScannedCode] = useState("");
   const [preOrders, setPreOrders] = useState<PreOrderWithDetails[]>([]);
   const [isCameraActive, setIsCameraActive] = useState(false);
+  const [fallbackMode, setFallbackMode] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   // jsQR デコード用の作業キャンバス (画面には出さない)
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const rafRef = useRef<number | null>(null);
   // 連続検出で同じコードを何度も submit しないためのロック
   const lockedRef = useRef(false);
+
+  // 写真から読み取るフォールバック (WKWebView等向け)
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsCameraActive(false);
+    toast.info("画像を解析中...");
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        const MAX_SIZE = 1000;
+        let width = img.width;
+        let height = img.height;
+        if (width > height) {
+          if (width > MAX_SIZE) {
+            height *= MAX_SIZE / width;
+            width = MAX_SIZE;
+          }
+        } else {
+          if (height > MAX_SIZE) {
+            width *= MAX_SIZE / height;
+            height = MAX_SIZE;
+          }
+        }
+        
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext("2d", { willReadFrequently: true });
+        if (!ctx) return;
+        
+        ctx.drawImage(img, 0, 0, width, height);
+        const imageData = ctx.getImageData(0, 0, width, height);
+        const result = jsQR(imageData.data, width, height, { inversionAttempts: "dontInvert" });
+        
+        if (result && result.data) {
+          const code = result.data.trim();
+          setScannedCode(code);
+          if (mode === "customer") {
+            lookupCustomerMutation.mutate(code);
+          } else {
+            searchMutation.mutate(code);
+          }
+        } else {
+          toast.error("QRコードを検出できませんでした。はっきりと写るように再度撮影してください。");
+        }
+      };
+      img.src = event.target?.result as string;
+    };
+    reader.readAsDataURL(file);
+    
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const handleCameraBtnClick = () => {
+    if (isCameraActive) {
+      stopCamera();
+      return;
+    }
+    if (fallbackMode || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      fileInputRef.current?.click();
+      return;
+    }
+    startCamera();
+  };
 
   useEffect(() => {
     if (isOpen) {
@@ -50,23 +120,51 @@ export function QrScannerModal({
   }, [isOpen]);
 
   // カメラ起動
+  // 2026-07-10: <video> を常時 DOM に存在させる設計のため、setIsCameraActive(true) → setTimeout で
+  // React レンダリングを待機するハックは不要。videoRef.current は startCamera 呼び出し時点で確実に存在する。
   const startCamera = async () => {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      setFallbackMode(true);
+      toast.info("カメラが直接起動できない環境です。写真撮影モードに切り替えました。もう一度カメラボタンを押してください。");
+      return;
+    }
+
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: "environment" },
       });
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        await videoRef.current.play();
+
+      // 権限ダイアログ中にモーダルを閉じた場合の対策
+      if (!videoRef.current) {
+        stream.getTracks().forEach((track) => track.stop());
+        return;
       }
+
+      videoRef.current.srcObject = stream;
+      // iOS WKWebView では play() が NotAllowedError を返す場合がある (autoplay policy)
+      // muted + playsInline が HTML 属性として付与されていれば通常は通る
+      await videoRef.current.play();
+
       lockedRef.current = false;
       setIsCameraActive(true);
       toast.info("カメラを起動しました。QRコードにかざしてください");
       // フレーム走査ループ開始 (jsQR で実際にデコードする)
       rafRef.current = requestAnimationFrame(scanFrame);
-    } catch (err) {
+    } catch (err: any) {
       console.error("Camera error:", err);
-      toast.error("カメラの起動に失敗しました。キーボードまたはスキャナー入力をご利用ください");
+      setIsCameraActive(false);
+      // videoRef が残っていれば srcObject をクリアしてストリームを解放する
+      if (videoRef.current?.srcObject) {
+        const s = videoRef.current.srcObject as MediaStream;
+        s.getTracks().forEach((t) => t.stop());
+        videoRef.current.srcObject = null;
+      }
+      if (err.name === "NotAllowedError" || err.name === "NotFoundError") {
+        setFallbackMode(true);
+        toast.info("カメラが直接起動できない環境です。写真撮影モードに切り替えました。もう一度カメラボタンを押してください。");
+      } else {
+        toast.error("カメラの起動に失敗しました。キーボードまたはスキャナー入力をご利用ください");
+      }
     }
   };
 
@@ -223,6 +321,14 @@ export function QrScannerModal({
 
         {/* カメラ/スキャナー入力エリア */}
         <div className="mb-6 space-y-4">
+          <input
+            type="file"
+            accept="image/*"
+            capture="environment"
+            ref={fileInputRef}
+            className="hidden"
+            onChange={handleFileUpload}
+          />
           <form onSubmit={handleSearch} className="flex flex-col sm:flex-row gap-2">
             <div className="relative flex-1">
               <Label htmlFor="qrInput" className="sr-only">
@@ -249,7 +355,7 @@ export function QrScannerModal({
               </Button>
               <Button
                 type="button"
-                onClick={isCameraActive ? stopCamera : startCamera}
+                onClick={handleCameraBtnClick}
                 className="h-14 border-thick border-border bg-background px-4 text-foreground rounded-none hover:bg-primary hover:text-primary-foreground"
               >
                 <Camera className="h-5 w-5" />
@@ -257,21 +363,26 @@ export function QrScannerModal({
             </div>
           </form>
 
-          {/* カメラプレビュー */}
-          {isCameraActive && (
-            <div className="relative h-48 w-full overflow-hidden border-thick border-border bg-primary">
-              <video
-                ref={videoRef}
-                className="h-full w-full object-cover"
-                playsInline
-                muted
-                autoPlay
-              />
-              <div className="absolute inset-0 flex items-center justify-center">
-                <div className="h-32 w-32 border-thick border-dashed border-red-500 animate-pulse" />
-              </div>
+          {/*
+            カメラプレビュー: 2026-07-10
+            WKWebView 対策で <video> は常時 DOM に存在させる。
+            isCameraActive が false の場合は hidden で非表示にするだけ。
+            条件付きレンダリング ({isCameraActive && ...}) にすると、getUserMedia の
+            権限ダイアログ表示中は videoRef.current === null になり、
+            stream を割り当てられないレースコンディションが発生する。
+          */}
+          <div className={`relative h-48 w-full overflow-hidden border-thick border-border bg-primary${isCameraActive ? "" : " hidden"}`}>
+            <video
+              ref={videoRef}
+              className="h-full w-full object-cover"
+              playsInline
+              muted
+              autoPlay
+            />
+            <div className="absolute inset-0 flex items-center justify-center">
+              <div className="h-32 w-32 border-thick border-dashed border-red-500 animate-pulse" />
             </div>
-          )}
+          </div>
         </div>
 
         {/* 検索結果リスト */}
