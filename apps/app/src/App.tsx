@@ -1,6 +1,7 @@
 import { Routes, Route, Outlet, Navigate } from "react-router-dom";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import Providers from "@/components/providers";
+import { DebugConsole } from "@/components/DebugConsole";
 
 import Header from "@/components/header";
 import SystemBanner from "@/components/SystemBanner";
@@ -63,6 +64,8 @@ export default function App() {
 	return (
 		<ErrorBoundary>
 		<Providers>
+			{/* 2026-07-10: super_admin + ?debug=true のときスマホでerudaコンソールを有効化 */}
+			<DebugConsole />
 			<Routes>
 				<Route element={<VisitorLayout />}>
 					<Route path="/" element={<VisitorHome />} />
