@@ -1,32 +1,23 @@
 
 import { useState, useEffect } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { preOrderApi, wristbandApi, orderApi, circleApi, eventApi } from "@/lib/api";
+import { useQuery } from "@tanstack/react-query";
+import { preOrderApi, wristbandApi, circleApi, eventApi } from "@/lib/api";
 import { useVisitor } from "@/hooks/useVisitor";
 import { ModSandbox } from "@/components/ModSandbox";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Modal } from "@/components/ui/Modal";
-import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
 import {
   ArrowLeft,
   Clock,
   CheckCircle2,
-  AlertTriangle,
-  ShieldAlert,
   QrCode,
-  Link as LinkIcon,
 } from "lucide-react";
 
 export default function MyOrderPage() {
   const navigate = useNavigate();
-  const queryClient = useQueryClient();
   // 来場者は eventUser.id ベアラーのみ (旧 useAuth/useGuestUser シムは撤去済み)
   const { session, userId: visitorUserId, isLoaded } = useVisitor();
   const eventId = session?.eventId;
@@ -39,9 +30,9 @@ export default function MyOrderPage() {
     queryFn: () => eventApi.get(eventId!),
     enabled: !!eventId,
   });
-  const [isRegisterOpen, setIsRegisterOpen] = useState(false);
-  const [newWristbandId, setNewWristbandId] = useState("");
-  const [isReportLostConfirmOpen, setIsReportLostConfirmOpen] = useState(false);
+  // 2026-07-11: リストバンドの登録/再発行/紛失報告はスマホ(来場者)側から行えないよう撤去。
+  // 発行・再発行・紛失処理はすべて本部(イベント管理)側で行う方針にしたため、
+  // 関連する登録モーダル/確認ダイアログ用の state も削除した。
   const [origin, setOrigin] = useState("");
   const [modHooks, setModHooks] = useState<{ id: string; hook: any }[]>([]);
   const [directOrders, setDirectOrders] = useState<any[]>([]);
@@ -151,41 +142,8 @@ export default function MyOrderPage() {
   });
 
 
-  // リストバンド新規登録・再発行ミューテーション
-  const registerMutation = useMutation({
-    mutationFn: async (wbId: string) => {
-      // 既存のアクティブなリストバンドがある場合、まず紛失ロックを行ってから登録する（乗っ取り防止制限をセルフ無効化で回避するため）
-      if (activeWristband) {
-        await wristbandApi.reportLost(activeWristband.id);
-      }
-      return await wristbandApi.register(userId, wbId);
-    },
-    onSuccess: () => {
-      toast.success("リストバンドの紐付けを完了しました！");
-      setIsRegisterOpen(false);
-      setNewWristbandId("");
-      queryClient.invalidateQueries({ queryKey: ["userWristbandStatus", userId] });
-    },
-    onError: (error: any) => {
-      toast.error(error.message || "紐付けに失敗しました");
-    },
-  });
-
-  // リストバンド紛失報告ミューテーション
-  const reportLostMutation = useMutation({
-    mutationFn: async (wbId: string) => {
-      return await wristbandApi.reportLost(wbId);
-    },
-    onSuccess: () => {
-      toast.warning("旧リストバンドを無効化（ロック）しました。スマホQRはそのままご利用いただけます。");
-      queryClient.invalidateQueries({ queryKey: ["userWristbandStatus", userId] });
-      setIsReportLostConfirmOpen(false);
-    },
-    onError: (error: any) => {
-      toast.error(error.message || "紛失報告に失敗しました");
-      setIsReportLostConfirmOpen(false);
-    },
-  });
+  // 2026-07-11: リストバンドの登録/再発行/紛失報告ミューテーションを撤去。
+  // これらの操作は本部(イベント管理 → リストバンド紛失のロック・再発行処理)側でのみ行う。
 
   if (!isLoaded || preOrdersLoading || statusLoading) {
     return (
@@ -250,105 +208,23 @@ export default function MyOrderPage() {
         </p>
       </div>
 
-      {/* リストバンド紛失・連携状態ステータスバー */}
-      <div className="border-thick border-border bg-muted p-4 space-y-3">
-        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="font-bold text-sm">【リストバンド連携状態】:</span>
-            {activeWristband ? (
-              <span className="bg-success text-primary-foreground px-2 py-0.5 text-xs font-black uppercase">
-                紐付け完了 ({activeWristband.id})
-              </span>
-            ) : (
-              <span className="bg-primary text-primary-foreground px-2 py-0.5 text-xs font-black uppercase">
-                未紐付け / スマホ運用中
-              </span>
-            )}
-          </div>
-          <div className="flex gap-2 flex-wrap">
-            <Button
-              onClick={() => setIsRegisterOpen(true)}
-              className="h-9 border-thick border-border bg-background text-foreground text-xs font-bold uppercase rounded-none hover:bg-primary hover:text-primary-foreground"
-            >
-              <LinkIcon className="mr-1 h-3.5 w-3.5" />
-              {activeWristband ? "再発行・付け替え" : "バンドを登録"}
-            </Button>
-            {activeWristband && (
-              <Button
-                onClick={() => setIsReportLostConfirmOpen(true)}
-                disabled={reportLostMutation.isPending}
-                className="h-9 border-thick border-border bg-error text-primary-foreground text-xs font-bold uppercase rounded-none hover:bg-primary"
-              >
-                <ShieldAlert className="mr-1 h-3.5 w-3.5" />
-                紛失報告 (ロック)
-              </Button>
-            )}
+      {/* リストバンド未登録の案内。
+          2026-07-11: 「連携状態」の常時表示と、スマホからの自己登録/紛失報告UIは撤去した。
+          リストバンドの発行・紐付け・再発行・紛失処理はすべて本部(受付/イベント管理)で行う。
+          物理リストバンドがまだ紐付いていない場合のみ、本部での登録を案内する。
+          スマホ画面のQR(下のマイデジタルQR)はそのまま利用できる。 */}
+      {!activeWristband && (
+        <div className="border-thick border-border bg-muted p-4 flex items-start gap-3">
+          <QrCode className="h-5 w-5 shrink-0 mt-0.5" />
+          <div className="space-y-1">
+            <p className="font-bold text-sm">リストバンドが未登録です</p>
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              リストバンドは受付・本部でお渡しします。受付で発行された来場登録QR（またはリストバンドのQR）を読み取ると登録できます。
+              登録すると、なくしても本部で再発行できます。下の「マイデジタルQR」はそのままご利用いただけます。
+            </p>
           </div>
         </div>
-
-        {!activeWristband && (
-          <div className="bg-background border-thick border-border p-3 text-xs flex items-start gap-2">
-            <AlertTriangle className="h-5 w-5 text-foreground shrink-0 mt-0.5" />
-            <div>
-              <span className="font-bold">💡 スマホのままで大丈夫です！</span>
-              <p className="text-muted-foreground mt-0.5">
-                リストバンドが無くなった場合や未紐付けでも、下記の「マイデジタルQR」を店頭でスタッフに見せればそのままお受取りいただけます。
-              </p>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* リストバンド紐付けモーダル */}
-      <Modal
-        isOpen={isRegisterOpen}
-        onClose={() => setIsRegisterOpen(false)}
-        title="[リストバンド紐付け]"
-        maxWidth="md"
-      >
-        <p className="text-xs text-muted-foreground">
-          手元の物理リストバンドのQRコードをスキャンするか、IDを入力してください。
-          {activeWristband && (
-            <span className="block mt-1 font-bold text-error">
-              ⚠️ 登録すると、現在のリストバンド ({activeWristband.id}) は自動的にロック（無効化）されます。
-            </span>
-          )}
-        </p>
-        <Input
-          type="text"
-          placeholder="リストバンドIDを入力 (例: wb_12345)"
-          className="h-12 border-thick border-border text-base rounded-none"
-          value={newWristbandId}
-          onChange={(e) => setNewWristbandId(e.target.value)}
-        />
-        <Button
-          onClick={() => {
-            if (newWristbandId.trim()) {
-              registerMutation.mutate(newWristbandId.trim());
-            }
-          }}
-          disabled={registerMutation.isPending || !newWristbandId.trim()}
-          className="w-full h-12 border-thick border-border bg-primary text-primary-foreground text-base font-bold uppercase rounded-none hover:bg-background hover:text-foreground"
-        >
-          紐付けを完了する
-        </Button>
-      </Modal>
-
-      {/* リストバンド紛失報告 確認ダイアログ */}
-      <ConfirmDialog
-        isOpen={isReportLostConfirmOpen}
-        title="[リストバンド紛失報告]"
-        description="失くしたリストバンドを即時ロック・無効化しますか？この操作は取り消せません。"
-        confirmLabel="ロックする"
-        cancelLabel="キャンセル"
-        destructive
-        onConfirm={() => {
-          if (activeWristband) {
-            reportLostMutation.mutate(activeWristband.id);
-          }
-        }}
-        onCancel={() => setIsReportLostConfirmOpen(false)}
-      />
+      )}
 
       {/* デジタルQRカード */}
       <Card className="border-heavy border-border bg-primary text-primary-foreground rounded-none p-4 sm:p-6 text-center shadow-none">
