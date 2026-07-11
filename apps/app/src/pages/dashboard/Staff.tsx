@@ -140,21 +140,21 @@ function StaffManagementContent() {
   }
 
   return (
-    <DashboardLayout title={circleName} subtitle="スタッフ管理" type="circle">
+    <DashboardLayout
+      title={circleName}
+      subtitle="スタッフ管理"
+      type="circle"
+      // 主要アクションは共通ヘッダー右側へ集約 (旧: children 内の二重見出し行) (2026-07-11)
+      actions={
+        <PermissionGuard permission="staff:write">
+          <Button onClick={handleOpenAdd} className="rounded-none border-thick border-primary bg-primary text-primary-foreground hover:bg-background hover:text-foreground h-8 text-[11px] font-bold uppercase shadow-none px-3">
+            <Plus className="mr-1.5 h-3.5 w-3.5" />
+            スタッフを追加
+          </Button>
+        </PermissionGuard>
+      }
+    >
       <div className="space-y-6 font-mono text-foreground">
-        <div className="flex justify-between items-center border-b-thick border-border pb-3">
-          <h2 className="text-sm font-bold flex items-center gap-2 uppercase tracking-wider">
-            <Users className="h-4 w-4" />
-            スタッフ一覧
-          </h2>
-          <PermissionGuard permission="staff:write">
-            <Button onClick={handleOpenAdd} className="rounded-none border-thick border-primary bg-primary text-primary-foreground hover:bg-background hover:text-foreground h-8 text-[11px] font-bold uppercase shadow-none px-3">
-              <Plus className="mr-1.5 h-3.5 w-3.5" />
-              スタッフを追加
-            </Button>
-          </PermissionGuard>
-        </div>
-
         {/* 現在シフト中のスタッフ */}
         <Card className=" rounded-none bg-background shadow-none">
           <CardHeader className="p-4 pb-2 border-b-thin border-border bg-muted/20">

@@ -37,6 +37,10 @@ interface DashboardLayoutProps {
   type: "circle" | "event" | "system";
   activeTab?: string; // event/system でタブ制御する場合
   onTabChange?: (tab: string) => void;
+  // 画面の主要アクション (追加/招待/更新など) をヘッダー右側に集約するスロット。
+  // これを使うことで、各ページが children 内に独自の見出し行+ボタンを重ねて
+  // 二重ヘッダーになるのを防ぎ、全ダッシュボード画面でボタン位置を統一する (2026-07-11)
+  actions?: ReactNode;
 }
 
 export default function DashboardLayout({
@@ -45,7 +49,8 @@ export default function DashboardLayout({
   subtitle,
   type,
   activeTab,
-  onTabChange
+  onTabChange,
+  actions
 }: DashboardLayoutProps) {
   const location = useLocation();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -119,13 +124,14 @@ export default function DashboardLayout({
 
   return (
     <div className="max-w-7xl mx-auto p-4 md:p-6 font-mono bg-background text-foreground">
-      {/* 共通ヘッダー */}
-      <div className="flex items-end justify-between border-b-thick border-border pb-3 mb-6">
-        <div>
+      {/* 共通ヘッダー: 左にタイトル、右に画面主要アクション (actions スロット)。
+          モバイルでは縦積みにしてボタンが潰れないようにする。 */}
+      <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3 border-b-thick border-border pb-3 mb-6">
+        <div className="min-w-0">
           <h1 className="text-lg sm:text-2xl font-black uppercase tracking-wider font-mono flex items-center gap-2">
-            {type === "system" && <Shield className="h-6 w-6 text-foreground" />}
-            {type === "event" && <Calendar className="h-6 w-6 text-foreground" />}
-            {title}
+            {type === "system" && <Shield className="h-6 w-6 text-foreground shrink-0" />}
+            {type === "event" && <Calendar className="h-6 w-6 text-foreground shrink-0" />}
+            <span className="truncate">{title}</span>
           </h1>
           {subtitle && (
             <p className="font-mono text-[10px] sm:text-xs uppercase tracking-[1px] mt-1 text-muted-foreground">
@@ -133,6 +139,11 @@ export default function DashboardLayout({
             </p>
           )}
         </div>
+        {actions && (
+          <div className="flex items-center gap-2 flex-wrap shrink-0">
+            {actions}
+          </div>
+        )}
       </div>
 
       {/* モバイルアコーディオンメニュー (md未満) */}
