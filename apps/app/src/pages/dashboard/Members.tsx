@@ -66,15 +66,20 @@ function MembersContent() {
   // フォーム状態
   // 2026-07-07 (Phase 3b): 独自PIN認証の廃止に伴い pin 欄を撤去。
   // メンバーは追加後、招待/better-auth アカウントでログインする前提。
+  // 2026-07-11: 初期ロールを "viewer" → "circle_staff" に修正。
+  // ロール選択 (FormSelect) は circle_manager / circle_staff しか選択肢に出さず、かつ
+  // バックエンド (membership.ts の z.enum) は viewer を受け付けない。初期値が viewer だと
+  // 「モーダルを開いてそのまま送信」した時に select 表示 (先頭=マネージャー) と実 state (viewer) が
+  // 食い違ったまま viewer が送られ 400 で失敗していた。選択肢の先頭と一致する有効な最小権限ロールにする。
   const [newMember, setNewMember] = useState({
     userId: "",
     userEmail: "",
     userName: "",
-    role: "viewer" as Role,
+    role: "circle_staff" as Role,
   });
 
   const [inviteSettings, setInviteSettings] = useState({
-    role: "viewer" as Role,
+    role: "circle_staff" as Role,
     maxUses: 1,
     expiresInHours: 24,
     targetEmail: "",
@@ -118,12 +123,13 @@ function MembersContent() {
     }) => membershipApi.addMember(input),
     onSuccess: () => {
       refetchMembers();
+      toast.success("メンバーを追加しました");
       setShowAddForm(false);
       setNewMember({
         userId: "",
         userEmail: "",
         userName: "",
-        role: "viewer",
+        role: "circle_staff",
       });
     },
   });
@@ -138,9 +144,18 @@ function MembersContent() {
       createdBy: string;
       targetEmail?: string;
     }) => membershipApi.createInvite(input),
-    onSuccess: () => {
+    onSuccess: (data) => {
       refetchTokens();
-      toast.success("招待を作成しました");
+      // 招待作成後すぐ共有できるよう、生成されたリンクをクリップボードへコピーする。
+      // 従来は「作成しました」だけで、リンクは下の一覧までスクロールして copy し直す必要があり
+      // フローが途切れていた (2026-07-11)。
+      if (data?.token) {
+        const link = `${window.location.origin}/circle/invite/${data.token}`;
+        navigator.clipboard?.writeText(link).catch(() => {});
+        toast.success("招待リンクを作成し、クリップボードにコピーしました");
+      } else {
+        toast.success("招待を作成しました");
+      }
       setInviteSettings((prev) => ({ ...prev, targetEmail: "" }));
       setShowInviteForm(false);
     },

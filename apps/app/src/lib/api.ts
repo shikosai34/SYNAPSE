@@ -510,10 +510,21 @@ export interface SalesStats {
   averageOrderValue: number;
 }
 
+// 2026-07-11: バックエンド (apps/api membership の z.enum) が受理する正規ロールは
+//   super_admin / event_manager / circle_manager / circle_staff の4種。
+// 従来この型は旧ロール体系 (cashier/waiter/viewer 等) のままで実バックエンドと乖離しており、
+// 招待/メンバー追加でこれらを送ると 400 になっていた (実装が「間に合っていない」ように見えた原因)。
+// まずバックエンド正規ロールを先頭に加えて型と実挙動を一致させる。旧・イベント系ロールは
+// 参照箇所 (EventStaffFormModal 等) が残っているため当面は残置し、別途整理する。
 export type Role =
+  // --- バックエンド正規ロール ---
+  | "super_admin"
+  | "event_manager"
+  | "circle_manager"
+  | "circle_staff"
+  // --- 旧/イベント系 (段階的に廃止予定。lib と backend の乖離が残る箇所) ---
   | "event_admin"
   | "event_staff"
-  | "circle_manager"
   | "cashier"
   | "kitchen_staff"
   | "waiter"
