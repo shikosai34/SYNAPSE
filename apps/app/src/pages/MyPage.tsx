@@ -445,6 +445,66 @@ export default function MyOrderPage() {
           <EmptyState icon={Clock} message="現在、未処理の事前オーダーはありません" />
         )}
       </div>
+
+      {/* 店頭注文 (代引) 履歴一覧。
+          2026-07-11: 従来 directOrders は ModSandbox に渡すだけで画面に出ておらず、
+          店頭でその場注文した履歴が来場者から見えなかった。localStorage に貯めている
+          代引注文 (呼出番号つき) を注文履歴として可視化する。 */}
+      {directOrders.length > 0 && (
+        <div className="space-y-4">
+          <h2 className="text-xl sm:text-2xl font-black uppercase border-b-thick border-border pb-2">
+            [店頭注文の状況]
+          </h2>
+          <div className="space-y-4">
+            {directOrders
+              .slice()
+              .reverse()
+              .map((o) => {
+                const status = o.status as string | undefined;
+                const badge =
+                  status === "completed"
+                    ? { cls: "bg-success text-primary-foreground", icon: CheckCircle2, label: "受取完了" }
+                    : status === "preparing"
+                      ? { cls: "bg-info text-primary-foreground", icon: Clock, label: "調理中" }
+                      : { cls: "bg-warning text-foreground border-thin border-border", icon: Clock, label: "受付済み" };
+                const Icon = badge.icon;
+                return (
+                  <div
+                    key={o.orderId}
+                    className="border-thick border-border bg-background p-5 space-y-3"
+                  >
+                    <div className="flex justify-between items-start border-b-[2px] border-border pb-2">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className={`px-2 py-0.5 text-xs font-black uppercase flex items-center gap-1 ${badge.cls}`}>
+                          <Icon className="h-3.5 w-3.5" /> {badge.label}
+                        </span>
+                        {o.orderNumber != null && (
+                          <span className="bg-foreground text-background px-2 py-0.5 text-xs font-black uppercase">
+                            呼出 #{o.orderNumber}
+                          </span>
+                        )}
+                        {o.createdAt && (
+                          <span className="text-xs text-gray-500">
+                            {new Date(o.createdAt).toLocaleTimeString("ja-JP")}
+                          </span>
+                        )}
+                      </div>
+                      {o.totalPrice != null && (
+                        <span className="text-xl font-black">
+                          ¥{Number(o.totalPrice).toLocaleString()}
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-sm font-bold flex items-center gap-2">
+                      <span className="text-gray-500 font-normal">店舗:</span>
+                      {o.circleName || "サークル"}
+                    </div>
+                  </div>
+                );
+              })}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
