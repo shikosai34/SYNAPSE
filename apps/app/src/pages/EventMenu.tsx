@@ -16,8 +16,8 @@ import { Store, ArrowRight, QrCode, Calendar, ChevronRight } from "lucide-react"
  * 各サークルのメニューへの導線を提供する「下見」画面。閲覧は誰でも可。実際の注文は
  * 発行済みリストバンドが必要 (Menu 側でゲート)。
  *
- * - /events            … 入場済みなら自分のイベントへ、未入場ならイベント選択
- * - /events/:eventId   … 指定イベントのサークル一覧
+ * - /visitor/events            … 入場済みなら自分のイベントへ、未入場ならイベント選択
+ * - /visitor/events/:eventId   … 指定イベントのサークル一覧
  */
 export default function EventMenu() {
   const { eventId: eventIdParam } = useParams();

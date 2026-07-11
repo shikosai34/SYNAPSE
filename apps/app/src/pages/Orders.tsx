@@ -13,7 +13,7 @@ import { ArrowLeft, Clock, CheckCircle2, Receipt } from "lucide-react";
  * 来場者の注文履歴 (2026-07-11 マイページから分離)。
  *
  * 従来 MyPage に同居していた「事前オーダー」「店頭注文(代引)」「モッド差し込み」を
- * このルート (/orders) に切り出し、MyPage はマイQR/身分表示に専念させる。
+ * このルート (/visitor/orders) に切り出し、MyPage はマイQR/身分表示に専念させる。
  * 来場者は eventUser.id ベアラーのみで参照する (認証会員ではない)。
  */
 export default function OrdersPage() {

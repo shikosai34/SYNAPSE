@@ -1,3 +1,4 @@
+import type React from "react";
 import { useNavigate } from "react-router-dom";
 import { QrCode, UtensilsCrossed, ShoppingBag, ArrowRight, Store, CalendarCog } from "lucide-react";
 import { PRODUCT_NAME } from "@fesflow/config";

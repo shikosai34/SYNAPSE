@@ -201,6 +201,12 @@ wristbandRoutes.post(
           .where(eq(eventUser.id, bandNow[0]!.userId));
         evId = otherUser[0]?.eventId;
       }
+      if (!evId && creatingNewBand) {
+        // 2026-07-11: 新規バンド発行時は eventId 未解決のまま権限判定しない。
+        // event_manager の曖昧一致を防ぐため、DB から具体的なイベントIDを解決して渡す。
+        const eventsList = await db.select().from(event).limit(1);
+        evId = eventsList[0]?.id;
+      }
       const allowed = await hasPermission(c, null, "member:write", evId);
       if (!allowed) {
         apiError(

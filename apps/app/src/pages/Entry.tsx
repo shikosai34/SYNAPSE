@@ -9,7 +9,7 @@ import Loader from "@/components/loader";
  *
  * リストバンドのQRは `https://<visitor>/w/<短ID>` を指す。ここで短IDを
  * サーバに照会して eventUser を解決し、来場者セッションを確立する。
- * 未オンボーディング(ニックネーム未登録)なら /onboarding、済なら /mypage へ。
+ * 未オンボーディング(ニックネーム未登録)なら /visitor/onboarding、済なら /visitor/mypage へ。
  */
 export default function Entry() {
   const { id = "" } = useParams();
