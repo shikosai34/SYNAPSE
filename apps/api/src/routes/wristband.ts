@@ -165,18 +165,58 @@ wristbandRoutes.post(
     const db = c.get("db");
     const { userId, wristbandId } = c.req.valid("json");
 
-    // 2026-07-04: D1 の外部キー制約エラーを避けるため、DB内の最初のイベントIDを取得してデフォルトとして使用する
-    const eventsList = await db.select().from(event).limit(1);
-    const defaultEventId = eventsList[0]?.id || "evt_default";
-
-    // ユーザー存在チェック、なければ自動作成
-    let users = await db
+    // 対象ユーザーと対象バンドの現状を先に読む (権限判定を書き込みより前に行うため)。
+    const users = await db
       .select()
       .from(eventUser)
       .where(eq(eventUser.id, userId));
+    const targetActive = await db
+      .select()
+      .from(wristband)
+      .where(and(eq(wristband.userId, userId), eq(wristband.status, "active")));
+    const bandNow = await db
+      .select()
+      .from(wristband)
+      .where(eq(wristband.id, wristbandId));
+    const bandExists = bandNow.length > 0;
 
+    // 2026-07-11: 権限ゲート。以下はいずれも本部(スタッフ member:write)権限を要求する:
+    //  (a) 未登録=本部未発行のバンドIDの紐付け → 実質「スマホ単体でバンドを新規発行」なので禁止。
+    //  (b) 他ユーザーでアクティブなバンドの再割当 (乗っ取り対策, 2026-07-05)。
+    //  (c) 既にアクティブなバンドを持つユーザーへの付替え (再発行, 2026-07-05)。
+    // 本部発行済み(既存)バンドを、まだバンドを持たない本人が紐付ける初回リンクのみ認証不要。
+    // これにより「発行は本部・登録は来場登録QR/本部発行済みID」というフローに揃える。
+    const replacingUsersActiveBand = targetActive.some((w) => w.id !== wristbandId);
+    const bandOwnedByOther =
+      bandExists &&
+      bandNow[0]!.status === "active" &&
+      bandNow[0]!.userId !== userId;
+    const creatingNewBand = !bandExists;
+    if (replacingUsersActiveBand || bandOwnedByOther || creatingNewBand) {
+      let evId: string | undefined = users[0]?.eventId;
+      if (!evId && bandExists) {
+        const otherUser = await db
+          .select()
+          .from(eventUser)
+          .where(eq(eventUser.id, bandNow[0]!.userId));
+        evId = otherUser[0]?.eventId;
+      }
+      const allowed = await hasPermission(c, null, "member:write", evId);
+      if (!allowed) {
+        apiError(
+          "FORBIDDEN",
+          creatingNewBand
+            ? "このリストバンドは本部で発行されていません。受付・本部で発行されたリストバンドをご利用ください。"
+            : "このリストバンドの再割り当てにはスタッフ権限が必要です"
+        );
+      }
+    }
+
+    // 権限クリア。ユーザーが未登録なら作成する (本部発行フロー由来のみ到達する)。
     if (users.length === 0) {
-      // 登録イベントIDは固定またはデフォルト値
+      // D1 の外部キー制約エラーを避けるため、DB内の最初のイベントIDをデフォルトに使う。
+      const eventsList = await db.select().from(event).limit(1);
+      const defaultEventId = eventsList[0]?.id || "evt_default";
       const newDisplayId = Math.floor(100 + Math.random() * 900);
       await db.insert(eventUser).values({
         id: userId,
@@ -186,55 +226,14 @@ wristbandRoutes.post(
       });
     }
 
-    // 2026-07-05: リストバンド乗っ取り対策。
-    // 「既にアクティブなバンドを持つユーザーへの付替え」または「他ユーザーで
-    // アクティブなバンドの再割当」はスタッフ権限 (対象イベントの member:write) を
-    // 要求する。新規ユーザーの初回バインド (来場者セルフサービス) は従来どおり
-    // 認証不要で許可する。これにより、被害者の userId や有効なバンドコードを
-    // 知っただけの第三者が既存の紐付けを奪う経路を塞ぐ。
-    const targetActive = await db
-      .select()
-      .from(wristband)
-      .where(and(eq(wristband.userId, userId), eq(wristband.status, "active")));
-    const bandNow = await db
-      .select()
-      .from(wristband)
-      .where(eq(wristband.id, wristbandId));
-    const replacingUsersActiveBand = targetActive.some((w) => w.id !== wristbandId);
-    const bandOwnedByOther =
-      bandNow.length > 0 &&
-      bandNow[0]!.status === "active" &&
-      bandNow[0]!.userId !== userId;
-    if (replacingUsersActiveBand || bandOwnedByOther) {
-      let evId: string | undefined = users[0]?.eventId;
-      if (!evId && bandNow.length > 0) {
-        const otherUser = await db
-          .select()
-          .from(eventUser)
-          .where(eq(eventUser.id, bandNow[0]!.userId));
-        evId = otherUser[0]?.eventId;
-      }
-      const allowed = await hasPermission(c, null, "member:write", evId);
-      if (!allowed) {
-        apiError("FORBIDDEN", "このリストバンドの再割り当てにはスタッフ権限が必要です");
-      }
-    }
-
     // 既存のアクティブなリストバンドがあれば無効化 (replaced)
     await db
       .update(wristband)
       .set({ status: "replaced", deactivatedAt: new Date() })
       .where(and(eq(wristband.userId, userId), eq(wristband.status, "active")));
 
-
-    // 既存の同一リストバンドIDが存在するか確認
-    const existingWristbands = await db
-      .select()
-      .from(wristband)
-      .where(eq(wristband.id, wristbandId));
-
-    if (existingWristbands.length > 0) {
-      // 既に登録されているリストバンドの場合は情報を更新してアクティブ化
+    if (bandExists) {
+      // 既に登録されているリストバンド (本部発行済み) を本人に紐付けてアクティブ化
       await db
         .update(wristband)
         .set({
@@ -245,7 +244,7 @@ wristbandRoutes.post(
         })
         .where(eq(wristband.id, wristbandId));
     } else {
-      // 新しいリストバンドを登録
+      // ここに来るのはスタッフ権限で新規バンドを発行する場合のみ (上のゲートを通過済み)
       await db.insert(wristband).values({
         id: wristbandId,
         userId,

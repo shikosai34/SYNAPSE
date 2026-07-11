@@ -717,11 +717,12 @@ export interface WristbandLookupResult {
 }
 
 export const wristbandApi = {
+  // 2026-07-11: 未知コードで偽ユーザーを捏造する .catch フォールバックを撤去。
+  // これがあると本部未発行の任意コードでも擬似セッションが作れてしまい
+  // 「本部で発行しなければ登録できない」方針に反する。404 はそのまま失敗させ、
+  // 呼び出し側 (Entry の入場エラー / MyPage の ErrorState) で扱う。
   lookup: (code: string) =>
-    fetchApi<WristbandLookupResult>(`/api/wristbands/lookup/${encodeURIComponent(code)}`).catch(() => ({
-      user: { id: code, eventId: "evt_default", displayId: 999, status: "available", nickname: null, birthday: null, onboardedAt: null },
-      wristband: null,
-    })),
+    fetchApi<WristbandLookupResult>(`/api/wristbands/lookup/${encodeURIComponent(code)}`),
   search: (eventId: string, query: string) =>
     fetchApi<WristbandLookupResult[]>(
       `/api/wristbands/search?eventId=${encodeURIComponent(eventId)}&query=${encodeURIComponent(query)}`
