@@ -12,12 +12,16 @@ export default function VisitorHeader() {
   const pathname = useLocation().pathname;
   const { isEntered, session } = useVisitor();
 
+  // 2026-07-11: 「メニュー」は出店未選択の案内が出る /menu ではなく、実際に出店を選べる
+  // /events (出店ブラウズ) へ直結させて回遊を1タップ短縮する。
   const links = [
-    { to: "/menu", label: "メニュー", icon: UtensilsCrossed },
-    { to: "/mypage", label: "マイページ", icon: QrCode },
+    { to: "/events", label: "メニュー", icon: UtensilsCrossed, match: ["/events", "/menu"] },
+    { to: "/mypage", label: "マイページ", icon: QrCode, match: ["/mypage"] },
   ];
 
-  const isActive = (to: string) => pathname.startsWith(to);
+  // メニューは /events・/menu どちらにいてもアクティブ表示にする
+  const isActive = (matchPaths: string[]) =>
+    matchPaths.some((p) => pathname.startsWith(p));
 
   return (
     <header className="sticky top-0 z-50 bg-background border-b-[3px] border-border text-foreground font-mono">
@@ -32,12 +36,12 @@ export default function VisitorHeader() {
         </Link>
 
         <nav className="flex items-center gap-1 font-headline text-[12px] uppercase tracking-[1px] shrink-0">
-          {links.map(({ to, label, icon: Icon }) => (
+          {links.map(({ to, label, icon: Icon, match }) => (
             <Link
               key={to}
               to={to}
               className={`px-2 sm:px-2.5 py-1 sm:py-1.5 border-[2px] border-border transition-all whitespace-nowrap flex items-center gap-1 ${
-                isActive(to)
+                isActive(match)
                   ? "bg-primary text-primary-foreground font-bold"
                   : "bg-background text-foreground hover:bg-muted"
               }`}

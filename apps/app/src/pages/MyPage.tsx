@@ -245,7 +245,7 @@ export default function MyOrderPage() {
         <h1 className="text-xl sm:text-2xl md:text-3xl font-black uppercase tracking-tight leading-tight">
           [マイデジタルQR &amp; 注文履歴]
         </h1>
-        <p className="text-[10px] sm:text-xs uppercase tracking-widest text-gray-600 mt-1">
+        <p className="text-[10px] sm:text-xs uppercase tracking-widest text-muted-foreground mt-1">
           店頭でこちらのQRまたはリストバンドをお見せください
         </p>
       </div>
@@ -291,7 +291,7 @@ export default function MyOrderPage() {
             <AlertTriangle className="h-5 w-5 text-foreground shrink-0 mt-0.5" />
             <div>
               <span className="font-bold">💡 スマホのままで大丈夫です！</span>
-              <p className="text-gray-600 mt-0.5">
+              <p className="text-muted-foreground mt-0.5">
                 リストバンドが無くなった場合や未紐付けでも、下記の「マイデジタルQR」を店頭でスタッフに見せればそのままお受取りいただけます。
               </p>
             </div>
@@ -306,7 +306,7 @@ export default function MyOrderPage() {
         title="[リストバンド紐付け]"
         maxWidth="md"
       >
-        <p className="text-xs text-gray-600">
+        <p className="text-xs text-muted-foreground">
           手元の物理リストバンドのQRコードをスキャンするか、IDを入力してください。
           {activeWristband && (
             <span className="block mt-1 font-bold text-error">
@@ -368,7 +368,7 @@ export default function MyOrderPage() {
             />
           </div>
           <div className="space-y-1">
-            <p className="text-xs text-gray-400 uppercase tracking-widest">
+            <p className="text-xs text-primary-foreground/70 uppercase tracking-widest">
               USER ID (呼出しID: #{userStatus?.user.displayId || "---"})
             </p>
             <p className="text-base sm:text-xl font-bold tracking-wider break-all px-2">{userId}</p>
@@ -419,7 +419,7 @@ export default function MyOrderPage() {
                         <CheckCircle2 className="h-3.5 w-3.5" /> 受取完了
                       </span>
                     )}
-                    <span className="text-xs text-gray-500">
+                    <span className="text-xs text-muted-foreground">
                       {new Date(po.createdAt).toLocaleTimeString("ja-JP")}
                     </span>
                   </div>
@@ -484,7 +484,7 @@ export default function MyOrderPage() {
                           </span>
                         )}
                         {o.createdAt && (
-                          <span className="text-xs text-gray-500">
+                          <span className="text-xs text-muted-foreground">
                             {new Date(o.createdAt).toLocaleTimeString("ja-JP")}
                           </span>
                         )}
@@ -496,7 +496,7 @@ export default function MyOrderPage() {
                       )}
                     </div>
                     <div className="text-sm font-bold flex items-center gap-2">
-                      <span className="text-gray-500 font-normal">店舗:</span>
+                      <span className="text-muted-foreground font-normal">店舗:</span>
                       {o.circleName || "サークル"}
                     </div>
                   </div>
