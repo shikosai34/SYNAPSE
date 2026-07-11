@@ -84,12 +84,9 @@ function DashboardContent() {
           permission: "staff:read" as const,
         }]
       : []),
-    {
-      title: "拡張機能 (モッド)",
-      description: "サークル専用の拡張機能の管理・有効化",
-      href: "/circle/dashboard/mods",
-      permission: "circle:read" as const,
-    },
+    // 2026-07-11: 「拡張機能 (モッド)」カードを撤去。独立ページ /circle/dashboard/mods は
+    // 既に廃止 (モッド管理はサークル設定へ統合) されており、App.tsx にルートが無いため
+    // このカードは押すと * → Placeholder に落ちる死リンクになっていた。
   ];
 
   // 表示位置に応じて連番(01, 02, ...)を採番する
