@@ -123,7 +123,7 @@ export default function OrdersPage() {
   return (
     <div className="max-w-3xl mx-auto p-3 sm:p-4 space-y-4 sm:space-y-6 pb-24 font-mono">
       <button
-        onClick={() => navigate("/mypage")}
+        onClick={() => navigate("/visitor/mypage")}
         className="text-xs uppercase tracking-widest underline hover:text-info flex items-center gap-1"
       >
         <ArrowLeft className="h-4 w-4" />

@@ -160,7 +160,7 @@ function DashboardContent() {
                   </Button>
                 </Link>
               </PermissionGuard>
-              <a href={visitorUrl("/menu")}>
+              <a href={visitorUrl("/visitor/menu")}>
                 <Button className="w-full rounded-none border-thick border-border text-xs font-bold h-9 bg-background text-foreground hover:bg-primary hover:text-primary-foreground shadow-none" variant="outline">
                   来場者メニューを見る
                 </Button>

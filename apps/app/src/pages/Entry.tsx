@@ -39,7 +39,7 @@ export default function Entry() {
           nickname: user.nickname ?? null,
           onboarded,
         });
-        navigate(onboarded ? "/mypage" : "/onboarding", { replace: true });
+        navigate(onboarded ? "/visitor/mypage" : "/visitor/onboarding", { replace: true });
       } catch (e: any) {
         setError(e?.message || "入場に失敗しました。もう一度お試しください。");
       }

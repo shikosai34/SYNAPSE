@@ -132,7 +132,7 @@ function isOnLoginPage(): boolean {
 
 /**
  * スタッフ/管理エリア (401 で /login 誘導が妥当) かどうか。
- * 2026-07-11: 来場者エリア (/, /menu, /mypage, /events, /w/... やイベント/サークルの slug URL) は
+ * 2026-07-11: 来場者エリア (/ ブランディング, /visitor/... , /w/... など) は
  * better-auth 会員ではなく eventUser ベアラーの匿名ユーザーが対象。ここで API が 401 を返しても
  * (例: DBリセットで手元の eventUser が消えた等) スタッフ用ログインへ飛ばすのは誤り。
  * /circle・/event・/sys 配下の管理画面でだけ 401→ログイン誘導する。

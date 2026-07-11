@@ -47,7 +47,7 @@ export default function Home() {
           title="メニュー・出店を見る"
           desc="開催中のイベントと模擬店のメニューを見る。事前注文もこちらから。"
           cta="出店一覧を見る"
-          onClick={() => navigate("/events")}
+          onClick={() => navigate("/visitor/events")}
           primary
         />
 
@@ -58,7 +58,7 @@ export default function Home() {
             ? "あなたのマイQR・リストバンド状態・注文履歴を確認します。"
             : "入場済みの方向け。マイQRの提示や注文履歴の確認ができます。"}
           cta={isEntered ? "マイページを開く" : "マイページへ"}
-          onClick={() => navigate("/mypage")}
+          onClick={() => navigate("/visitor/mypage")}
         />
       </div>
 

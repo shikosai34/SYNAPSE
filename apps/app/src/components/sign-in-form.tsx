@@ -55,7 +55,7 @@ export default function SignInForm({
 							navigate((callbackUrl as any) || resolved.path);
 						} catch (error) {
 							toast.success("ログインしました");
-							navigate((callbackUrl as any) || "/mypage");
+							navigate((callbackUrl as any) || "/visitor/mypage");
 						}
 					},
 					onError: (error) => {

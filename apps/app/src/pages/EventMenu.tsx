@@ -37,7 +37,7 @@ export default function EventMenu() {
     <EventMenuContent
       eventId={eventId}
       isEntered={isEntered}
-      onBrowseCircle={(circleId) => navigate(`/menu?circleId=${circleId}`)}
+      onBrowseCircle={(circleId) => navigate(`/visitor/menu?circleId=${circleId}`)}
     />
   );
 }
@@ -190,7 +190,7 @@ function EventMenuContent({
         {isEntered && (
           <div className="mt-8">
             <Link
-              to="/mypage"
+              to="/visitor/mypage"
               className="inline-flex items-center gap-1 text-[11px] font-black uppercase tracking-wider underline hover:text-accent"
             >
               マイページ (注文履歴・スタンプ)
@@ -245,7 +245,7 @@ function EventPicker() {
             <button
               key={event.id}
               type="button"
-              onClick={() => navigate(`/events/${event.id}`)}
+              onClick={() => navigate(`/visitor/events/${event.id}`)}
               className="group text-left border-thick border-border bg-background hover:bg-muted transition-all p-4 flex items-center gap-3 cursor-pointer"
             >
               {event.logoUrl ? (

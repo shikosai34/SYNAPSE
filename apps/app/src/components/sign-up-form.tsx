@@ -36,7 +36,7 @@ export default function SignUpForm({
 			const resolved = await resolveActiveSpaceAfterAuth(signedUpEmail);
 			navigate((callbackUrl as any) || resolved.path);
 		} catch {
-			navigate((callbackUrl as any) || "/mypage");
+			navigate((callbackUrl as any) || "/visitor/mypage");
 		}
 	};
 

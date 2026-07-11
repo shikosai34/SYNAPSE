@@ -11,7 +11,7 @@ export default function Home() {
       title: "メニュー閲覧",
       description: "QRコードからアクセスして簡単にメニューを確認",
       // 来場者アプリ (別SPA) へのフルページ遷移
-      href: visitorUrl("/menu"),
+      href: visitorUrl("/visitor/menu"),
       external: true,
       tag: "CUSTOMER",
       index: "01",
@@ -68,7 +68,7 @@ export default function Home() {
                 ログインして始める
               </Button>
             </Link>
-            <a href={visitorUrl("/menu")} className="w-full sm:w-auto">
+            <a href={visitorUrl("/visitor/menu")} className="w-full sm:w-auto">
               <Button size="lg" variant="outline" className="w-full sm:w-auto">
                 メニューを見る
               </Button>

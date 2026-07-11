@@ -116,7 +116,7 @@ function MenuPageContent() {
       toast.success("事前オーダーを送信しました！店頭でマイQRを提示してください。");
       setCart([]);
       // 送信直後は注文履歴に遷移し、事前オーダーの状態を確認できるようにする (2026-07-11 履歴を /orders に分離)
-      navigate("/orders");
+      navigate("/visitor/orders");
     },
     onError: (error: any) => {
       toast.error(error.message || "事前オーダーの送信に失敗しました");
@@ -157,7 +157,7 @@ function MenuPageContent() {
       toast.success(`注文を受け付けました！呼出番号: ${orderData.orderNumber}`);
       setCart([]);
       // 注文直後は注文履歴に遷移し、店頭注文の状態(呼出番号・受取状況)を確認できるようにする (2026-07-11)
-      navigate("/orders");
+      navigate("/visitor/orders");
     },
     onError: (error: any) => {
       toast.error(error.message || "注文の送信に失敗しました");
@@ -254,13 +254,13 @@ function MenuPageContent() {
           </p>
           <div className="border-t-[3px] border-border pt-sp-4 flex flex-col gap-sp-2">
             <Button
-              onClick={() => navigate("/events")}
+              onClick={() => navigate("/visitor/events")}
               className="w-full h-12 border-thick border-border bg-primary text-primary-foreground font-mono font-bold uppercase hover:bg-background hover:text-foreground"
             >
               出店一覧を見る
             </Button>
             <Button
-              onClick={() => navigate("/mypage")}
+              onClick={() => navigate("/visitor/mypage")}
               className="w-full h-12 border-thick border-border bg-background text-foreground font-mono font-bold hover:bg-accent hover:text-accent-foreground"
             >
               マイページ (マイQR)
@@ -310,7 +310,7 @@ function MenuPageContent() {
         onClick={() => {
           if (circleIdParam) {
             // 横断閲覧 (イベントメニュー) から来た場合はイベントの出店一覧へ戻す
-            navigate("/events");
+            navigate("/visitor/events");
             return;
           }
           setSelectedCircleId(null);

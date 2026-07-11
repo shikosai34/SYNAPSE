@@ -76,7 +76,7 @@ function CheckinContent() {
             リストバンドのQRコードをスマートフォンでスキャンしてアクセスしてください。
           </p>
           <Button
-            onClick={() => { window.location.href = visitorUrl("/mypage"); }}
+            onClick={() => { window.location.href = visitorUrl("/visitor/mypage"); }}
             className="w-full h-12 border-thick border-border bg-primary text-primary-foreground font-bold uppercase rounded-none hover:bg-background hover:text-foreground"
           >
             マイページ（マイQR）へ移動
@@ -116,7 +116,7 @@ function CheckinContent() {
         </div>
 
         <Button
-          onClick={() => { window.location.href = visitorUrl("/mypage"); }}
+          onClick={() => { window.location.href = visitorUrl("/visitor/mypage"); }}
           className="w-full h-14 border-thick border-border bg-background text-foreground text-lg font-black uppercase rounded-none hover:bg-success hover:text-primary-foreground transition-all"
         >
           マイページ（マイQR）へ進む

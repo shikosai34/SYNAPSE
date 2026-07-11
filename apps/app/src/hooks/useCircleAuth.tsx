@@ -645,5 +645,6 @@ export async function resolveActiveSpaceAfterAuth(
     return { path: "/circle/dashboard", kind: "circle", membership: circleMembership };
   }
 
-  return { path: "/mypage", kind: "none", membership: null };
+  // 所属スペースが無いアカウント (来場者相当) は来場者マイページへ (2026-07-11 /visitor 集約)
+  return { path: "/visitor/mypage", kind: "none", membership: null };
 }

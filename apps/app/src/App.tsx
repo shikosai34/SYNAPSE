@@ -28,6 +28,7 @@ import DashboardStock from "@/pages/dashboard/Stock";
 import Placeholder from "@/pages/Placeholder";
 import { CircleAuthGuard, SystemAdminGuard, EventAdminGuard } from "@/hooks/useCircleAuth";
 
+import Branding from "@/pages/Branding";
 import VisitorHome from "@/pages/VisitorHome";
 import Entry from "@/pages/Entry";
 import Onboarding from "@/pages/Onboarding";
@@ -61,6 +62,16 @@ function VisitorLayout() {
 	);
 }
 
+// ブランディング (/) 用の素のレイアウト。VisitorHeader を出さず、メンテナンス
+// ゲートだけ共通で通す (2026-07-11 来場者パスを /visitor に集約しルートをブランド面に)。
+function BareLayout() {
+	return (
+		<SystemGate>
+			<Outlet />
+		</SystemGate>
+	);
+}
+
 export default function App() {
 	return (
 		<ErrorBoundary>
@@ -68,23 +79,31 @@ export default function App() {
 			{/* 2026-07-10: super_admin + ?debug=true のときスマホでerudaコンソールを有効化 */}
 			<DebugConsole />
 			<Routes>
-				<Route element={<VisitorLayout />}>
-					<Route path="/" element={<VisitorHome />} />
-					
-					<Route path="/w/:id" element={<Entry />} />
-					<Route path="/onboarding" element={<Onboarding />} />
-					<Route path="/mypage" element={<MyPage />} />
-					<Route path="/orders" element={<Orders />} />
-					
-					{/* Visitor event / menu routes */}
-					<Route path="/events" element={<EventMenu />} />
-					<Route path="/events/:eventId" element={<EventMenu />} />
-					<Route path="/menu" element={<Menu />} />
+				{/* ドメインルートはブランディングページ (VisitorHeader なし) */}
+				<Route element={<BareLayout />}>
+					<Route path="/" element={<Branding />} />
+				</Route>
 
-					{/* URL 統一対応 */}
-					<Route path="/:eventName" element={<EventMenu />} />
-					<Route path="/:eventName/:circleName" element={<Menu />} />
-					<Route path="/:eventName/:circleName/menu" element={<Menu />} />
+				{/* 来場者アプリは /visitor/* に集約 (2026-07-11)。
+				    入場QR (/w/:id) だけは物理バンド/発行QRに埋め込むスキャン用URLなので
+				    短いまま据え置く。 */}
+				<Route element={<VisitorLayout />}>
+					<Route path="/w/:id" element={<Entry />} />
+
+					<Route path="/visitor" element={<VisitorHome />} />
+					<Route path="/visitor/onboarding" element={<Onboarding />} />
+					<Route path="/visitor/mypage" element={<MyPage />} />
+					<Route path="/visitor/orders" element={<Orders />} />
+
+					{/* Visitor event / menu routes */}
+					<Route path="/visitor/events" element={<EventMenu />} />
+					<Route path="/visitor/events/:eventId" element={<EventMenu />} />
+					<Route path="/visitor/menu" element={<Menu />} />
+
+					{/* URL 統一対応 (pretty URL も /visitor 配下) */}
+					<Route path="/visitor/:eventName" element={<EventMenu />} />
+					<Route path="/visitor/:eventName/:circleName" element={<Menu />} />
+					<Route path="/visitor/:eventName/:circleName/menu" element={<Menu />} />
 				</Route>
 
 				<Route element={<AdminLayout />}>

@@ -20,7 +20,7 @@ export default function Onboarding() {
   // 入場前(セッション無し)に直接来たら入場を促す
   useEffect(() => {
     if (isLoaded && !isEntered) {
-      navigate("/", { replace: true });
+      navigate("/visitor", { replace: true });
     }
   }, [isLoaded, isEntered, navigate]);
 
@@ -48,7 +48,7 @@ export default function Onboarding() {
         });
       }
       toast.success("ようこそ！マイページを開きます");
-      navigate("/mypage", { replace: true });
+      navigate("/visitor/mypage", { replace: true });
     },
     onError: (e: any) => toast.error(e?.message || "登録に失敗しました"),
   });

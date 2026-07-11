@@ -94,7 +94,7 @@ export default function MyPage() {
       )}
 
       <button
-        onClick={() => navigate("/menu")}
+        onClick={() => navigate("/visitor/menu")}
         className="text-xs uppercase tracking-widest underline hover:text-info flex items-center gap-1"
       >
         <ArrowLeft className="h-4 w-4" />
@@ -155,7 +155,7 @@ export default function MyPage() {
 
       {/* 注文履歴への導線 (履歴は /orders に分離) */}
       <button
-        onClick={() => navigate("/orders")}
+        onClick={() => navigate("/visitor/orders")}
         className="group w-full flex items-center justify-between gap-2 border-thick border-border bg-background hover:bg-muted transition-all p-4 text-left"
       >
         <span className="flex items-center gap-3">

@@ -12,15 +12,15 @@ export default function VisitorHeader() {
   const pathname = useLocation().pathname;
   const { isEntered, session } = useVisitor();
 
-  // 2026-07-11: 「メニュー」は出店未選択の案内が出る /menu ではなく、実際に出店を選べる
-  // /events (出店ブラウズ) へ直結させて回遊を1タップ短縮する。
+  // 2026-07-11: 来場者パスは /visitor 配下に集約。「メニュー」は出店未選択の案内が出る
+  // /visitor/menu ではなく、実際に出店を選べる /visitor/events (出店ブラウズ) へ直結。
   const links = [
-    { to: "/events", label: "メニュー", icon: UtensilsCrossed, match: ["/events", "/menu"] },
-    { to: "/mypage", label: "マイQR", icon: QrCode, match: ["/mypage"] },
-    { to: "/orders", label: "注文履歴", icon: Receipt, match: ["/orders"] },
+    { to: "/visitor/events", label: "メニュー", icon: UtensilsCrossed, match: ["/visitor/events", "/visitor/menu"] },
+    { to: "/visitor/mypage", label: "マイQR", icon: QrCode, match: ["/visitor/mypage"] },
+    { to: "/visitor/orders", label: "注文履歴", icon: Receipt, match: ["/visitor/orders"] },
   ];
 
-  // メニューは /events・/menu どちらにいてもアクティブ表示にする
+  // メニューは /visitor/events・/visitor/menu どちらにいてもアクティブ表示にする
   const isActive = (matchPaths: string[]) =>
     matchPaths.some((p) => pathname.startsWith(p));
 
@@ -28,7 +28,7 @@ export default function VisitorHeader() {
     <header className="sticky top-0 z-50 bg-background border-b-[3px] border-border text-foreground font-mono">
       <div className="flex items-center justify-between px-2 sm:px-4 py-2 max-w-3xl mx-auto gap-2 sm:gap-4">
         <Link
-          to="/"
+          to="/visitor"
           className="font-headline text-base sm:text-lg uppercase tracking-[2px] leading-none select-none hover:opacity-80 flex items-center gap-2 shrink-0"
         >
           <span className="font-black border-[2px] border-border px-2 py-1 bg-primary text-primary-foreground text-sm">
