@@ -122,10 +122,24 @@ export function getLoginUrl() {
   return "/login";
 }
 
-/** 現在地が既にいずれかのログイン画面かどうか (401ループ防止用)。 */
+/** 現在地が既にログイン画面かどうか (401ループ防止用)。
+ * 2026-07-11: 単一ログイン画面 (/login) 統合後も旧 /circle/login 等の正規表現のままで
+ * 実際の /login にマッチしておらず、ログイン画面自身の 401 でループしかけていたため /login 判定に修正。 */
 function isOnLoginPage(): boolean {
   if (typeof window === "undefined") return false;
-  return /^\/(circle|event|sys)\/login/.test(window.location.pathname);
+  return window.location.pathname === "/login";
+}
+
+/**
+ * スタッフ/管理エリア (401 で /login 誘導が妥当) かどうか。
+ * 2026-07-11: 来場者エリア (/, /menu, /mypage, /events, /w/... やイベント/サークルの slug URL) は
+ * better-auth 会員ではなく eventUser ベアラーの匿名ユーザーが対象。ここで API が 401 を返しても
+ * (例: DBリセットで手元の eventUser が消えた等) スタッフ用ログインへ飛ばすのは誤り。
+ * /circle・/event・/sys 配下の管理画面でだけ 401→ログイン誘導する。
+ */
+function isStaffArea(): boolean {
+  if (typeof window === "undefined") return false;
+  return /^\/(circle|event|sys)(\/|$)/.test(window.location.pathname);
 }
 
 /**
@@ -148,6 +162,9 @@ export function handleApiErrorToast(error: unknown, opts: { toastId?: string } =
 
   if (error.code === "UNAUTHORIZED") {
     if (isOnLoginPage()) return; // ログイン画面自身での401はループ防止のため無視
+    // 来場者エリアの 401 はスタッフログインへ飛ばさない (匿名ユーザーの想定内エラー)。
+    // 画面遷移せず握り潰し、各来場者ページが自前の入場導線 (リストバンド読み取り等) を出す。
+    if (!isStaffArea()) return;
     const callbackUrl = typeof window !== "undefined" ? window.location.pathname + window.location.search : "/";
     const loginPath = getLoginUrl();
     if (typeof window !== "undefined") {
