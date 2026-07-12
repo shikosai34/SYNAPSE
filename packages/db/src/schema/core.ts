@@ -272,6 +272,9 @@ export const inviteToken = sqliteTable(
   {
     id: text("id").primaryKey(),
     token: text("token").notNull().unique(),
+    // 2026-07-12 (SaaS): 手入力用の短い人間可読コード (例: 8桁英数)。
+    // token(32桁) はリンク用、code は口頭/チャットで伝える手入力用。どちらでも受理する。
+    code: text("code").unique(),
     // 招待先
     circleId: text("circle_id").references(() => circle.id, {
       onDelete: "cascade",

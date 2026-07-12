@@ -2,8 +2,8 @@ import { Hono } from "hono";
 import { zBody } from "../z-validator";
 import { apiError } from "../http-error";
 import { z } from "zod";
-import { circle, event, membership } from "@fesflow/db";
-import { eq, and, isNull } from "drizzle-orm";
+import { circle, event, membership, inviteToken } from "@fesflow/db";
+import { eq, and, isNull, gt, lt } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { getAdminSession, hasPermission } from "../utils/auth";
 import { requireAuth } from "../middleware/auth";
@@ -119,6 +119,9 @@ circleRoutes.post(
       eventId: z.string(),
       name: z.string().min(1, "サークル名は必須です"),
       description: z.string().optional(),
+      // 2026-07-12 (SaaS): サークル作成は「そのイベントの event_manager」か
+      // 「サークルホスト招待 (circle_host)」のどちらかが必要。招待経由の場合はここに token を渡す。
+      inviteToken: z.string().optional(),
     })
   ),
   async (c) => {
@@ -126,6 +129,7 @@ circleRoutes.post(
     const session = c.get("session")!;
     const input = c.req.valid("json");
     const id = nanoid();
+    const email = session.user.email.toLowerCase();
 
     // イベントの存在確認
     const events = await db
@@ -136,6 +140,39 @@ circleRoutes.post(
       apiError("NOT_FOUND", "イベントが見つかりません");
     }
     const targetEvent = events[0]!;
+
+    // 2026-07-12 (SaaS): サークル作成の認可。
+    // - そのイベントの event_manager (主催者) は招待不要で作成できる (イベント管理画面からの追加)。
+    // - それ以外は、そのイベント向けの有効な circle_host 招待 (eventId 一致・circleId 無し・
+    //   role=circle_manager) を提示した場合のみ作成できる。誰でも任意イベントにサークルを
+    //   作れてしまう旧挙動を塞ぐ。招待の消費 (usedCount++) は作成直前に TOCTOU 安全に行う。
+    const myMemberships = await db
+      .select()
+      .from(membership)
+      .where(and(eq(membership.userEmail, email), eq(membership.isActive, true)));
+    const isEventManager = myMemberships.some(
+      (m) => m.eventId === input.eventId && m.role === "event_manager"
+    );
+    let hostInvite: typeof inviteToken.$inferSelect | null = null;
+    if (!isEventManager) {
+      if (!input.inviteToken) {
+        apiError("FORBIDDEN", "サークルを作成するにはイベントの招待が必要です");
+      }
+      const rows = await db
+        .select()
+        .from(inviteToken)
+        .where(and(eq(inviteToken.token, input.inviteToken!), gt(inviteToken.expiresAt, new Date())));
+      const t = rows[0];
+      const kindOk =
+        !!t && !t.circleId && t.eventId === input.eventId && t.role === "circle_manager";
+      if (!kindOk) {
+        apiError("FORBIDDEN", "無効または対象外の招待です");
+      }
+      if (t!.maxUses !== null && t!.usedCount >= t!.maxUses) {
+        apiError("BAD_REQUEST", "招待の使用回数上限に達しました");
+      }
+      hostInvite = t!;
+    }
 
     // 2026-07-12 (SaaS): 停止中イベントは新規サークル作成を拒否する。
     if (targetEvent.billingStatus === "suspended") {
@@ -165,6 +202,26 @@ circleRoutes.post(
 
     if (existingCircles.length > 0) {
       apiError("BAD_REQUEST", "同じ名前のサークルが既に存在します");
+    }
+
+    // 招待経由の場合は、作成を確定する直前に招待を TOCTOU 安全に消費する
+    // (used_count < max_uses を満たす場合のみ +1。0件更新なら上限到達で中断)。
+    if (hostInvite) {
+      const upd = await db
+        .update(inviteToken)
+        .set({ usedCount: hostInvite.usedCount + 1 })
+        .where(
+          and(
+            eq(inviteToken.id, hostInvite.id),
+            hostInvite.maxUses !== null
+              ? lt(inviteToken.usedCount, hostInvite.maxUses)
+              : undefined
+          )
+        );
+      const changes = (upd as unknown as { meta?: { changes?: number } })?.meta?.changes ?? 0;
+      if (changes === 0) {
+        apiError("BAD_REQUEST", "招待の使用回数上限に達しました");
+      }
     }
 
     // サークルと代表者メンバーシップを作成

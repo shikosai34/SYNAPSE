@@ -15,6 +15,13 @@
       "when": 1783844154288,
       "tag": "0001_heavy_tarantula",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1783844406495,
+      "tag": "0002_amusing_landau",
+      "breakpoints": true
     }
   ]
 }

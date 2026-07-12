@@ -1,27 +1,31 @@
-import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import { useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { authClient } from "@/lib/auth-client";
-import { eventApi, circleApi, type JoinableEvent } from "@/lib/api";
+import { eventApi, circleApi, membershipApi, type InviteLookupResult } from "@/lib/api";
 import { resolveActiveSpaceAfterAuth, useMySpaces } from "@/hooks/useCircleAuth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import Loader from "@/components/loader";
 
-// スタッフ用オンボーディング (2026-07-12)
-// 所属ゼロの新規アカウント (主に Google 初回ログイン) がログイン後の行き止まり
-// (「スペースを選択してください / まだ所属していません」) に落ちないよう、
-// ここでサークルをセルフ作成して circle_manager になる導線を提供する。
-// - 参加可能イベント(GET /api/festivals/joinable)から1つ選び、サークル名を入力 → 作成。
-// - 作成後は所属解決してサークルのダッシュボードへ遷移する。
-// - 招待リンクを持っている場合はそちらを開くよう案内する(招待経由の参加は別ルート)。
+// スタッフ用オンボーディング (2026-07-12 SaaS 分岐版)
+// 所属ゼロの新規アカウントに「イベントを主催する / サークルで出店する(招待コード)」を選ばせる。
+// - イベント主催: 無料枠(1サークル)のイベントを作成し event_manager になる → イベント管理へ。
+// - サークル出店: イベントの招待コード/リンクを要求し、
+//   - circle_host 招待 → そのイベント配下にサークルを新規作成して circle_manager に。
+//   - circle_member / event_manager 招待 → その場で受諾して適切な権限で参加。
+// URL ?inviteToken= が付いていれば join モードで自動照会する(招待リンク着地時に使う)。
+type Mode = "choose" | "host" | "join";
+
 export default function StaffOnboarding() {
 	const navigate = useNavigate();
+	const [searchParams] = useSearchParams();
+	const presetToken = searchParams.get("inviteToken");
 	const { data: session, isPending: sessionPending } = authClient.useSession();
 
-	// 既に所属があるアカウントはオンボーディング不要。ダッシュボードへ送り返す。
+	// 既に所属があるアカウントはオンボーディング不要。所属を解決して送り返す。
 	const { data: spaces } = useMySpaces();
 	useEffect(() => {
 		if (spaces && spaces.length > 0 && session?.user?.email) {
@@ -33,57 +37,88 @@ export default function StaffOnboarding() {
 		}
 	}, [spaces, session?.user?.email, navigate]);
 
-	const {
-		data: events,
-		isLoading: eventsLoading,
-		isError: eventsError,
-	} = useQuery({
-		queryKey: ["joinable-events"],
-		queryFn: () => eventApi.joinable(),
-		enabled: !!session?.user,
+	const [mode, setMode] = useState<Mode>(presetToken ? "join" : "choose");
+
+	// ── イベント主催 ───────────────────────────────────────────────
+	const [eventName, setEventName] = useState("");
+	const createEvent = useMutation({
+		mutationFn: () => eventApi.create({ eventName: eventName.trim() }),
+		onSuccess: async () => {
+			toast.success("イベントを作成しました");
+			await goToResolvedSpace();
+		},
+		onError: (e: any) => toast.error(e?.message || "イベントの作成に失敗しました"),
 	});
 
-	const [selectedEventId, setSelectedEventId] = useState<string>("");
+	// ── 招待経由 ───────────────────────────────────────────────────
+	const [codeInput, setCodeInput] = useState("");
+	const [lookup, setLookup] = useState<InviteLookupResult | null>(null);
 	const [circleName, setCircleName] = useState("");
-	const [description, setDescription] = useState("");
 
-	const canSubmit = useMemo(
-		() => !!selectedEventId && circleName.trim().length > 0,
-		[selectedEventId, circleName],
-	);
+	const doLookup = useMutation({
+		mutationFn: (params: { token?: string; code?: string }) => membershipApi.inviteLookup(params),
+		onSuccess: (res) => {
+			if (!res.valid) {
+				toast.error(res.reason || "この招待は使用できません");
+				return;
+			}
+			setLookup(res);
+		},
+		onError: (e: any) => toast.error(e?.message || "招待の照会に失敗しました"),
+	});
 
+	// URL に inviteToken があれば自動照会
+	useEffect(() => {
+		if (presetToken && !lookup && !doLookup.isPending) {
+			doLookup.mutate({ token: presetToken });
+		}
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [presetToken]);
+
+	// circle_member / event_manager 招待をその場で受諾
+	const acceptInvite = useMutation({
+		mutationFn: () =>
+			membershipApi.acceptInvite({
+				token: lookup!.token,
+				userName: session?.user?.name || session?.user?.email || "メンバー",
+			}),
+		onSuccess: async () => {
+			toast.success("参加しました");
+			await goToResolvedSpace();
+		},
+		onError: (e: any) => toast.error(e?.message || "参加に失敗しました"),
+	});
+
+	// circle_host 招待でサークルを新規作成
 	const createCircle = useMutation({
 		mutationFn: () =>
 			circleApi.create({
-				eventId: selectedEventId,
+				eventId: lookup!.eventId!,
 				name: circleName.trim(),
-				description: description.trim() || undefined,
+				inviteToken: lookup!.token,
 			}),
 		onSuccess: async () => {
 			toast.success("サークルを作成しました");
-			// 作成で circle_manager になったので所属解決 → サークルのダッシュボードへ
-			try {
-				const email = session?.user?.email;
-				if (email) {
-					const resolved = await resolveActiveSpaceAfterAuth(email);
-					navigate(resolved.path, { replace: true });
-					return;
-				}
-			} catch {
-				// 解決に失敗しても致命的でない: ログインへ戻し、自動解決/案内に委ねる
-			}
-			navigate("/login", { replace: true });
+			await goToResolvedSpace();
 		},
-		onError: (e: any) => {
-			toast.error(e?.message || "サークルの作成に失敗しました");
-		},
+		onError: (e: any) => toast.error(e?.message || "サークルの作成に失敗しました"),
 	});
 
-	if (sessionPending) {
-		return <Loader />;
+	async function goToResolvedSpace() {
+		try {
+			const email = session?.user?.email;
+			if (email) {
+				const resolved = await resolveActiveSpaceAfterAuth(email);
+				navigate(resolved.path, { replace: true });
+				return;
+			}
+		} catch {
+			/* fall through */
+		}
+		navigate("/login", { replace: true });
 	}
 
-	// 未ログインならログインへ (このページはログイン後前提)
+	if (sessionPending) return <Loader />;
 	if (!session?.user) {
 		navigate("/login", { replace: true });
 		return <Loader />;
@@ -99,98 +134,156 @@ export default function StaffOnboarding() {
 						ようこそ、{displayName} さん
 					</h1>
 					<p className="font-mono text-[13px] text-muted-foreground leading-[1.6]">
-						まだどのサークルにも所属していません。出店するサークルをここで作成すると、
-						あなたが<strong className="text-foreground">サークル管理者</strong>になります。
-						スタッフの追加はサークル作成後、メンバー管理画面の招待リンクから行えます。
+						FesFlow をどう使い始めるか選んでください。
 					</p>
 				</div>
 
-				{/* 招待経由で参加する人向けの案内 */}
-				<div className="border-thin border-border bg-muted/30 p-3 font-mono text-[12px] text-muted-foreground leading-[1.6]">
-					すでに<strong className="text-foreground">招待リンク</strong>を受け取っている場合は、
-					このページではなくそのリンクを開いてサークルに参加してください。
-				</div>
-
-				{/* イベント選択 */}
-				<div className="space-y-2">
-					<Label>1. 出店するイベントを選択</Label>
-					{eventsLoading ? (
-						<Loader />
-					) : eventsError ? (
-						<p className="font-mono text-[12px] text-error">
-							イベントの取得に失敗しました。時間をおいて再読み込みしてください。
-						</p>
-					) : events && events.length > 0 ? (
-						<div className="space-y-2">
-							{events.map((ev: JoinableEvent) => {
-								const selected = ev.id === selectedEventId;
-								return (
-									<button
-										key={ev.id}
-										type="button"
-										onClick={() => setSelectedEventId(ev.id)}
-										className={`w-full text-left p-3 border-thick font-mono text-[13px] transition-colors ${
-											selected
-												? "border-accent bg-accent/10"
-												: "border-border hover:border-foreground"
-										}`}
-									>
-										<div className="font-bold">{ev.eventName}</div>
-										{ev.description && (
-											<div className="text-muted-foreground text-[12px] mt-1">
-												{ev.description}
-											</div>
-										)}
-									</button>
-								);
-							})}
-						</div>
-					) : (
-						<p className="font-mono text-[12px] text-muted-foreground border-thin border-border p-3 leading-[1.6]">
-							参加できるイベントがまだありません。イベントは主催者(システム管理者)が作成します。
-							主催者に連絡するか、招待リンクを受け取ってから参加してください。
-						</p>
-					)}
-				</div>
-
-				{/* サークル名 (イベント選択後に有効) */}
-				{events && events.length > 0 && (
-					<div className="space-y-4">
-						<div className="space-y-1">
-							<Label htmlFor="circleName">2. サークル名</Label>
-							<Input
-								id="circleName"
-								value={circleName}
-								onChange={(e) => setCircleName(e.target.value)}
-								placeholder="例: たこ焼き 茨香庵"
-								disabled={!selectedEventId}
-							/>
-						</div>
-						<div className="space-y-1">
-							<Label htmlFor="circleDescription">説明 (任意)</Label>
-							<Input
-								id="circleDescription"
-								value={description}
-								onChange={(e) => setDescription(e.target.value)}
-								placeholder="出店ジャンルや販売メニュー等"
-								disabled={!selectedEventId}
-							/>
-						</div>
-						<Button
-							className="w-full"
-							size="lg"
-							disabled={!canSubmit || createCircle.isPending}
-							onClick={() => createCircle.mutate()}
+				{/* ── 選択画面 ── */}
+				{mode === "choose" && (
+					<div className="grid grid-cols-1 gap-3">
+						<button
+							type="button"
+							onClick={() => setMode("host")}
+							className="text-left p-4 border-thick border-border hover:border-foreground transition-colors"
 						>
-							{createCircle.isPending ? "作成中..." : "サークルを作成して始める"}
-						</Button>
+							<div className="font-headline text-[18px] uppercase">イベントを主催する</div>
+							<div className="font-mono text-[12px] text-muted-foreground mt-1 leading-[1.6]">
+								学園祭やイベントの主催者はこちら。無料プランで始められます(サークルは1つまで。
+								上限はあとから拡張できます)。あなたがイベント管理者になります。
+							</div>
+						</button>
+						<button
+							type="button"
+							onClick={() => setMode("join")}
+							className="text-left p-4 border-thick border-border hover:border-foreground transition-colors"
+						>
+							<div className="font-headline text-[18px] uppercase">サークルで出店する</div>
+							<div className="font-mono text-[12px] text-muted-foreground mt-1 leading-[1.6]">
+								出店するサークルの方はこちら。主催者から受け取った<strong className="text-foreground">招待コード</strong>
+								または招待リンクが必要です。
+							</div>
+						</button>
 					</div>
 				)}
 
-				<div className="pt-2 border-t border-border flex flex-col gap-2">
-					<Button variant="outline" className="w-full" onClick={() => navigate("/")}>
-						トップへ戻る
-					</Button>
+				{/* ── イベント主催 ── */}
+				{mode === "host" && (
+					<div className="space-y-4">
+						<div className="space-y-1">
+							<Label htmlFor="eventName">イベント名</Label>
+							<Input
+								id="eventName"
+								value={eventName}
+								onChange={(e) => setEventName(e.target.value)}
+								placeholder="例: 第50回 志功祭"
+							/>
+						</div>
+						<div className="border-thin border-border bg-muted/30 p-3 font-mono text-[12px] text-muted-foreground leading-[1.6]">
+							無料プランで作成されます(サークル1つまで)。作成後、イベント管理画面から
+							サークルの招待や設定ができます。プランのアップグレードは運営にお問い合わせください。
+						</div>
+						<div className="flex gap-2">
+							<Button variant="outline" onClick={() => setMode("choose")}>
+								戻る
+							</Button>
+							<Button
+								className="flex-1"
+								disabled={!eventName.trim() || createEvent.isPending}
+								onClick={() => createEvent.mutate()}
+							>
+								{createEvent.isPending ? "作成中..." : "イベントを作成する"}
+							</Button>
+						</div>
+					</div>
+				)}
+
+				{/* ── 招待経由 ── */}
+				{mode === "join" && (
+					<div className="space-y-4">
+						{!lookup ? (
+							<>
+								<div className="space-y-1">
+									<Label htmlFor="code">招待コード</Label>
+									<Input
+										id="code"
+										value={codeInput}
+										onChange={(e) => setCodeInput(e.target.value.toUpperCase())}
+										placeholder="例: ABCD2345"
+										autoCapitalize="characters"
+									/>
+									<p className="font-mono text-[11px] text-muted-foreground">
+										主催者から受け取った招待リンクをお持ちの場合は、そのリンクを直接開いてください。
+									</p>
+								</div>
+								<div className="flex gap-2">
+									<Button variant="outline" onClick={() => setMode("choose")}>
+										戻る
+									</Button>
+									<Button
+										className="flex-1"
+										disabled={!codeInput.trim() || doLookup.isPending}
+										onClick={() => doLookup.mutate({ code: codeInput.trim() })}
+									>
+										{doLookup.isPending ? "確認中..." : "招待を確認する"}
+									</Button>
+								</div>
+							</>
+						) : lookup.kind === "circle_host" ? (
+							// circle_host: そのイベント配下にサークルを作成
+							<div className="space-y-4">
+								<div className="border-thin border-border bg-muted/30 p-3 font-mono text-[12px] leading-[1.6]">
+									<strong className="text-foreground">{lookup.eventName || "イベント"}</strong>{" "}
+									への出店招待です。サークルを作成するとあなたがサークル管理者になります。
+								</div>
+								<div className="space-y-1">
+									<Label htmlFor="circleName">サークル名</Label>
+									<Input
+										id="circleName"
+										value={circleName}
+										onChange={(e) => setCircleName(e.target.value)}
+										placeholder="例: たこ焼き 茨香庵"
+									/>
+								</div>
+								<div className="flex gap-2">
+									<Button variant="outline" onClick={() => setLookup(null)}>
+										戻る
+									</Button>
+									<Button
+										className="flex-1"
+										disabled={!circleName.trim() || createCircle.isPending}
+										onClick={() => createCircle.mutate()}
+									>
+										{createCircle.isPending ? "作成中..." : "サークルを作成して始める"}
+									</Button>
+								</div>
+							</div>
+						) : (
+							// circle_member / event_manager: その場で受諾
+							<div className="space-y-4">
+								<div className="border-thin border-border bg-muted/30 p-3 font-mono text-[12px] leading-[1.6]">
+									<strong className="text-foreground">
+										{lookup.circleName || lookup.eventName || "スペース"}
+									</strong>{" "}
+									への招待です({roleLabel(lookup.kind)}として参加)。
+								</div>
+								<div className="flex gap-2">
+									<Button variant="outline" onClick={() => setLookup(null)}>
+										戻る
+									</Button>
+									<Button
+										className="flex-1"
+										disabled={acceptInvite.isPending}
+										onClick={() => acceptInvite.mutate()}
+									>
+										{acceptInvite.isPending ? "参加中..." : "参加する"}
+									</Button>
+								</div>
+							</div>
+						)}
+					</div>
+				)}
+
+				<div className="pt-2 border-t border-border">
 					<button
 						type="button"
 						onClick={() =>
@@ -206,4 +299,15 @@ export default function StaffOnboarding() {
 			</div>
 		</div>
 	);
+}
+
+function roleLabel(kind: string): string {
+	switch (kind) {
+		case "event_manager":
+			return "イベント管理者";
+		case "circle_member":
+			return "サークルスタッフ";
+		default:
+			return "メンバー";
+	}
 }

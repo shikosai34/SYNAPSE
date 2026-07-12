@@ -137,6 +137,8 @@ export default function App() {
 
 					<Route path="/circle/checkin" element={<Checkin />} />
 					<Route path="/circle/invite/:token" element={<Invite />} />
+					{/* イベント招待 (共同管理者 / サークルホスト) も同じ受諾ページで種別判定する */}
+					<Route path="/event/invite/:token" element={<Invite />} />
 					<Route
 						path="/circle/register"
 						element={

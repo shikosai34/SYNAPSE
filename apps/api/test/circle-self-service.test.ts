@@ -38,13 +38,20 @@ async function signUpAndGetCookie(): Promise<{ cookie: string; email: string }> 
 }
 
 describe("サークルのセルフサービス作成", () => {
-	it("ログインユーザーがサークルを作成すると、自分が circle_manager になる", async () => {
+	it("イベント主催者(event_manager)がサークルを作成すると、自分が circle_manager になる", async () => {
 		const { cookie, email } = await signUpAndGetCookie();
 
-		const eventId = uid("ev");
+		// 2026-07-12 (SaaS): サークル作成は「そのイベントの event_manager」か
+		// 「circle_host 招待」が必要になった。ここでは本人がイベントを主催 (POST /festivals)
+		// して event_manager になり、そのイベント配下にサークルを作る経路を検証する。
 		const db = testDb();
-		const { event } = await import("@fesflow/db");
-		await db.insert(event).values({ id: eventId, eventName: uid("テスト学園祭") });
+		const evRes = await request("/api/festivals", {
+			method: "POST",
+			headers: { "Content-Type": "application/json", Cookie: cookie },
+			body: JSON.stringify({ eventName: uid("テスト学園祭") }),
+		});
+		expect(evRes.status).toBe(201);
+		const { id: eventId } = (await evRes.json()) as { id: string };
 
 		const circleName = uid("テスト模擬店");
 		const res = await request("/api/circles", {

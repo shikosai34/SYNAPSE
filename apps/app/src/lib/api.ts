@@ -79,9 +79,6 @@ async function fetchApi<T>(
 // エンドポイントを /api/events から /api/festivals に変更。
 export const eventApi = {
   list: () => fetchApi<Event[]>("/api/festivals"),
-  // オンボーディングでサークルをセルフ作成する新規ユーザー向けに、参加可能な
-  // (論理削除されていない) イベントを最小情報で返す。list は所属イベントしか返さないため別立て。
-  joinable: () => fetchApi<JoinableEvent[]>("/api/festivals/joinable"),
   get: (id: string) => fetchApi<Event>(`/api/festivals/${id}`),
   create: (data: CreateEventInput) =>
     fetchApi<{ id: string }>("/api/festivals", { method: "POST", body: data }),
@@ -259,15 +256,22 @@ export const membershipApi = {
       method: "DELETE",
     }),
   createInvite: (data: CreateInviteInput) =>
-    fetchApi<{ token: string; expiresAt: Date }>("/api/memberships/invite", {
+    fetchApi<{ token: string; code: string; expiresAt: Date }>("/api/memberships/invite", {
       method: "POST",
       body: data,
     }),
+  // 招待の照会 (token か code から種別/イベント/サークル/ロールを取得)。2026-07-12
+  inviteLookup: (params: { token?: string; code?: string }) => {
+    const q = params.token
+      ? `token=${encodeURIComponent(params.token)}`
+      : `code=${encodeURIComponent(params.code || "")}`;
+    return fetchApi<InviteLookupResult>(`/api/memberships/invite/lookup?${q}`);
+  },
   acceptInvite: (data: AcceptInviteInput) =>
-    fetchApi<{ membershipId: string }>("/api/memberships/invite/accept", {
-      method: "POST",
-      body: data,
-    }),
+    fetchApi<{ membershipId?: string; kind: InviteKind; eventId?: string; token?: string }>(
+      "/api/memberships/invite/accept",
+      { method: "POST", body: data }
+    ),
   listInvites: (circleId?: string, eventId?: string) => {
     const params = circleId
       ? `circleId=${circleId}`
@@ -375,15 +379,6 @@ export interface Event extends EventTheme {
   description: string | null;
   startDate: Date | null;
   endDate: Date | null;
-}
-
-// オンボーディングのイベント選択で使う最小情報 (GET /api/festivals/joinable)
-export interface JoinableEvent {
-  id: string;
-  eventName: string;
-  description: string | null;
-  startDate: string | null;
-  endDate: string | null;
 }
 
 
@@ -573,12 +568,14 @@ export type MembershipWithUser = Membership;
 export interface InviteToken {
   id: string;
   token: string;
+  code: string | null;
   circleId: string | null;
   eventId: string | null;
   role: string;
   expiresAt: Date;
   maxUses: number | null;
   usedCount: number;
+  targetEmail?: string | null;
 }
 
 // Input Types
@@ -597,6 +594,8 @@ export interface CreateCircleInput {
   eventId: string;
   name: string;
   description?: string;
+  // 2026-07-12 (SaaS): 非主催者が circle_host 招待でサークルを作る場合に渡す。
+  inviteToken?: string;
 }
 
 export interface UpdateCircleInput {
@@ -704,9 +703,26 @@ export interface CreateInviteInput {
 
 // 2026-07-07 (Phase 3a): 招待受諾は better-auth セッション必須になり、
 // userEmail はセッションから解決されるため入力不要 (pin も廃止)。
+// 2026-07-12: token(リンク) か code(手入力) のどちらかで受諾できる。
 export interface AcceptInviteInput {
-  token: string;
+  token?: string;
+  code?: string;
   userName: string;
+}
+
+// 招待種別 (2026-07-12 SaaS)
+export type InviteKind = "circle_member" | "event_manager" | "circle_host" | "unknown";
+
+export interface InviteLookupResult {
+  kind: InviteKind;
+  role: Role;
+  eventId: string | null;
+  circleId: string | null;
+  eventName: string | null;
+  circleName: string | null;
+  token: string;
+  valid: boolean;
+  reason: string | null;
 }
 
 // Wristband API

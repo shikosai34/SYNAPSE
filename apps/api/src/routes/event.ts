@@ -55,32 +55,6 @@ eventRoutes.get("/", async (c) => {
   return c.json(events);
 });
 
-// 参加可能なイベント一覧 (オンボーディング用, 2026-07-12)
-// 所属ゼロの新規アカウントは GET / が [] を返すため参加先イベントを発見できない。
-// オンボーディングでサークルをセルフ作成する導線のために、ログイン済みユーザーへ
-// 論理削除されていないイベントの最小情報だけを返す。作成権限とは無関係の「発見」用途。
-// (POST /api/circles は eventId + 認証があれば誰でもサークルを作れる=作成者が circle_manager)
-eventRoutes.get("/joinable", async (c) => {
-  const db = c.get("db");
-  const session = await getSession(c);
-  if (!session || !session.user) {
-    apiError("UNAUTHORIZED", "認証が必要です");
-  }
-
-  const events = await db
-    .select({
-      id: event.id,
-      eventName: event.eventName,
-      description: event.description,
-      startDate: event.startDate,
-      endDate: event.endDate,
-    })
-    .from(event)
-    .where(isNull(event.deletedAt));
-
-  return c.json(events);
-});
-
 // イベント取得
 eventRoutes.get("/:id", async (c) => {
   const db = c.get("db");

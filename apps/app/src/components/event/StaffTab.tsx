@@ -111,11 +111,25 @@ export function StaffTab({
           </CardHeader>
           <CardContent className="p-4 space-y-2">
             {invites.map((inv) => {
-              const inviteUrl = `${window.location.origin}/login?invite=${inv.token}`;
+              // 2026-07-12: 招待種別に応じた受諾リンク。circle_host(サークル出店)は
+              // /event/invite、共同管理者も同じ受諾ページで種別判定される。
+              const kind =
+                inv.circleId ? "circle" : inv.role === "circle_manager" ? "host" : "event";
+              const path = kind === "circle" ? "circle" : "event";
+              const inviteUrl = `${window.location.origin}/${path}/invite/${inv.token}`;
+              const purposeLabel =
+                kind === "host"
+                  ? "サークル出店"
+                  : kind === "event"
+                    ? "イベント共同管理者"
+                    : "サークルスタッフ";
               return (
                 <div key={inv.id} className="flex flex-col sm:flex-row justify-between items-start sm:items-center p-2.5 text-[10px] font-mono bg-muted/30">
                   <div className="space-y-0.5">
-                    <p className="font-bold text-foreground">ロール: {inv.role}</p>
+                    <p className="font-bold text-foreground">{purposeLabel}（{inv.usedCount}/{inv.maxUses ?? "∞"} 使用）</p>
+                    {inv.code && (
+                      <p className="text-foreground text-[11px] select-all">招待コード: <span className="font-bold tracking-wider">{inv.code}</span></p>
+                    )}
                     <p className="text-muted-foreground text-[8px] break-all select-all">リンク: {inviteUrl}</p>
                   </div>
                   <Button

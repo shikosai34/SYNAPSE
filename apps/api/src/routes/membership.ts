@@ -4,10 +4,31 @@ import { apiError } from "../http-error";
 import { z } from "zod";
 import { membership, inviteToken, circle, event, notification } from "@fesflow/db";
 import { eq, and, inArray, gt, isNull, lt } from "drizzle-orm";
-import { nanoid } from "nanoid";
+import { nanoid, customAlphabet } from "nanoid";
 import { Context } from "hono";
 import { requireAuth } from "../middleware/auth";
 import type { AppEnv } from "../types";
+
+// 招待の手入力コード生成。紛らわしい文字 (0/O, 1/I/L 等) を除いた 8 桁。
+// リンク用の token(32桁) とは別に、口頭/チャットで伝えやすい短コードを併発行する。
+const genInviteCode = customAlphabet("ABCDEFGHJKMNPQRSTUVWXYZ23456789", 8);
+
+/**
+ * inviteToken の種別を circleId/eventId/role から導出する。
+ * - circle_member: 既存サークルに参加 (circleId 有り)
+ * - event_manager: イベント共同管理者 (eventId 有り, role=event_manager)
+ * - circle_host:   その event 配下にサークルを新規作成する権利 (eventId 有り, role=circle_manager, circleId 無し)
+ */
+function inviteKind(t: { circleId: string | null; eventId: string | null; role: string }):
+  | "circle_member"
+  | "event_manager"
+  | "circle_host"
+  | "unknown" {
+  if (t.circleId) return "circle_member";
+  if (t.eventId && t.role === "event_manager") return "event_manager";
+  if (t.eventId && t.role === "circle_manager") return "circle_host";
+  return "unknown";
+}
 
 // 2026-07-07 (Phase 3a): 独自 PIN 認証 (authenticate-pin) を廃止したのに伴い、
 // このルーター配下の全エンドポイントが better-auth セッション必須になったため、
@@ -536,6 +557,7 @@ membershipRoutes.post(
     const input = c.req.valid("json");
     const id = nanoid();
     const token = nanoid(32);
+    const code = genInviteCode(); // 手入力用の短コード (2026-07-12)
 
     const err = await checkMemberWritePermission(c, input.circleId || null, "viewer", input.role, input.eventId);
     if (err) apiError(err.code, err.error, { status: err.status });
@@ -547,6 +569,7 @@ membershipRoutes.post(
     await db.insert(inviteToken).values({
       id,
       token,
+      code,
       circleId: input.circleId,
       eventId: input.eventId,
       role: input.role,
@@ -589,9 +612,62 @@ membershipRoutes.post(
       });
     }
 
-    return c.json({ token, expiresAt }, 201);
+    return c.json({ token, code, expiresAt }, 201);
   }
 );
+
+// 招待の照会 (2026-07-12): token か code から招待の概要を返す。
+// オンボーディング/招待受諾画面が「どの種別・どのイベント/サークル・どのロールか」を
+// 事前提示するために使う。生 token は返さず、表示に必要な最小情報のみ返す。
+// requireAuth 済み (membershipRoutes.use)。存在しない/期限切れは 404。
+membershipRoutes.get("/invite/lookup", async (c) => {
+  const db = c.get("db");
+  const token = c.req.query("token");
+  const code = c.req.query("code");
+  if (!token && !code) {
+    apiError("BAD_REQUEST", "token または code が必要です");
+  }
+
+  const rows = await db
+    .select()
+    .from(inviteToken)
+    .where(token ? eq(inviteToken.token, token) : eq(inviteToken.code, code!));
+
+  const found = rows[0];
+  if (!found || new Date(found.expiresAt) <= new Date()) {
+    apiError("NOT_FOUND", "無効または期限切れの招待です");
+  }
+  const t = found!;
+
+  const overLimit = t.maxUses !== null && t.usedCount >= t.maxUses;
+
+  let circleName: string | null = null;
+  let eventName: string | null = null;
+  if (t.circleId) {
+    const rc = await db.select().from(circle).where(eq(circle.id, t.circleId));
+    circleName = rc[0]?.name ?? null;
+    if (rc[0]?.eventId) {
+      const re = await db.select().from(event).where(eq(event.id, rc[0].eventId));
+      eventName = re[0]?.eventName ?? null;
+    }
+  } else if (t.eventId) {
+    const re = await db.select().from(event).where(eq(event.id, t.eventId));
+    eventName = re[0]?.eventName ?? null;
+  }
+
+  return c.json({
+    kind: inviteKind(t),
+    role: t.role,
+    eventId: t.eventId,
+    circleId: t.circleId,
+    eventName,
+    circleName,
+    // 受諾時に使う識別子 (token を優先)。
+    token: t.token,
+    valid: !overLimit,
+    reason: overLimit ? "使用回数の上限に達しています" : null,
+  });
+});
 
 // 招待を受け入れ
 // 2026-07-05: (1) セッション不要で任意の userEmail としてメンバーシップを
@@ -605,24 +681,31 @@ membershipRoutes.post(
   "/invite/accept",
   zBody(
     z.object({
-      token: z.string(),
+      // token(リンク) か code(手入力) のどちらかで受諾できる (2026-07-12)。
+      token: z.string().optional(),
+      code: z.string().optional(),
       userName: z.string(),
     })
   ),
   async (c) => {
     const db = c.get("db");
     const input = c.req.valid("json");
+    if (!input.token && !input.code) {
+      apiError("BAD_REQUEST", "token または code が必要です");
+    }
 
     const session = c.get("session")!;
     const userEmail = session.user.email.toLowerCase();
 
-    // トークンを検索
+    // トークンを検索 (token 優先、無ければ code)
     const tokens = await db
       .select()
       .from(inviteToken)
       .where(
         and(
-          eq(inviteToken.token, input.token),
+          input.token
+            ? eq(inviteToken.token, input.token)
+            : eq(inviteToken.code, input.code!),
           gt(inviteToken.expiresAt, new Date())
         )
       );
@@ -636,6 +719,12 @@ membershipRoutes.post(
     // targetEmail が指定されたトークンは、そのメール宛のセッションでしか使えない
     if (foundToken.targetEmail && foundToken.targetEmail.toLowerCase() !== userEmail) {
       apiError("FORBIDDEN", "この招待は別のメールアドレス宛です");
+    }
+
+    // circle_host 招待はメンバーシップを作らず、サークル作成へ誘導する
+    // (実際の所属は POST /api/circles で circle_manager として作られる)。
+    if (inviteKind(foundToken) === "circle_host") {
+      return c.json({ kind: "circle_host", eventId: foundToken.eventId, token: foundToken.token });
     }
 
     // 使用回数チェック（事前チェック。確定は下の条件付きUPDATEで行う）
@@ -699,7 +788,7 @@ membershipRoutes.post(
       isActive: true,
     });
 
-    return c.json({ membershipId }, 201);
+    return c.json({ membershipId, kind: inviteKind(foundToken) }, 201);
   }
 );
 
@@ -742,6 +831,11 @@ membershipRoutes.get("/invite/list", async (c) => {
     circleId: t.circleId,
     eventId: t.eventId,
     role: t.role,
+    // token(リンク用) と code(手入力用) は一覧に必要 (共有導線を出すため)。
+    // これらは招待の受諾に使う値だが、そもそも招待は「共有して使わせる」もので、
+    // 閲覧には member 管理権限を要求済みのため一覧提示は許容する。
+    token: t.token,
+    code: t.code,
     expiresAt: t.expiresAt,
     usedCount: t.usedCount,
     maxUses: t.maxUses,
