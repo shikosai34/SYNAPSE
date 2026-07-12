@@ -74,6 +74,13 @@ export function createAuth(db: DB, env: WorkerEnv): Auth {
 			accountLinking: {
 				enabled: true,
 				trustedProviders: ["google"],
+				// requireLocalEmailVerified は既定 true。既存アカウントは旧メール/パスワードで
+				// 作成され emailVerified=false のため、既定のままだと Google(trusted)でも
+				// better-auth が account_not_linked を投げてリンクできない
+				// (better-auth link-account.mjs: `requireLocalEmailVerified && !dbUser.user.emailVerified`)。
+				// Google はメール所有を検証済み(userInfo.emailVerified=true)で、かつメール認証は
+				// 廃止済みなので、ローカル側の検証要求を外して既存アカウントへの Google リンクを許可する。
+				requireLocalEmailVerified: false,
 			},
 		},
 		plugins: [passkey()],
