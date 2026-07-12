@@ -12,11 +12,12 @@ import {
   sudoSession,
   impersonationSession,
   auditLog,
+  session,
   type DB,
   type WorkerEnv,
 } from "@fesflow/db";
-import { eq, and, gt, isNotNull, isNull, desc } from "drizzle-orm";
-import { nanoid } from "nanoid";
+import { eq, and, gt, lt, isNotNull, isNull, desc, sql } from "drizzle-orm";
+import { ulid } from "ulidx";
 import { requireSuperAdmin } from "../middleware/auth";
 import {
   betterAuthSessionId,
@@ -153,7 +154,7 @@ adminRoutes.get("/announcements", async (c) => {
 adminRoutes.post("/announcements", zBody(announcementInput), async (c) => {
   const db = c.get("db");
   const input = c.req.valid("json");
-  const id = nanoid();
+  const id = ulid();
   await db.insert(announcement).values({ id, ...input });
   return c.json({ success: true, id });
 });
@@ -299,6 +300,28 @@ adminRoutes.patch(
   },
 );
 
+// 期限切れセッション数を取得
+adminRoutes.get("/sessions/expired-count", async (c) => {
+  const db = c.get("db");
+  const now = new Date();
+  const rows = await db
+    .select({ count: sql<number>`count(*)` })
+    .from(session)
+    .where(lt(session.expiresAt, now));
+  const count = rows[0]?.count ?? 0;
+  return c.json({ count });
+});
+
+// 期限切れセッションをクリーンアップ
+adminRoutes.post("/sessions/cleanup", async (c) => {
+  const db = c.get("db");
+  const now = new Date();
+  await db.delete(session).where(lt(session.expiresAt, now));
+  const email = c.get("adminEmail");
+  await audit(c, { actorEmail: email, action: "impersonated_write", summary: "Cleaned up expired sessions" });
+  return c.json({ success: true });
+});
+
 // ── SaaS 運営コンソール: イベント/課金管理 (2026-07-12 Phase C) ──────────
 // これらは「運営(admin)情報」= 集計・契約状態・名簿の俯瞰であり、テナントの
 // 「内容」(メニュー/注文/売上の中身) には触れない。内容の閲覧は Phase D/E の
@@ -427,7 +450,7 @@ adminRoutes.post("/sudo/elevate", async (c) => {
   // セッションごとに1行 (再昇格で更新)。
   await db
     .insert(sudoSession)
-    .values({ id: nanoid(), sessionId: sid, userEmail: email, method: "passkey", expiresAt })
+    .values({ id: ulid(), sessionId: sid, userEmail: email, method: "passkey", expiresAt })
     .onConflictDoUpdate({ target: sudoSession.sessionId, set: { expiresAt, createdAt: new Date() } });
   await audit(c, { actorEmail: email, action: "elevate" });
   return c.json({ elevated: true, expiresAt });
@@ -500,7 +523,7 @@ adminRoutes.post(
     await db
       .insert(impersonationSession)
       .values({
-        id: nanoid(),
+        id: ulid(),
         sessionId: sid,
         actorEmail,
         role: input.role,

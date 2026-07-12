@@ -1,8 +1,9 @@
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { adminApi } from "@/lib/api";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ErrorState } from "@/components/ui/ErrorState";
-import { Calendar, Store, Users, Lock } from "lucide-react";
+import { Calendar, Store, Users, Lock, AlertTriangle } from "lucide-react";
 
 // SaaS 運営ダッシュボード (2026-07-12 Phase C)。
 // テナント横断の集計 KPI のみを表示する運営ビュー (内容には触れない)。
@@ -14,10 +15,29 @@ const STATUS_LABELS: Record<string, string> = {
 };
 
 export function OverviewTab() {
+  const [isCleaning, setIsCleaning] = useState(false);
   const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["adminOverview"],
     queryFn: () => adminApi.overview(),
   });
+
+  const { data: expiredData, refetch: refetchExpired } = useQuery({
+    queryKey: ["expiredSessionsCount"],
+    queryFn: () => adminApi.expiredSessionsCount(),
+  });
+
+  const handleCleanup = async () => {
+    if (!window.confirm("期限切れセッションをすべてクリーンアップしますか？")) return;
+    setIsCleaning(true);
+    try {
+      await adminApi.cleanupSessions();
+      refetchExpired();
+    } catch (e) {
+      alert("クリーンアップに失敗しました");
+    } finally {
+      setIsCleaning(false);
+    }
+  };
 
   if (isLoading) {
     return (
@@ -39,6 +59,24 @@ export function OverviewTab() {
 
   return (
     <div className="space-y-6">
+      {expiredData && expiredData.count >= 100 && (
+        <div className="border-thick border-destructive bg-destructive/10 p-4 text-destructive flex flex-col sm:flex-row sm:items-center justify-between gap-4 font-mono text-[12px]">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="h-5 w-5 shrink-0" />
+            <div>
+              <span className="font-bold">セッションクリーンアップ推奨:</span> 期限切れのセッションが <span className="font-bold underline">{expiredData.count} 件</span> 蓄積しています。
+            </div>
+          </div>
+          <button
+            onClick={handleCleanup}
+            disabled={isCleaning}
+            className="border-thick border-destructive bg-destructive text-white px-4 py-1.5 font-bold active:translate-y-0.5 disabled:opacity-50 text-[11px] uppercase tracking-wider cursor-pointer"
+          >
+            {isCleaning ? "処理中..." : "今すぐ削除"}
+          </button>
+        </div>
+      )}
+
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {kpis.map((k) => (
           <div key={k.label} className="border-thick border-border bg-background p-4">

@@ -923,6 +923,9 @@ export const adminApi = {
     }),
   deleteAnnouncement: (id: string) =>
     fetchApi<{ success: boolean }>(`/api/admin/announcements/${id}`, { method: "DELETE" }),
+  // セッションクリーンアップ (2026-07-12)
+  expiredSessionsCount: () => fetchApi<{ count: number }>("/api/admin/sessions/expired-count"),
+  cleanupSessions: () => fetchApi<{ success: boolean }>("/api/admin/sessions/cleanup", { method: "POST" }),
   // SaaS 運営: イベント/課金管理 (2026-07-12 Phase C)
   overview: () => fetchApi<AdminOverview>("/api/admin/overview"),
   listEvents: () => fetchApi<AdminEvent[]>("/api/admin/events"),
