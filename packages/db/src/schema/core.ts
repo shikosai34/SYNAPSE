@@ -111,6 +111,26 @@ export const event = sqliteTable("event", {
   description: text("description"),
   startDate: integer("start_date", { mode: "timestamp_ms" }),
   endDate: integer("end_date", { mode: "timestamp_ms" }),
+
+  // ── SaaS テナント/課金 (2026-07-12) ───────────────────────────────
+  // イベント=テナント(契約単位)。イベント作成はセルフサービス化され、既定は無料枠。
+  // plan: 契約プラン。当面 "free" のみ実運用 (standard/pro は将来の Stripe フェーズで使用)。
+  plan: text("plan").default("free").notNull(),
+  // billingStatus: 有効/試用/停止/未払い。suspended は新規作成系を止める運用ガードに使う。
+  billingStatus: text("billing_status").default("active").notNull(),
+  // maxCircles: このイベント配下に作成できるサークル数の上限。無料枠=1。
+  // プラン変更 (手動 or 将来 Stripe webhook) でここを書き換える。
+  maxCircles: integer("max_circles").default(1).notNull(),
+  // ownerEmail: 作成者=主たる event_manager。課金・連絡の主体。
+  ownerEmail: text("owner_email"),
+  // Stripe 連携用 (将来フェーズ。現状は未使用の予約カラム)。
+  stripeCustomerId: text("stripe_customer_id"),
+  stripeSubscriptionId: text("stripe_subscription_id"),
+  // 有効化/停止の時刻 (手動有効化・銀行振込対応の監査用)。
+  activatedAt: integer("activated_at", { mode: "timestamp_ms" }),
+  suspendedAt: integer("suspended_at", { mode: "timestamp_ms" }),
+
+  // テーマパック用カラム
   // テーマパック用カラム
   logoUrl: text("logo_url"),
   fontFamily: text("font_family").default("mono"),

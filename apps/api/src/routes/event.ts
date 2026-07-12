@@ -97,7 +97,11 @@ eventRoutes.get("/:id", async (c) => {
   return c.json(events[0]);
 });
 
-// イベント作成
+// イベント作成 (2026-07-12 SaaS: セルフサービス化)
+// 旧仕様は super_admin 限定だったが、SaaS 化に伴い「ログイン済みユーザーは誰でも
+// 無料枠でイベントを主催できる」ように変更する (サークルのセルフ作成と同じ思想)。
+// 作成と同時に本人が event_manager になり、無料枠 (plan=free, maxCircles=1) が付与される。
+// プランのアップグレードは super_admin による手動有効化 (将来は Stripe) で行う。
 eventRoutes.post(
   "/",
   zBody(
@@ -110,13 +114,14 @@ eventRoutes.post(
   ),
   async (c) => {
     const db = c.get("db");
-    const session = await getAdminSession(c);
-    if (!session) {
-      apiError("FORBIDDEN", "管理者権限が必要です");
+    const session = await getSession(c);
+    if (!session || !session.user) {
+      apiError("UNAUTHORIZED", "認証が必要です");
     }
 
     const input = c.req.valid("json");
     const id = nanoid();
+    const ownerEmail = session.user.email.toLowerCase();
 
     await db.insert(event).values({
       id,
@@ -124,6 +129,23 @@ eventRoutes.post(
       description: input.description,
       startDate: input.startDate ? new Date(input.startDate) : undefined,
       endDate: input.endDate ? new Date(input.endDate) : undefined,
+      // 無料枠の既定値。plan/billingStatus/maxCircles はスキーマ default と同値だが、
+      // 意図 (無料枠で有効化) を明示するため作成時に書き込む。
+      plan: "free",
+      billingStatus: "active",
+      maxCircles: 1,
+      ownerEmail,
+      activatedAt: new Date(),
+    });
+
+    // 作成者を event_manager として所属させる (セルフサービス作成=作成者が主催者)。
+    await db.insert(membership).values({
+      id: nanoid(),
+      userEmail: ownerEmail,
+      userName: session.user.name || `${input.eventName} 主催者`,
+      eventId: id,
+      role: "event_manager",
+      isActive: true,
     });
 
     return c.json({ id }, 201);

@@ -135,6 +135,25 @@ circleRoutes.post(
     if (events.length === 0) {
       apiError("NOT_FOUND", "イベントが見つかりません");
     }
+    const targetEvent = events[0]!;
+
+    // 2026-07-12 (SaaS): 停止中イベントは新規サークル作成を拒否する。
+    if (targetEvent.billingStatus === "suspended") {
+      apiError("FORBIDDEN", "このイベントは現在停止中です。主催者にお問い合わせください。");
+    }
+
+    // 2026-07-12 (SaaS): プランのサークル数上限を超えないか確認する。
+    // 無料枠は maxCircles=1。上限に達している場合はプランのアップグレードが必要。
+    const existingForEvent = await db
+      .select({ id: circle.id })
+      .from(circle)
+      .where(and(eq(circle.eventId, input.eventId), isNull(circle.deletedAt)));
+    if (existingForEvent.length >= targetEvent.maxCircles) {
+      apiError(
+        "FORBIDDEN",
+        `このイベントのプランでは最大 ${targetEvent.maxCircles} サークルまでです。プランのアップグレードが必要です。`
+      );
+    }
 
     // 同じイベント内で同じ名前のサークルがないか確認
     const existingCircles = await db
