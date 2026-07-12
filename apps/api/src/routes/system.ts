@@ -12,7 +12,7 @@ import {
   type DB,
   type WorkerEnv,
 } from "@fesflow/db";
-import { eq, and, gt, isNotNull, desc } from "drizzle-orm";
+import { eq, and, gt, isNotNull, isNull, desc } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { requireSuperAdmin } from "../middleware/auth";
 import type { AppEnv, AppVariables } from "../types";
@@ -285,6 +285,109 @@ adminRoutes.patch(
     return c.json({ success: true });
   },
 );
+
+// ── SaaS 運営コンソール: イベント/課金管理 (2026-07-12 Phase C) ──────────
+// これらは「運営(admin)情報」= 集計・契約状態・名簿の俯瞰であり、テナントの
+// 「内容」(メニュー/注文/売上の中身) には触れない。内容の閲覧は Phase D/E の
+// 昇格(sudo)+なりすまし経由に限る、という分離方針。
+
+// 運営ダッシュボードの KPI。
+adminRoutes.get("/overview", async (c) => {
+  const db = c.get("db");
+  const now = new Date();
+  const [events, circles, memberships, lockouts] = await Promise.all([
+    db.select().from(event).where(isNull(event.deletedAt)),
+    db.select({ id: circle.id }).from(circle).where(isNull(circle.deletedAt)),
+    db.select({ userEmail: membership.userEmail }).from(membership).where(eq(membership.isActive, true)),
+    db
+      .select({ id: authAttempt.id })
+      .from(authAttempt)
+      .where(and(isNotNull(authAttempt.lockedUntil), gt(authAttempt.lockedUntil, now))),
+  ]);
+  const accounts = new Set(memberships.map((m) => m.userEmail.toLowerCase())).size;
+  const byPlan: Record<string, number> = {};
+  const byStatus: Record<string, number> = {};
+  for (const e of events) {
+    byPlan[e.plan] = (byPlan[e.plan] ?? 0) + 1;
+    byStatus[e.billingStatus] = (byStatus[e.billingStatus] ?? 0) + 1;
+  }
+  return c.json({
+    events: events.length,
+    circles: circles.length,
+    accounts,
+    lockouts: lockouts.length,
+    byPlan,
+    byStatus,
+  });
+});
+
+// 全イベント一覧 (契約状態・サークル数・オーナー付き)。テナント横断の運営ビュー。
+adminRoutes.get("/events", async (c) => {
+  const db = c.get("db");
+  const events = await db.select().from(event).where(isNull(event.deletedAt)).orderBy(desc(event.createdAt));
+  const circles = await db.select({ id: circle.id, eventId: circle.eventId }).from(circle).where(isNull(circle.deletedAt));
+  const circleCount = new Map<string, number>();
+  for (const c2 of circles) circleCount.set(c2.eventId, (circleCount.get(c2.eventId) ?? 0) + 1);
+  return c.json(
+    events.map((e) => ({
+      id: e.id,
+      eventName: e.eventName,
+      ownerEmail: e.ownerEmail,
+      plan: e.plan,
+      billingStatus: e.billingStatus,
+      maxCircles: e.maxCircles,
+      circleCount: circleCount.get(e.id) ?? 0,
+      createdAt: e.createdAt,
+      activatedAt: e.activatedAt,
+      suspendedAt: e.suspendedAt,
+    })),
+  );
+});
+
+// イベントの契約/課金の手動更新 (銀行振込対応の裏口)。plan/maxCircles/billingStatus/名称。
+adminRoutes.patch(
+  "/events/:id",
+  zBody(
+    z.object({
+      eventName: z.string().min(1).max(120).optional(),
+      plan: z.string().min(1).max(40).optional(),
+      maxCircles: z.number().int().min(1).max(10000).optional(),
+      billingStatus: z.enum(["active", "trial", "suspended", "unpaid"]).optional(),
+    }),
+  ),
+  async (c) => {
+    const db = c.get("db");
+    const id = c.req.param("id");
+    const input = c.req.valid("json");
+
+    const rows = await db.select().from(event).where(eq(event.id, id));
+    if (rows.length === 0) apiError("NOT_FOUND", "イベントが見つかりません");
+
+    const patch: Record<string, unknown> = { updatedAt: new Date() };
+    if (input.eventName !== undefined) patch.eventName = input.eventName;
+    if (input.plan !== undefined) patch.plan = input.plan;
+    if (input.maxCircles !== undefined) patch.maxCircles = input.maxCircles;
+    if (input.billingStatus !== undefined) {
+      patch.billingStatus = input.billingStatus;
+      // 有効化/停止の時刻を記録 (監査・銀行振込運用のため)。
+      if (input.billingStatus === "suspended") patch.suspendedAt = new Date();
+      if (input.billingStatus === "active") {
+        patch.activatedAt = new Date();
+        patch.suspendedAt = null;
+      }
+    }
+    await db.update(event).set(patch).where(eq(event.id, id));
+    return c.json({ success: true });
+  },
+);
+
+// イベントの論理削除 (運営判断での停止・撤去)。
+adminRoutes.delete("/events/:id", async (c) => {
+  const db = c.get("db");
+  const id = c.req.param("id");
+  await db.update(event).set({ deletedAt: new Date() }).where(eq(event.id, id));
+  return c.json({ success: true });
+});
 
 // 現在ロック中の認証試行 (アカウントロックアウト) 一覧
 adminRoutes.get("/lockouts", async (c) => {

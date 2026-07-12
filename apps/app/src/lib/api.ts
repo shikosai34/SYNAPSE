@@ -923,4 +923,42 @@ export const adminApi = {
     }),
   deleteAnnouncement: (id: string) =>
     fetchApi<{ success: boolean }>(`/api/admin/announcements/${id}`, { method: "DELETE" }),
+  // SaaS 運営: イベント/課金管理 (2026-07-12 Phase C)
+  overview: () => fetchApi<AdminOverview>("/api/admin/overview"),
+  listEvents: () => fetchApi<AdminEvent[]>("/api/admin/events"),
+  updateEvent: (id: string, data: AdminEventPatch) =>
+    fetchApi<{ success: boolean }>(`/api/admin/events/${id}`, { method: "PATCH", body: data }),
+  deleteEvent: (id: string) =>
+    fetchApi<{ success: boolean }>(`/api/admin/events/${id}`, { method: "DELETE" }),
 };
+
+export interface AdminOverview {
+  events: number;
+  circles: number;
+  accounts: number;
+  lockouts: number;
+  byPlan: Record<string, number>;
+  byStatus: Record<string, number>;
+}
+
+export type BillingStatus = "active" | "trial" | "suspended" | "unpaid";
+
+export interface AdminEvent {
+  id: string;
+  eventName: string;
+  ownerEmail: string | null;
+  plan: string;
+  billingStatus: BillingStatus;
+  maxCircles: number;
+  circleCount: number;
+  createdAt: string;
+  activatedAt: string | null;
+  suspendedAt: string | null;
+}
+
+export interface AdminEventPatch {
+  eventName?: string;
+  plan?: string;
+  maxCircles?: number;
+  billingStatus?: BillingStatus;
+}
