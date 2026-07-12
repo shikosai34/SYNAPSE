@@ -49,13 +49,31 @@ export function createAuth(db: DB, env: WorkerEnv): Auth {
 			"http://localhost:3000",
 			"http://127.0.0.1:3000",
 		].filter(Boolean),
+		// 2026-07-12: メール/パスワード認証を無効化。
+		// 方針: 認証は Google(/将来 Apple) + パスキーに絞る。メールは送信基盤が無く
+		// 確認/リセットも回らないため資格情報として維持しない。フロントからも入力欄を撤去済み。
+		// 注意: これを無効化した状態で本番デプロイすると、Google が未設定(GOOGLE_CLIENT_ID 空)かつ
+		// パスキー未登録のアカウントはログイン手段が無くなる。必ず Google 設定が本番で動作することを
+		// 確認してからデプロイすること。
+		// ENABLE_EMAIL_PASSWORD === "true" のときだけ有効化する (テスト専用のエスケープハッチ。
+		// 認可境界テストが sign-up/email でセッションを発行するため。本番/開発では未設定 = 無効)。
 		emailAndPassword: {
-			enabled: true,
+			enabled: env.ENABLE_EMAIL_PASSWORD === "true",
 		},
 		socialProviders: {
 			google: {
 				clientId: env.GOOGLE_CLIENT_ID || "",
 				clientSecret: env.GOOGLE_CLIENT_SECRET || "",
+			},
+		},
+		// 既存のメール/パスワードで作成されたアカウント(例: super_admin)を、同じメールの
+		// Google ログインへ引き継ぐためのアカウントリンク。user.email は unique なので、
+		// リンクを許可しないと Google 初回ログインが「既に存在する」で失敗しうる。
+		// Google はメール検証済み(emailVerified=true)を返すため trustedProviders に含めて自動リンクする。
+		account: {
+			accountLinking: {
+				enabled: true,
+				trustedProviders: ["google"],
 			},
 		},
 		plugins: [passkey()],

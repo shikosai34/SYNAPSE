@@ -35,6 +35,12 @@ export interface WorkerEnv {
   INITIAL_SUPER_ADMIN_EMAIL?: string;
   GOOGLE_CLIENT_ID?: string;
   GOOGLE_CLIENT_SECRET?: string;
+  // 2026-07-12: メール/パスワード認証はプロダクトでは無効 (Google + パスキーに移行)。
+  // このフラグは "true" のときだけ better-auth の emailAndPassword を有効化する
+  // テスト専用のエスケープハッチ。テスト(vitest.config の miniflare.bindings)は
+  // better-auth の sign-up/email でセッションを発行して認可境界を検証するため必要。
+  // 本番/開発の wrangler.jsonc・.dev.vars では設定しないこと (設定するとメールログインが復活する)。
+  ENABLE_EMAIL_PASSWORD?: string;
   PRODUCT_NAME?: string;
   // MinIO/S3 フォールバック
   S3_ENDPOINT?: string;

@@ -43,6 +43,10 @@ export default defineConfig(async () => {
 						BETTER_AUTH_SECRET: "test-secret-do-not-use-in-production",
 						BETTER_AUTH_URL: "http://localhost",
 						CORS_ORIGIN: "http://localhost",
+						// プロダクトではメール/パスワード認証を無効化した (Google + パスキーに移行) が、
+						// 認可境界テストは sign-up/email でセッションを発行して検証するため、
+						// テスト環境でのみ better-auth の emailAndPassword を有効化する。
+						ENABLE_EMAIL_PASSWORD: "true",
 					},
 				},
 			}),

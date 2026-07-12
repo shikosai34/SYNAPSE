@@ -1,7 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import SignInForm from "@/components/sign-in-form";
-import SignUpForm from "@/components/sign-up-form";
 import { authClient } from "@/lib/auth-client";
 import { useMySpaces, getAuthInfo, resolveActiveSpaceAfterAuth } from "@/hooks/useCircleAuth";
 import { roleLabel } from "@/lib/roles";
@@ -11,10 +10,10 @@ import Loader from "@/components/loader";
 // Next.js app/login/page.tsx から移植 (2026-07-04)。
 // Next の useSearchParams 用 Suspense 境界は不要なので除去。
 // 2026-07-07 (Phase 3b): 独自PIN認証タブ (CircleLoginOnlyForm) を撤去し、
-// better-auth ログイン (メール/パスワード + パスキー + Google) 一本にする。
-// サインイン/サインアップの2択だけになったため Tabs UI 自体も不要。
+// better-auth ログイン一本にした。
+// 2026-07-12: メール/パスワードのログイン・サインアップを廃止し、Google + パスキーのみに。
+// アカウント作成は Google 初回ログインが担うため、サインアップ画面(SignUpForm)も撤去した。
 export default function Login() {
-	const [showSignUp, setShowSignUp] = useState(false);
 	const navigate = useNavigate();
 
 	// better-auth のセッションは有効だが、ローカルのアクティブスペース
@@ -48,10 +47,6 @@ export default function Login() {
 				// 解決に失敗しても致命的でない: 下のスペース選択案内にフォールバック
 			});
 	}, [session?.user?.email, hasActiveSpace, navigate]);
-
-	if (showSignUp) {
-		return <SignUpForm onSwitchToSignIn={() => setShowSignUp(false)} />;
-	}
 
 	if (sessionPending) {
 		return <Loader />;
@@ -117,7 +112,7 @@ export default function Login() {
 	return (
 		<div className="flex min-h-[calc(100vh-4rem)] items-center justify-center p-sp-3 md:p-sp-5 bg-muted">
 			<div className="w-full max-w-lg p-sp-5 bg-background border-heavy border-border text-foreground">
-				<SignInForm onSwitchToSignUp={() => setShowSignUp(true)} />
+				<SignInForm />
 			</div>
 		</div>
 	);
