@@ -33,6 +33,7 @@ import VisitorHome from "@/pages/VisitorHome";
 import Entry from "@/pages/Entry";
 import Onboarding from "@/pages/Onboarding";
 import StaffOnboarding from "@/pages/StaffOnboarding";
+import { ImpersonationBanner } from "@/components/system/ImpersonationBanner";
 import Menu from "@/pages/Menu";
 import MyPage from "@/pages/MyPage";
 import Orders from "@/pages/Orders";
@@ -79,6 +80,8 @@ export default function App() {
 		<Providers>
 			{/* 2026-07-10: super_admin + ?debug=true のときスマホでerudaコンソールを有効化 */}
 			<DebugConsole />
+			{/* なりすまし中は全ページ最上部にバナーを出す (Phase E) */}
+			<ImpersonationBanner />
 			<Routes>
 				{/* ドメインルートはブランディングページ (VisitorHeader なし) */}
 				<Route element={<BareLayout />}>

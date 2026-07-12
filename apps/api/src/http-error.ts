@@ -47,6 +47,9 @@ const DEFAULT_STATUS: Record<ApiErrorCode, number> = {
   NOT_FOUND: 404,
   CONFLICT: 409,
   RATE_LIMITED: 429,
+  // sudo 昇格/再認証を要求する 403 系 (フロントが code で分岐して昇格/再認証 UI を出す)
+  SUDO_REQUIRED: 403,
+  REAUTH_REQUIRED: 403,
   INTERNAL: 500,
 };
 

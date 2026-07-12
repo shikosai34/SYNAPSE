@@ -9,12 +9,25 @@ import {
   announcement,
   event,
   circle,
+  sudoSession,
+  impersonationSession,
+  auditLog,
   type DB,
   type WorkerEnv,
 } from "@fesflow/db";
 import { eq, and, gt, isNotNull, isNull, desc } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { requireSuperAdmin } from "../middleware/auth";
+import {
+  betterAuthSessionId,
+  isFreshlyAuthenticated,
+  getElevation,
+  getImpersonation,
+  requireSudo,
+  audit,
+  SUDO_TTL_MS,
+  IMPERSONATION_TTL_MS,
+} from "../utils/sudo";
 import type { AppEnv, AppVariables } from "../types";
 
 // ── 公開システム設定 (メンテナンス/お知らせ) ────────────────────────────
@@ -387,6 +400,156 @@ adminRoutes.delete("/events/:id", async (c) => {
   const id = c.req.param("id");
   await db.update(event).set({ deletedAt: new Date() }).where(eq(event.id, id));
   return c.json({ success: true });
+});
+
+// ── sudo (権限昇格) / impersonation (なりすまし) / 監査 (2026-07-12 Phase D/E) ──
+
+// 昇格状態の照会。フロントがバナー/ガードの表示判定に使う。
+adminRoutes.get("/sudo/status", async (c) => {
+  const session = c.get("session")!;
+  const el = await getElevation(c, betterAuthSessionId(session));
+  return c.json({ elevated: !!el, expiresAt: el?.expiresAt ?? null });
+});
+
+// 昇格 (elevate)。パスキー再認証直後 (=セッションが新しい) の super_admin のみ 15 分昇格できる。
+// フロントは事前に authClient.signIn.passkey() で再認証してから叩く。
+adminRoutes.post("/sudo/elevate", async (c) => {
+  const db = c.get("db");
+  const session = c.get("session")!;
+  const now = Date.now();
+  // 直近の再認証を要求する (古いログインのまま昇格させない)。
+  if (!isFreshlyAuthenticated(session, now)) {
+    apiError("REAUTH_REQUIRED", "昇格にはパスキーでの再認証が必要です");
+  }
+  const sid = betterAuthSessionId(session);
+  const email = session.user.email.toLowerCase();
+  const expiresAt = new Date(now + SUDO_TTL_MS);
+  // セッションごとに1行 (再昇格で更新)。
+  await db
+    .insert(sudoSession)
+    .values({ id: nanoid(), sessionId: sid, userEmail: email, method: "passkey", expiresAt })
+    .onConflictDoUpdate({ target: sudoSession.sessionId, set: { expiresAt, createdAt: new Date() } });
+  await audit(c, { actorEmail: email, action: "elevate" });
+  return c.json({ elevated: true, expiresAt });
+});
+
+// 降格 (昇格の破棄)。
+adminRoutes.post("/sudo/end", async (c) => {
+  const db = c.get("db");
+  const session = c.get("session")!;
+  await db.delete(sudoSession).where(eq(sudoSession.sessionId, betterAuthSessionId(session)));
+  return c.json({ success: true });
+});
+
+// なりすまし状態の照会 (バナー表示用)。
+adminRoutes.get("/impersonate/status", async (c) => {
+  const session = c.get("session")!;
+  const imp = await getImpersonation(c, betterAuthSessionId(session));
+  return c.json({
+    active: !!imp,
+    role: imp?.role ?? null,
+    eventId: imp?.eventId ?? null,
+    circleId: imp?.circleId ?? null,
+    label: imp?.label ?? null,
+    expiresAt: imp?.expiresAt ?? null,
+  });
+});
+
+// なりすまし開始 (要 sudo)。対象ロール×スコープとして振る舞う。
+adminRoutes.post(
+  "/impersonate",
+  requireSudo,
+  zBody(
+    z.object({
+      role: z.enum(["event_manager", "circle_manager", "circle_staff"]),
+      eventId: z.string().optional(),
+      circleId: z.string().optional(),
+      label: z.string().max(120).optional(),
+    })
+  ),
+  async (c) => {
+    const db = c.get("db");
+    const session = c.get("session")!;
+    const input = c.req.valid("json");
+
+    // スコープの整合性: event_manager は eventId、circle_* は circleId が必須。
+    if (input.role === "event_manager" && !input.eventId) {
+      apiError("BAD_REQUEST", "event_manager のなりすましには eventId が必要です");
+    }
+    if ((input.role === "circle_manager" || input.role === "circle_staff") && !input.circleId) {
+      apiError("BAD_REQUEST", "サークルロールのなりすましには circleId が必要です");
+    }
+
+    // 対象の存在確認 + 表示ラベル解決
+    let label = input.label ?? null;
+    let eventId = input.eventId ?? null;
+    if (input.circleId) {
+      const cs = await db.select().from(circle).where(eq(circle.id, input.circleId));
+      if (cs.length === 0) apiError("NOT_FOUND", "対象のサークルが存在しません");
+      eventId = cs[0]!.eventId;
+      label = label ?? cs[0]!.name;
+    } else if (input.eventId) {
+      const es = await db.select().from(event).where(eq(event.id, input.eventId));
+      if (es.length === 0) apiError("NOT_FOUND", "対象のイベントが存在しません");
+      label = label ?? es[0]!.eventName;
+    }
+
+    const sid = betterAuthSessionId(session);
+    const actorEmail = session.user.email.toLowerCase();
+    const expiresAt = new Date(Date.now() + IMPERSONATION_TTL_MS);
+    await db
+      .insert(impersonationSession)
+      .values({
+        id: nanoid(),
+        sessionId: sid,
+        actorEmail,
+        role: input.role,
+        eventId,
+        circleId: input.circleId ?? null,
+        label,
+        expiresAt,
+      })
+      .onConflictDoUpdate({
+        target: impersonationSession.sessionId,
+        set: { role: input.role, eventId, circleId: input.circleId ?? null, label, expiresAt, createdAt: new Date() },
+      });
+    await audit(c, {
+      actorEmail,
+      action: "impersonate_start",
+      asRole: input.role,
+      eventId,
+      circleId: input.circleId ?? null,
+      summary: label,
+    });
+    return c.json({ active: true, role: input.role, eventId, circleId: input.circleId ?? null, label, expiresAt });
+  }
+);
+
+// なりすまし終了。
+adminRoutes.post("/impersonate/stop", async (c) => {
+  const db = c.get("db");
+  const session = c.get("session")!;
+  const sid = betterAuthSessionId(session);
+  const imp = await getImpersonation(c, sid);
+  await db.delete(impersonationSession).where(eq(impersonationSession.sessionId, sid));
+  if (imp) {
+    await audit(c, {
+      actorEmail: session.user.email.toLowerCase(),
+      action: "impersonate_stop",
+      asRole: imp.role,
+      eventId: imp.eventId,
+      circleId: imp.circleId,
+      summary: imp.label,
+    });
+  }
+  return c.json({ success: true });
+});
+
+// 監査ログ (直近 200 件)。
+adminRoutes.get("/audit", async (c) => {
+  const db = c.get("db");
+  const rows = await db.select().from(auditLog).orderBy(desc(auditLog.createdAt)).limit(200);
+  return c.json(rows);
 });
 
 // 現在ロック中の認証試行 (アカウントロックアウト) 一覧

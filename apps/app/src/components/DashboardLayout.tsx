@@ -19,6 +19,7 @@ import {
   Smartphone,
   Megaphone,
   Wrench,
+  ScrollText,
   ChevronDown,
   ChevronUp
 } from "lucide-react";
@@ -104,6 +105,7 @@ export default function DashboardLayout({
   const systemMenuItems: MenuItem[] = [
     { title: "運営ダッシュボード", tab: "overview", icon: LayoutDashboard },
     { title: "イベント/課金", tab: "saas-events", icon: Calendar },
+    { title: "監査ログ", tab: "audit", icon: ScrollText },
     { title: "アカウント管理", tab: "accounts", icon: Users },
     { title: "お知らせ管理", tab: "announcements", icon: Megaphone },
     { title: "メンテナンス", tab: "system-settings", icon: Wrench },

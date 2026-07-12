@@ -81,6 +81,84 @@ export const announcement = sqliteTable(
   (table) => [index("announcement_published_idx").on(table.published)],
 );
 
+// ==========================================
+// SaaS 運営者の権限昇格 (sudo) / なりすまし (impersonation) / 監査ログ
+//  (2026-07-12 Phase D/E)
+//  - 方針: super_admin は普段 admin 相当で動き、テナントの「内容」は見られない。
+//    機微操作の前にパスキー再認証で時間制限付き (15分) に昇格 (sudoSession)。
+//    テナント内容へのアクセスは「なりすまし (impersonation)」経由に限り、全操作を監査する。
+//  - キー設計: いずれも better-auth のセッション ID (session.session.id) に紐づける
+//    (= ログインセッション=端末単位。ログアウトや別端末には波及しない)。
+//  - event/circle への外部キーは持たない (このファイルの独立性方針)。ID は text で保持。
+
+// 昇格 (sudo) セッション。有効な行があれば requireSudo を通過できる。
+export const sudoSession = sqliteTable(
+  "sudo_session",
+  {
+    id: text("id").primaryKey(),
+    // better-auth のセッション ID (この昇格が有効なログインセッション)
+    sessionId: text("session_id").notNull(),
+    userEmail: text("user_email").notNull(),
+    // 昇格の手段 (監査用): "passkey" 等
+    method: text("method").notNull().default("passkey"),
+    expiresAt: integer("expires_at", { mode: "timestamp_ms" }).notNull(),
+    createdAt: integer("created_at", { mode: "timestamp_ms" })
+      .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+      .notNull(),
+  },
+  (table) => [uniqueIndex("sudo_session_session_unique").on(table.sessionId)]
+);
+
+// なりすまし (impersonation) セッション。有効な行があれば、そのセッションの認可は
+// actorEmail 本人ではなく「対象ロール×スコープ」として評価される。開始は要 sudo。
+export const impersonationSession = sqliteTable(
+  "impersonation_session",
+  {
+    id: text("id").primaryKey(),
+    sessionId: text("session_id").notNull(),
+    // なりすましている本人 (super_admin) のメール
+    actorEmail: text("actor_email").notNull(),
+    // なりすまし対象のロールとスコープ (event_manager+eventId / circle_manager+circleId 等)
+    role: text("role").notNull(),
+    eventId: text("event_id"),
+    circleId: text("circle_id"),
+    // 表示用ラベル (どのイベント/サークルか)
+    label: text("label"),
+    expiresAt: integer("expires_at", { mode: "timestamp_ms" }).notNull(),
+    createdAt: integer("created_at", { mode: "timestamp_ms" })
+      .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+      .notNull(),
+  },
+  (table) => [uniqueIndex("impersonation_session_session_unique").on(table.sessionId)]
+);
+
+// 監査ログ。昇格・なりすまし開始/終了、なりすまし中の変更操作を記録する。
+export const auditLog = sqliteTable(
+  "audit_log",
+  {
+    id: text("id").primaryKey(),
+    actorEmail: text("actor_email").notNull(),
+    // 種別: "elevate" | "impersonate_start" | "impersonate_stop" | "impersonated_write"
+    action: text("action").notNull(),
+    // なりすまし中の場合の対象コンテキスト
+    asRole: text("as_role"),
+    eventId: text("event_id"),
+    circleId: text("circle_id"),
+    // HTTP 情報 (impersonated_write の場合)
+    method: text("method"),
+    path: text("path"),
+    // 補足 (対象ラベル等)
+    summary: text("summary"),
+    createdAt: integer("created_at", { mode: "timestamp_ms" })
+      .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+      .notNull(),
+  },
+  (table) => [
+    index("audit_log_actor_idx").on(table.actorEmail),
+    index("audit_log_created_idx").on(table.createdAt),
+  ]
+);
+
 export const authAttempt = sqliteTable(
   "auth_attempt",
   {

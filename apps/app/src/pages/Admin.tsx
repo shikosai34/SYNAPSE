@@ -6,6 +6,7 @@ import { AnnouncementsTab } from "@/components/system/AnnouncementsTab";
 import { SystemSettingsTab } from "@/components/system/SystemSettingsTab";
 import { OverviewTab } from "@/components/system/OverviewTab";
 import { SaasEventsTab } from "@/components/system/SaasEventsTab";
+import { AuditTab } from "@/components/system/AuditTab";
 
 // システム管理コンソール (SaaS 運営)。
 // 2026-07-12 (Phase C): 旧「イベント一覧」(eventApi.list で自分の所属イベントを出す) を
@@ -26,6 +27,7 @@ export default function AdminPage() {
       >
         {activeTab === "overview" && <OverviewTab />}
         {activeTab === "saas-events" && <SaasEventsTab />}
+        {activeTab === "audit" && <AuditTab />}
         {activeTab === "accounts" && <AccountsTab />}
         {activeTab === "announcements" && <AnnouncementsTab />}
         {activeTab === "system-settings" && <SystemSettingsTab />}

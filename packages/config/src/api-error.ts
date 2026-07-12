@@ -26,6 +26,10 @@ export type ApiErrorCode =
   | "VALIDATION"
   | "CONFLICT"
   | "RATE_LIMITED"
+  // 2026-07-12 (Phase D): sudo 未昇格で機微操作を叩いた (フロントは昇格モーダルを出す)
+  | "SUDO_REQUIRED"
+  // 2026-07-12 (Phase D): 昇格には最近の再認証が必要 (フロントはパスキー再認証を促す)
+  | "REAUTH_REQUIRED"
   | "INTERNAL";
 
 /**

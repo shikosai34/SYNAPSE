@@ -4,6 +4,7 @@ import { nanoid } from "nanoid";
 import { Context } from "hono";
 import { ROLE_PERMISSIONS, type Permission } from "@fesflow/db";
 import type { AppEnv } from "../types";
+import { getImpersonation, betterAuthSessionId, audit } from "./sudo";
 
 // 2026-07-08 (Phase5): db/auth はモジュール Proxy ではなく、index.ts の middleware で
 // c.set("db"/"auth", ...) された実体を c.get() で明示的に受け取る (ALS+Proxy 撤去)。
@@ -96,6 +97,42 @@ export async function hasPermission(
   const session = await getSession(c);
   if (!session || !session.user) return false;
 
+  // 2026-07-12 (Phase E): なりすまし中は「対象ロール×スコープ」として評価する。
+  // これが super_admin がテナント内容に触れる唯一の経路 (それ以外は下で false になる)。
+  const imp = await getImpersonation(c, betterAuthSessionId(session));
+  if (imp) {
+    const perms = ROLE_PERMISSIONS[imp.role as keyof typeof ROLE_PERMISSIONS] as
+      | readonly string[]
+      | undefined;
+    if (!perms || !perms.includes(requiredPermission)) return false;
+    // 対象スコープ内のリクエストかを確認する
+    let reqEventId = eventId;
+    if (!reqEventId && circleId) {
+      const cs = await db.select().from(circle).where(eq(circle.id, circleId));
+      reqEventId = cs[0]?.eventId;
+    }
+    let allowed = false;
+    if (imp.role === "event_manager") {
+      allowed = !!imp.eventId && (!reqEventId || imp.eventId === reqEventId);
+    } else if (imp.role === "circle_manager" || imp.role === "circle_staff") {
+      allowed = !!imp.circleId && (!circleId || imp.circleId === circleId);
+    }
+    // なりすまし中の変更操作 (write/delete) は監査ログに記録する。
+    if (allowed && /:(write|delete)$/.test(requiredPermission)) {
+      await audit(c, {
+        actorEmail: session.user.email.toLowerCase(),
+        action: "impersonated_write",
+        asRole: imp.role,
+        eventId: imp.eventId,
+        circleId: imp.circleId,
+        method: c.req.method,
+        path: new URL(c.req.url).pathname,
+        summary: requiredPermission,
+      });
+    }
+    return allowed;
+  }
+
   const email = session.user.email.toLowerCase();
   const activeMembershipId = c.req.header("X-Active-Membership-Id");
 
@@ -119,10 +156,12 @@ export async function hasPermission(
 
   if (memberships.length === 0) return false;
 
-  // 1. super_admin のチェック
+  // 1. super_admin はテナント内容にアクセスできない (2026-07-12 Phase D 分離)。
+  //    SaaS 運営者がテナントのメニュー/注文/売上を素通しで覗ける状態をなくす。
+  //    内容を見る必要がある時は「昇格(sudo)→なりすまし」経由に限る (上の imp 分岐)。
   const superAdminM = memberships.find((m) => m.role === "super_admin");
   if (superAdminM) {
-    return true;
+    return false;
   }
 
   // 2. event_manager のチェック (イベント内のすべてのサークル/設定に対して権限を持つ)

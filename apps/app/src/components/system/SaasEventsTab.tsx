@@ -1,6 +1,9 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { adminApi, type AdminEvent, type BillingStatus } from "@/lib/api";
+import { ensureSudo } from "@/lib/sudo";
+import { getAuthInfo, saveAuthInfo } from "@/hooks/useCircleAuth";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { ErrorState } from "@/components/ui/ErrorState";
@@ -9,7 +12,7 @@ import { Modal } from "@/components/ui/Modal";
 import { FormField, FormSelect, FormSubmitButton } from "@/components/ui/FormField";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { toast } from "sonner";
-import { Calendar, Trash2, Settings2, Save } from "lucide-react";
+import { Calendar, Trash2, Settings2, Save, Eye } from "lucide-react";
 
 // SaaS 運営: イベント/課金管理 (2026-07-12 Phase C)。
 // 全テナント(イベント)の契約状態・サークル上限を手動で管理する(銀行振込対応の裏口)。
@@ -23,9 +26,40 @@ const STATUS_LABELS: Record<BillingStatus, string> = {
 
 export function SaasEventsTab() {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const [editing, setEditing] = useState<AdminEvent | null>(null);
   const [pendingDelete, setPendingDelete] = useState<AdminEvent | null>(null);
   const [form, setForm] = useState({ plan: "free", maxCircles: 1, billingStatus: "active" as BillingStatus });
+  const [impersonatingId, setImpersonatingId] = useState<string | null>(null);
+
+  // 「このイベントとして表示」= 昇格(sudo)を確保してから event_manager になりすまし、
+  // イベント管理画面へ遷移する。これが super_admin がテナント内容を見る唯一の経路 (Phase E)。
+  const startImpersonation = async (e: AdminEvent) => {
+    setImpersonatingId(e.id);
+    try {
+      await ensureSudo(); // 未昇格ならパスキー再認証で昇格
+      await adminApi.impersonate({ role: "event_manager", eventId: e.id, label: e.eventName });
+      // クライアントのアクティブスペースを対象イベントに向ける (ガード/画面の eventId 解決用)。
+      const info = getAuthInfo();
+      saveAuthInfo({
+        circleId: null,
+        eventId: e.id,
+        userEmail: info?.userEmail ?? null,
+        userName: info?.userName ?? null,
+        role: info?.role ?? "super_admin",
+        membershipId: info?.membershipId ?? null,
+        circleName: null,
+        isEventAdmin: true,
+      });
+      queryClient.invalidateQueries({ queryKey: ["impersonation-status"] });
+      toast.success(`${e.eventName} として表示します`);
+      navigate("/event/dashboard");
+    } catch (err: any) {
+      toast.error(err?.message || "なりすましの開始に失敗しました");
+    } finally {
+      setImpersonatingId(null);
+    }
+  };
 
   const { data: events, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["adminEvents"],
@@ -117,6 +151,16 @@ export function SaasEventsTab() {
                 </div>
               </div>
               <div className="flex items-center gap-2 shrink-0">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 text-[10px]"
+                  disabled={impersonatingId === e.id}
+                  onClick={() => startImpersonation(e)}
+                  title="このイベントとして表示 (なりすまし)"
+                >
+                  <Eye className="h-3.5 w-3.5 mr-1" /> {impersonatingId === e.id ? "..." : "表示"}
+                </Button>
                 <Button variant="outline" size="sm" className="h-8 text-[10px]" onClick={() => openEdit(e)}>
                   <Settings2 className="h-3.5 w-3.5 mr-1" /> 契約
                 </Button>
