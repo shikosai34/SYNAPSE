@@ -1,0 +1,2 @@
+CREATE INDEX `orders_circle_status_created_idx` ON `orders` (`circle_id`,`status`,`created_at`);--> statement-breakpoint
+CREATE INDEX `pre_order_circle_status_idx` ON `pre_order` (`circle_id`,`status`);

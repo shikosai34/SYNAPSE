@@ -10,6 +10,7 @@ import {
   index,
   uniqueIndex,
 } from "drizzle-orm/sqlite-core";
+import { ulid } from "ulidx";
 
 // ロール定義 (SaaS対応 - 2026-07-04)
 // システム管理、イベント管理、サークル管理の3階層へ統合再構築。
@@ -106,7 +107,7 @@ export type Permission = (typeof ROLE_PERMISSIONS)[RoleType][number];
 
 // イベントテーブル
 export const event = sqliteTable("event", {
-  id: text("id").primaryKey(),
+  id: text("id").primaryKey().$defaultFn(() => ulid()),
   eventName: text("event_name").notNull(),
   description: text("description"),
   startDate: integer("start_date", { mode: "timestamp_ms" }),
@@ -159,7 +160,7 @@ export const event = sqliteTable("event", {
 export const circle = sqliteTable(
   "circle",
   {
-    id: text("id").primaryKey(),
+    id: text("id").primaryKey().$defaultFn(() => ulid()),
     eventId: text("event_id")
       .notNull()
       .references(() => event.id, { onDelete: "cascade" }),
@@ -200,7 +201,7 @@ export const circle = sqliteTable(
 export const staff = sqliteTable(
   "staff",
   {
-    id: text("id").primaryKey(),
+    id: text("id").primaryKey().$defaultFn(() => ulid()),
     circleId: text("circle_id")
       .notNull()
       .references(() => circle.id, { onDelete: "cascade" }),
@@ -222,7 +223,7 @@ export const staff = sqliteTable(
 export const membership = sqliteTable(
   "membership",
   {
-    id: text("id").primaryKey(),
+    id: text("id").primaryKey().$defaultFn(() => ulid()),
     // ユーザー識別（メールアドレスまたはユーザーID）
     userEmail: text("user_email").notNull(),
     userName: text("user_name").notNull(),
@@ -270,7 +271,7 @@ export const membership = sqliteTable(
 export const inviteToken = sqliteTable(
   "invite_token",
   {
-    id: text("id").primaryKey(),
+    id: text("id").primaryKey().$defaultFn(() => ulid()),
     token: text("token").notNull().unique(),
     // 2026-07-12 (SaaS): 手入力用の短い人間可読コード (例: 8桁英数)。
     // token(32桁) はリンク用、code は口頭/チャットで伝える手入力用。どちらでも受理する。

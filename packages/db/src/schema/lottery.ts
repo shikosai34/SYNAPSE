@@ -11,12 +11,13 @@ import {
 } from "drizzle-orm/sqlite-core";
 import { event } from "./core";
 import { eventUser } from "./visitor";
+import { ulid } from "ulidx";
 
 // 抽選: イベント単位の抽選設定 (発表時刻など)。
 export const lottery = sqliteTable(
   "lottery",
   {
-    id: text("id").primaryKey(),
+    id: text("id").primaryKey().$defaultFn(() => ulid()),
     eventId: text("event_id")
       .notNull()
       .references(() => event.id, { onDelete: "cascade" }),
@@ -34,7 +35,7 @@ export const lottery = sqliteTable(
 export const lotteryPrize = sqliteTable(
   "lottery_prize",
   {
-    id: text("id").primaryKey(),
+    id: text("id").primaryKey().$defaultFn(() => ulid()),
     lotteryId: text("lottery_id")
       .notNull()
       .references(() => lottery.id, { onDelete: "cascade" }),
@@ -48,7 +49,7 @@ export const lotteryPrize = sqliteTable(
 export const lotteryEntry = sqliteTable(
   "lottery_entry",
   {
-    id: text("id").primaryKey(),
+    id: text("id").primaryKey().$defaultFn(() => ulid()),
     lotteryId: text("lottery_id")
       .notNull()
       .references(() => lottery.id, { onDelete: "cascade" }),
@@ -72,7 +73,7 @@ export const lotteryEntry = sqliteTable(
 export const lotteryWinner = sqliteTable(
   "lottery_winner",
   {
-    id: text("id").primaryKey(),
+    id: text("id").primaryKey().$defaultFn(() => ulid()),
     lotteryId: text("lottery_id")
       .notNull()
       .references(() => lottery.id, { onDelete: "cascade" }),

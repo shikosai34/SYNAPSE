@@ -23,9 +23,10 @@
     "typescript": "^5"
   },
   "dependencies": {
-    "drizzle-orm": "^0.45.0",
     "@libsql/client": "catalog:",
+    "drizzle-orm": "^0.45.0",
     "libsql": "catalog:",
+    "ulidx": "^2.4.1",
     "zod": "catalog:"
   }
 }
