@@ -84,6 +84,7 @@ eventRoutes.post(
       description: z.string().optional(),
       startDate: z.string().optional(),
       endDate: z.string().optional(),
+      hasPhysicalWristband: z.boolean().optional(),
     })
   ),
   async (c) => {
@@ -103,6 +104,7 @@ eventRoutes.post(
       description: input.description,
       startDate: input.startDate ? new Date(input.startDate) : undefined,
       endDate: input.endDate ? new Date(input.endDate) : undefined,
+      hasPhysicalWristband: input.hasPhysicalWristband ?? true,
       // 無料枠の既定値。plan/billingStatus/maxCircles はスキーマ default と同値だが、
       // 意図 (無料枠で有効化) を明示するため作成時に書き込む。
       plan: "free",
@@ -158,6 +160,7 @@ eventRoutes.put(
       description: z.string().nullable().optional(),
       startDate: z.string().nullable().optional(),
       endDate: z.string().nullable().optional(),
+      hasPhysicalWristband: z.boolean().optional(),
     })
   ),
   async (c) => {

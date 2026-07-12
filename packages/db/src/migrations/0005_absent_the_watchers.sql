@@ -1,0 +1,1 @@
+ALTER TABLE `event` ADD `has_physical_wristband` integer DEFAULT true NOT NULL;

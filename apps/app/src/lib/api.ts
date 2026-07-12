@@ -369,6 +369,7 @@ export interface EventTheme {
   description?: string | null;
   startDate?: string | Date | null;
   endDate?: string | Date | null;
+  hasPhysicalWristband?: boolean;
 }
 
 
@@ -377,6 +378,7 @@ export interface Event extends EventTheme {
   id: string;
   eventName: string;
   description: string | null;
+  hasPhysicalWristband: boolean;
   startDate: Date | null;
   endDate: Date | null;
 }
@@ -769,6 +771,11 @@ export const wristbandApi = {
     fetchApi<{ userId: string; displayId: number; wristbandId: string | null }>("/api/wristbands/issue", {
       method: "POST",
       body: { eventId, wristbandId },
+    }),
+  update: (id: string, data: { status: "active" | "lost" | "replaced" | "revoked" | "smartphone"; userId?: string }) =>
+    fetchApi<{ success: boolean }>(`/api/wristbands/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      body: data,
     }),
 };
 

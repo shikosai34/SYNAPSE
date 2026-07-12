@@ -39,6 +39,7 @@ export function SettingsTab({ eventId, event }: SettingsTabProps) {
     startDate: "",
     endDate: "",
     logoUrl: "",
+    hasPhysicalWristband: true,
     ...DEFAULT_THEME,
   });
 
@@ -51,6 +52,7 @@ export function SettingsTab({ eventId, event }: SettingsTabProps) {
         startDate: event.startDate ? String(event.startDate).slice(0, 10) : "",
         endDate: event.endDate ? String(event.endDate).slice(0, 10) : "",
         logoUrl: event.logoUrl || "",
+        hasPhysicalWristband: event.hasPhysicalWristband !== undefined ? event.hasPhysicalWristband : true,
         primaryColor: event.primaryColor || DEFAULT_THEME.primaryColor,
         primaryTextColor: event.primaryTextColor || DEFAULT_THEME.primaryTextColor,
         accentColor: event.accentColor || DEFAULT_THEME.accentColor,
@@ -71,6 +73,7 @@ export function SettingsTab({ eventId, event }: SettingsTabProps) {
         startDate: data.startDate || null,
         endDate: data.endDate || null,
         logoUrl: data.logoUrl || null,
+        hasPhysicalWristband: data.hasPhysicalWristband,
         primaryColor: data.primaryColor,
         primaryTextColor: data.primaryTextColor,
         accentColor: data.accentColor,
@@ -170,6 +173,23 @@ export function SettingsTab({ eventId, event }: SettingsTabProps) {
                     onChange={(e) => setForm({ ...form, endDate: e.target.value })}
                     className="border-thick border-border rounded-none focus-visible:ring-0 h-10 text-xs bg-background font-mono"
                   />
+                </div>
+              </div>
+
+              {/* 物理リストバンド有無設定 */}
+              <div className="flex items-center gap-3 border-thick border-border p-3 bg-muted/10">
+                <input
+                  id="hasPhysicalWristband"
+                  type="checkbox"
+                  checked={form.hasPhysicalWristband}
+                  onChange={(e) => setForm({ ...form, hasPhysicalWristband: e.target.checked })}
+                  className="h-4 w-4 border-thick border-border bg-background cursor-pointer focus:ring-0"
+                />
+                <div className="space-y-0.5">
+                  <Label htmlFor="hasPhysicalWristband" className="text-xs font-bold uppercase cursor-pointer">物理リストバンドを使用する</Label>
+                  <p className="text-[9px] text-muted-foreground leading-normal">
+                    OFFにすると、物理バンドの発行手順がスキップされ、来場者はスマホのデジタルQRのみで入場・注文ができます。
+                  </p>
                 </div>
               </div>
             </div>

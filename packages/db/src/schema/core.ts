@@ -143,6 +143,9 @@ export const event = sqliteTable("event", {
   backgroundColor: text("background_color").default("#FFFFFF"),
   textColor: text("text_color").default("#000000"),
 
+  // 物理リストバンドの有無フラグ (2026-07-12)
+  hasPhysicalWristband: integer("has_physical_wristband", { mode: "boolean" }).default(true).notNull(),
+
   // 論理削除 (2026-07-04): 物理削除せず deletedAt に時刻を入れて非表示化する
   deletedAt: integer("deleted_at", { mode: "timestamp_ms" }),
 
