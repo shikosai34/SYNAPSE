@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { staff } from "@fesflow/db";
 import { eq, and, isNull } from "drizzle-orm";
-import { nanoid } from "nanoid";
+import { ulid } from "ulidx";
 import { hasPermission } from "../utils/auth";
 import { apiError } from "../http-error";
 import { zBody } from "../z-validator";
@@ -68,7 +68,7 @@ staffRoutes.post(
       apiError("FORBIDDEN", "権限がありません");
     }
 
-    const id = nanoid();
+    const id = ulid();
 
     await db.insert(staff).values({
       id,

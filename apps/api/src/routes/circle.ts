@@ -4,7 +4,7 @@ import { apiError } from "../http-error";
 import { z } from "zod";
 import { circle, event, membership, inviteToken } from "@fesflow/db";
 import { eq, and, isNull, gt, lt } from "drizzle-orm";
-import { nanoid } from "nanoid";
+import { ulid } from "ulidx";
 import { getAdminSession, hasPermission } from "../utils/auth";
 import { requireAuth } from "../middleware/auth";
 import type { AppEnv } from "../types";
@@ -128,7 +128,7 @@ circleRoutes.post(
     const db = c.get("db");
     const session = c.get("session")!;
     const input = c.req.valid("json");
-    const id = nanoid();
+    const id = ulid();
     const email = session.user.email.toLowerCase();
 
     // イベントの存在確認
@@ -238,7 +238,7 @@ circleRoutes.post(
     // 失敗すると代表者不在のサークルが残ってしまう。失敗時は先に作成した circle 行を
     // 補償削除してからエラーを返す。
     // 2026-07-07 (Phase 3a): 代表者は常に作成者本人 (session.user.email)。
-    const membershipId = nanoid();
+    const membershipId = ulid();
     try {
       await db.insert(membership).values({
         id: membershipId,

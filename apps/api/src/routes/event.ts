@@ -4,7 +4,7 @@ import { apiError } from "../http-error";
 import { z } from "zod";
 import { event, membership } from "@fesflow/db";
 import { eq, and, inArray, isNull } from "drizzle-orm";
-import { nanoid } from "nanoid";
+import { ulid } from "ulidx";
 import { getAdminSession, getSession } from "../utils/auth";
 import type { AppEnv } from "../types";
 
@@ -94,7 +94,7 @@ eventRoutes.post(
     }
 
     const input = c.req.valid("json");
-    const id = nanoid();
+    const id = ulid();
     const ownerEmail = session.user.email.toLowerCase();
 
     await db.insert(event).values({
@@ -114,7 +114,7 @@ eventRoutes.post(
 
     // 作成者を event_manager として所属させる (セルフサービス作成=作成者が主催者)。
     await db.insert(membership).values({
-      id: nanoid(),
+      id: ulid(),
       userEmail: ownerEmail,
       userName: session.user.name || `${input.eventName} 主催者`,
       eventId: id,

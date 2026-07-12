@@ -4,7 +4,7 @@ import { apiError } from "../http-error";
 import { z } from "zod";
 import { userStamp, rewardRedemption } from "@fesflow/db";
 import { eq } from "drizzle-orm";
-import { nanoid } from "nanoid";
+import { ulid } from "ulidx";
 import { getSession } from "../utils/auth";
 import type { AppEnv } from "../types";
 
@@ -86,7 +86,7 @@ stampRoutes.post(
 
     // 引換記録を作成
     await db.insert(rewardRedemption).values({
-      id: nanoid(),
+      id: ulid(),
       userId: input.userId,
       staffId: staffId,
     });

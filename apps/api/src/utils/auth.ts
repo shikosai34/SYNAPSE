@@ -1,6 +1,6 @@
 import { membership, circle } from "@fesflow/db";
 import { eq, and } from "drizzle-orm";
-import { nanoid } from "nanoid";
+import { ulid } from "ulidx";
 import { Context } from "hono";
 import { ROLE_PERMISSIONS, type Permission } from "@fesflow/db";
 import type { AppEnv } from "../types";
@@ -58,7 +58,7 @@ export async function getAdminSession(c: Context<AppEnv>) {
     if (existing.length === 0) {
       // super_admin としてメンバーシップを自動作成
       await db.insert(membership).values({
-        id: nanoid(),
+        id: ulid(),
         userEmail: email.toLowerCase(),
         userName: session.user.name || "Super Admin",
         role: "super_admin",

@@ -15,7 +15,7 @@ import {
   type DB,
 } from "@fesflow/db";
 import { eq, and, desc, sql, inArray, gte } from "drizzle-orm";
-import { nanoid } from "nanoid";
+import { ulid } from "ulidx";
 import { hasPermission } from "../utils/auth";
 import type { AppEnv } from "../types";
 
@@ -230,7 +230,7 @@ orderRoutes.post(
     const db = c.get("db");
     try {
       const input = c.req.valid("json");
-      const orderId = nanoid();
+      const orderId = ulid();
 
       // 2026-07-04: D1 の外部キー制約エラー回避のため、必要に応じて eventUser を自動作成する
       const circles = await db
@@ -385,7 +385,7 @@ orderRoutes.post(
         const subtotal = unitPrice * item.quantity;
 
         orderItems.push({
-          id: nanoid(),
+          id: ulid(),
           orderId,
           menuId: item.menuId,
           menuName: menuItem.name,
@@ -460,7 +460,7 @@ orderRoutes.post(
             );
           if (existingStamp.length === 0) {
             await db.insert(userStamp).values({
-              id: nanoid(),
+              id: ulid(),
               userId: input.userId,
               circleId: input.circleId,
             });
@@ -484,7 +484,7 @@ orderRoutes.post(
               const toppingItem = toppings.find((t) => t.id === toppingId);
               if (toppingItem) {
                 await db.insert(orderItemTopping).values({
-                  id: nanoid(),
+                  id: ulid(),
                   orderItemId: item.id,
                   toppingId,
                   toppingName: toppingItem.name,
@@ -579,7 +579,7 @@ orderRoutes.patch(
 
       if (existingStamp.length === 0) {
         await db.insert(userStamp).values({
-          id: nanoid(),
+          id: ulid(),
           userId: targetOrder.userId,
           circleId: targetOrder.circleId,
         });

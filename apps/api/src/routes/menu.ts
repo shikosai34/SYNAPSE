@@ -4,7 +4,7 @@ import { apiError } from "../http-error";
 import { z } from "zod";
 import { menu, menuTopping, topping } from "@fesflow/db";
 import { eq, inArray } from "drizzle-orm";
-import { nanoid } from "nanoid";
+import { ulid } from "ulidx";
 import { hasPermission } from "../utils/auth";
 import type { AppEnv } from "../types";
 
@@ -119,7 +119,7 @@ menuRoutes.post(
       apiError("FORBIDDEN", "権限がありません");
     }
 
-    const id = nanoid();
+    const id = ulid();
 
     await db.insert(menu).values({
       id,
@@ -139,7 +139,7 @@ menuRoutes.post(
     if (input.toppingIds && input.toppingIds.length > 0) {
       await db.insert(menuTopping).values(
         input.toppingIds.map((toppingId) => ({
-          id: nanoid(),
+          id: ulid(),
           menuId: id,
           toppingId,
         }))
@@ -207,7 +207,7 @@ menuRoutes.put(
       if (input.toppingIds.length > 0) {
         await db.insert(menuTopping).values(
           input.toppingIds.map((toppingId) => ({
-            id: nanoid(),
+            id: ulid(),
             menuId: id,
             toppingId,
           }))
