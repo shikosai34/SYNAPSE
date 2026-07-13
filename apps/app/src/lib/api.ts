@@ -217,6 +217,13 @@ export const orderApi = {
       `/api/orders?circleId=${circleId}${status ? `&status=${status}` : ""}`
     ),
   get: (id: string) => fetchApi<OrderWithItems>(`/api/orders/${id}`),
+  // 来場者本人の注文履歴 (レジを通った注文)。code = eventUser.id or リストバンドID。
+  // 旧実装 (getByCode) の .catch(()=>[]) は 500 を空表示に握り潰し障害を隠していたため、
+  // ここでは握り潰さず react-query の isError → ErrorState に流して可視化する。
+  getByUser: (code: string) =>
+    fetchApi<VisitorOrderHistory[]>(
+      `/api/orders/user/${encodeURIComponent(code)}`
+    ),
   getByOrderNumber: (circleId: string, orderNumber: string) =>
     fetchApi<Order>(
       `/api/orders/by-number/${orderNumber}?circleId=${circleId}`
@@ -643,6 +650,31 @@ export interface OrderItem {
 
 export interface OrderWithItems extends Order {
   items: OrderItem[];
+}
+
+// 来場者の注文履歴 (GET /api/orders/user/:code)。
+// レジ内部情報 (cashierId / paymentMethod 等) はサーバ側で除外済みの本人向けビュー。
+export interface VisitorOrderHistoryItem {
+  id: string;
+  menuId: string;
+  menuName: string;
+  menuPrice: number;
+  quantity: number;
+  toppings: { id: string; name: string; price: number }[];
+}
+
+export interface VisitorOrderHistory {
+  id: string;
+  orderNumber: string;
+  status: string;
+  totalPrice: number;
+  peopleCount: number;
+  circleId: string;
+  circleName: string | null;
+  createdAt: string;
+  completedAt: string | null;
+  estimatedTime: number | null;
+  items: VisitorOrderHistoryItem[];
 }
 
 export interface SalesStats {
