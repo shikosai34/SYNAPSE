@@ -1,9 +1,10 @@
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { eventApi, type EventAnalytics } from "@/lib/api";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { BarChart3, RefreshCw, Users, Coins, Receipt, Star } from "lucide-react";
+import { BarChart3, RefreshCw, Users, Coins, Receipt, Star, Radio } from "lucide-react";
 
 // イベント統計・分析タブ (2026-07-12)
 // サーバ側で横断集計した来場者/売上/注文/評価/回遊の指標を表示する。
@@ -65,10 +66,14 @@ function Bars({
 }
 
 export function AnalyticsTab({ eventId }: { eventId: string }) {
+  // リアルタイム自動更新 (2026-07-12): ON で 15 秒ごとに再取得する。
+  // 開催中の混雑状況/売上をライブで見るための機能。
+  const [live, setLive] = useState(false);
   const { data, isLoading, isError, error, refetch, isFetching } = useQuery({
     queryKey: ["event-analytics", eventId],
     queryFn: () => eventApi.analytics(eventId),
     enabled: !!eventId,
+    refetchInterval: live ? 15_000 : false,
   });
 
   if (isLoading) {
@@ -97,14 +102,26 @@ export function AnalyticsTab({ eventId }: { eventId: string }) {
         <h2 className="text-sm font-bold flex items-center gap-2 uppercase tracking-wider">
           <BarChart3 className="h-4 w-4" /> 統計・分析
         </h2>
-        <button
-          type="button"
-          onClick={() => refetch()}
-          disabled={isFetching}
-          className="flex items-center gap-1 font-mono text-[11px] uppercase border-thick border-border px-2 py-1 hover:bg-muted"
-        >
-          <RefreshCw className={`h-3.5 w-3.5 ${isFetching ? "animate-spin" : ""}`} /> 更新
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setLive((v) => !v)}
+            className={`flex items-center gap-1 font-mono text-[11px] uppercase border-thick px-2 py-1 transition-colors ${
+              live ? "border-accent bg-accent text-accent-foreground" : "border-border hover:bg-muted"
+            }`}
+            title="ONで15秒ごとに自動更新 (開催中のライブ表示)"
+          >
+            <Radio className={`h-3.5 w-3.5 ${live ? "animate-pulse" : ""}`} /> LIVE
+          </button>
+          <button
+            type="button"
+            onClick={() => refetch()}
+            disabled={isFetching}
+            className="flex items-center gap-1 font-mono text-[11px] uppercase border-thick border-border px-2 py-1 hover:bg-muted"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${isFetching ? "animate-spin" : ""}`} /> 更新
+          </button>
+        </div>
       </div>
 
       {/* KPI カード */}
