@@ -80,6 +80,47 @@ eventRoutes.get("/:id", async (c) => {
   return c.json(events[0]);
 });
 
+// イベント横断の進行中注文モニタ (2026-07-12)
+// 全サークルの未完了注文 (pending/preparing) を古い順で返す。フロントが経過時間から
+// 遅延・滞留を判定してアラート表示する。event_manager(order:read) 権限が必要。
+eventRoutes.get("/:id/orders/live", async (c) => {
+  const db = c.get("db");
+  const eventId = c.req.param("id");
+  if (!(await hasPermission(c, null, "order:read", eventId))) {
+    apiError("FORBIDDEN", "このイベントの注文を閲覧する権限がありません");
+  }
+
+  const circles = await db
+    .select({ id: circle.id, name: circle.name })
+    .from(circle)
+    .where(and(eq(circle.eventId, eventId), isNull(circle.deletedAt)));
+  const circleIds = circles.map((c2) => c2.id);
+  const circleName = new Map(circles.map((c2) => [c2.id, c2.name]));
+
+  const active = circleIds.length
+    ? await db
+        .select()
+        .from(order)
+        .where(and(inArray(order.circleId, circleIds), inArray(order.status, ["pending", "preparing"])))
+    : [];
+
+  const rows = active
+    .map((o) => ({
+      id: o.id,
+      orderNumber: o.orderNumber,
+      circleId: o.circleId,
+      circleName: circleName.get(o.circleId) || "",
+      status: o.status,
+      peopleCount: o.peopleCount,
+      totalPrice: o.totalPrice,
+      estimatedTime: o.estimatedTime,
+      createdAt: o.createdAt,
+    }))
+    .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+
+  return c.json(rows);
+});
+
 // イベント統計・分析 (2026-07-12)
 // イベント配下の全サークルを横断集計して来場者/売上/注文/評価/回遊の指標を返す。
 // event_manager (sales:read) 権限が必要。super_admin は素では不可、なりすまし経由のみ
