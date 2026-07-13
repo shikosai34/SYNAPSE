@@ -520,31 +520,13 @@ orderRoutes.post(
         totalPrice += subtotal;
       }
 
-      // 2026-07-06: 既知の制約 (M-5)。D1 はマルチステートメントの対話的トランザクションに
-      // 対応していないため、この関数全体 (在庫減算 → order insert → orderItem/topping insert)
-      // は単一のACIDトランザクションではなく逐次実行になっている。途中で失敗すると
-      // 「在庫だけ減って注文レコードが残らない」等の不整合が理論上発生し得る。
-      // 完全な補償(SAGA等)は複雑になるため今回はスコープ外とし、以下では order insert 以降を
-      // try/catch で囲み、失敗時に減算済み在庫を戻すベストエフォートの補償のみ行う。
-      // (在庫減算そのものの失敗は上のガード付きUPDATEで既に処理済みなのでここでは対象外)
-      // 支払い方法の解決 (2026-07-12): 明示指定を優先し、無ければサークルの対応方法が
-      // ちょうど1つのときだけそれを補完する (単一方法はレジで選択させないため)。
-      let resolvedPayment: string | undefined = input.paymentMethod?.trim() || undefined;
-      if (!resolvedPayment) {
-        try {
-          const parsed = JSON.parse(circles[0]!.settings || "{}");
-          const accepted: unknown = parsed?.acceptedPayments;
-          if (Array.isArray(accepted) && accepted.length === 1 && typeof accepted[0] === "string") {
-            resolvedPayment = accepted[0];
-          }
-        } catch {
-          /* settings が壊れていても注文は通す */
-        }
-      }
-
-      // 1. 在庫管理メニューの在庫をガード付きUPDATEで減算する
+      // 2026-07-05: 在庫管理メニューの在庫をガード付きUPDATEで減算する。
       // D1 は対話的トランザクション非対応のため、条件付きUPDATEで0行更新なら在庫不足として
       // 注文全体を中断する（レース対策）。
+      // 2026-07-13 (リグレッション修正): 一時 db.transaction() 化していたが、Cloudflare D1 の
+      // ドライバは transaction() 内で `BEGIN` を発行し、D1 がこれを拒否して例外→注文が全て 500 に
+      // なっていた (POST /api/orders 500)。D1 は対話的トランザクションを提供しないため、
+      // 従来どおり逐次実行＋ガード付きUPDATE＋ベストエフォート補償に戻す。
       for (const [menuId, neededQty] of stockNeeded.entries()) {
         const result = await db
           .update(menu)
@@ -565,6 +547,27 @@ orderRoutes.post(
             .update(menu)
             .set({ soldOut: true })
             .where(eq(menu.id, menuId));
+        }
+      }
+      // 2026-07-06: 既知の制約 (M-5)。D1 はマルチステートメントの対話的トランザクションに
+      // 対応していないため、この関数全体 (在庫減算 → order insert → orderItem/topping insert)
+      // は単一のACIDトランザクションではなく逐次実行になっている。途中で失敗すると
+      // 「在庫だけ減って注文レコードが残らない」等の不整合が理論上発生し得る。
+      // 完全な補償(SAGA等)は複雑になるため今回はスコープ外とし、以下では order insert 以降を
+      // try/catch で囲み、失敗時に減算済み在庫を戻すベストエフォートの補償のみ行う。
+      // (在庫減算そのものの失敗は上のガード付きUPDATEで既に処理済みなのでここでは対象外)
+      // 支払い方法の解決 (2026-07-12): 明示指定を優先し、無ければサークルの対応方法が
+      // ちょうど1つのときだけそれを補完する (単一方法はレジで選択させないため)。
+      let resolvedPayment: string | undefined = input.paymentMethod?.trim() || undefined;
+      if (!resolvedPayment) {
+        try {
+          const parsed = JSON.parse(circles[0]!.settings || "{}");
+          const accepted: unknown = parsed?.acceptedPayments;
+          if (Array.isArray(accepted) && accepted.length === 1 && typeof accepted[0] === "string") {
+            resolvedPayment = accepted[0];
+          }
+        } catch {
+          /* settings が壊れていても注文は通す */
         }
       }
 
@@ -606,7 +609,7 @@ orderRoutes.post(
           }
         }
 
-        // 4. 注文アイテムを作成
+        // 注文アイテムを作成
         for (const item of orderItems) {
           await db.insert(orderItem).values({
             id: item.id,
@@ -617,7 +620,7 @@ orderRoutes.post(
             quantity: item.quantity,
           });
 
-          // 5. トッピングを関連付け
+          // トッピングを関連付け
           if (item.toppingIds && item.toppingIds.length > 0) {
             for (const toppingId of item.toppingIds) {
               const toppingItem = toppings.find((t) => t.id === toppingId);

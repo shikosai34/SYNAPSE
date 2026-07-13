@@ -322,6 +322,8 @@ circleRoutes.post(
     // サークルと代表者メンバーシップを作成
     // 2026-07-04: Cloudflare D1 は HTTP 経由の対話的トランザクション (BEGIN TRANSACTION) をサポートしておらず、
     // db.transaction() を実行すると "Failed query: begin" エラーで 500 になるため、順次実行に変更。
+    // 2026-07-13 (リグレッション修正): 一時 db.transaction() 化していたが上記の理由で 500 を再発させたため
+    // 逐次実行＋補償削除に戻す。
     await db.insert(circle).values({
       id,
       eventId: input.eventId,
