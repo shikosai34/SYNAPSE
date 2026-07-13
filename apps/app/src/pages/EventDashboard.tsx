@@ -11,6 +11,7 @@ import { Building2 } from "lucide-react";
 import { CirclesTab } from "@/components/event/CirclesTab";
 import { AnalyticsTab } from "@/components/event/AnalyticsTab";
 import { OrderMonitorTab } from "@/components/event/OrderMonitorTab";
+import { InventoryTab } from "@/components/event/InventoryTab";
 import { SalesTab } from "@/components/event/SalesTab";
 import { StaffTab } from "@/components/event/StaffTab";
 import { SettingsTab } from "@/components/event/SettingsTab";
@@ -125,6 +126,9 @@ export default function EventDashboard() {
 
           {/* TAB: 注文モニタ */}
           {activeTab === "order-monitor" && <OrderMonitorTab eventId={eventId} />}
+
+          {/* TAB: 在庫・売り切れ */}
+          {activeTab === "inventory" && <InventoryTab eventId={eventId} />}
 
           {/* TAB 1: サークル管理 */}
           {activeTab === "circles" && (

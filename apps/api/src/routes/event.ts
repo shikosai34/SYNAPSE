@@ -11,6 +11,7 @@ import {
   eventUser,
   review,
   circleVisit,
+  menu,
 } from "@fesflow/db";
 import { eq, and, inArray, isNull } from "drizzle-orm";
 import { ulid } from "ulidx";
@@ -119,6 +120,44 @@ eventRoutes.get("/:id/orders/live", async (c) => {
     .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
 
   return c.json(rows);
+});
+
+// イベント横断の在庫/売り切れ一覧 (2026-07-12)
+// 全サークルのメニューを在庫状況付きで返す。フロントが売り切れ/在庫僅少を強調表示する。
+// event_manager(stock:read) 権限が必要。
+eventRoutes.get("/:id/inventory", async (c) => {
+  const db = c.get("db");
+  const eventId = c.req.param("id");
+  if (!(await hasPermission(c, null, "stock:read", eventId))) {
+    apiError("FORBIDDEN", "このイベントの在庫を閲覧する権限がありません");
+  }
+
+  const circles = await db
+    .select({ id: circle.id, name: circle.name })
+    .from(circle)
+    .where(and(eq(circle.eventId, eventId), isNull(circle.deletedAt)));
+  const circleIds = circles.map((c2) => c2.id);
+  const circleName = new Map(circles.map((c2) => [c2.id, c2.name]));
+
+  const menus = circleIds.length
+    ? await db
+        .select({
+          id: menu.id,
+          circleId: menu.circleId,
+          name: menu.name,
+          price: menu.price,
+          soldOut: menu.soldOut,
+          stockQuantity: menu.stockQuantity,
+        })
+        .from(menu)
+        .where(inArray(menu.circleId, circleIds))
+    : [];
+
+  return c.json(
+    menus
+      .map((m) => ({ ...m, circleName: circleName.get(m.circleId) || "" }))
+      .sort((a, b) => a.circleName.localeCompare(b.circleName) || a.name.localeCompare(b.name))
+  );
 });
 
 // イベント統計・分析 (2026-07-12)

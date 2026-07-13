@@ -22,6 +22,7 @@ import {
   ScrollText,
   BarChart3,
   MonitorCheck,
+  Boxes,
   ChevronDown,
   ChevronUp
 } from "lucide-react";
@@ -97,6 +98,7 @@ export default function DashboardLayout({
   const eventMenuItems: MenuItem[] = [
     { title: "統計・分析", tab: "analytics", icon: BarChart3 },
     { title: "注文モニタ", tab: "order-monitor", icon: MonitorCheck },
+    { title: "在庫・売り切れ", tab: "inventory", icon: Boxes },
     { title: "サークル管理", tab: "circles", icon: Grid },
     { title: "全体売上管理", tab: "sales", icon: TrendingUp },
     { title: "スタッフ管理", tab: "staff", icon: Users },

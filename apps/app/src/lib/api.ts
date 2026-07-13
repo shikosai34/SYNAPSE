@@ -84,6 +84,8 @@ export const eventApi = {
   analytics: (id: string) => fetchApi<EventAnalytics>(`/api/festivals/${id}/analytics`),
   // 進行中注文モニタ (全サークル横断)。event_manager (order:read) 権限が必要。
   liveOrders: (id: string) => fetchApi<LiveOrder[]>(`/api/festivals/${id}/orders/live`),
+  // 在庫/売り切れ一覧 (全サークル横断)。event_manager (stock:read) 権限が必要。
+  inventory: (id: string) => fetchApi<InventoryItem[]>(`/api/festivals/${id}/inventory`),
   create: (data: CreateEventInput) =>
     fetchApi<{ id: string }>("/api/festivals", { method: "POST", body: data }),
   updateTheme: (id: string, data: EventTheme) =>
@@ -428,6 +430,17 @@ export interface LiveOrder {
   totalPrice: number;
   estimatedTime: number | null;
   createdAt: string;
+}
+
+// 在庫一覧の1件 (GET /api/festivals/:id/inventory)
+export interface InventoryItem {
+  id: string;
+  circleId: string;
+  circleName: string;
+  name: string;
+  price: number;
+  soldOut: boolean;
+  stockQuantity: number;
 }
 
 
