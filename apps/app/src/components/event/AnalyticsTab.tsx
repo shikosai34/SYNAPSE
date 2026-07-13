@@ -4,7 +4,7 @@ import { eventApi, type EventAnalytics } from "@/lib/api";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { BarChart3, RefreshCw, Users, Coins, Receipt, Star, Radio } from "lucide-react";
+import { BarChart3, RefreshCw, Users, Coins, Receipt, Star, Radio, Download } from "lucide-react";
 
 // イベント統計・分析タブ (2026-07-12)
 // サーバ側で横断集計した来場者/売上/注文/評価/回遊の指標を表示する。
@@ -12,6 +12,38 @@ import { BarChart3, RefreshCw, Users, Coins, Receipt, Star, Radio } from "lucide
 
 function yen(n: number): string {
   return `¥${n.toLocaleString("ja-JP")}`;
+}
+
+// CSV の1セルをエスケープする (カンマ/改行/ダブルクオート対応)。
+function csvCell(v: string | number | null): string {
+  const s = v == null ? "" : String(v);
+  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
+// 統計をCSV(精算・報告書用)としてダウンロードする。Excel の文字化け対策に BOM を付ける。
+function downloadCsv(eventLabel: string, a: EventAnalytics) {
+  const t = a.totals;
+  const lines: (string | number | null)[][] = [
+    ["イベント統計サマリ"],
+    ["総来場者数", "総売上", "総注文数", "総客数", "平均客単価", "サークル数", "平均評価", "完了率", "回遊のべ訪問"],
+    [t.visitors, t.revenue, t.orders, t.customers, t.avgSpend, t.circles, t.avgRating ?? "", `${t.completedRate}%`, t.circleVisits],
+    [],
+    ["サークル別 (精算)"],
+    ["サークル名", "売上", "注文数", "レビュー数", "平均評価"],
+    ...a.circleRanking.map((c) => [c.name, c.revenue, c.orders, c.reviews, c.avgRating ?? ""]),
+    [],
+    ["人気メニュー"],
+    ["メニュー", "販売個数", "売上"],
+    ...a.menuRanking.map((m) => [m.menuName, m.quantity, m.revenue]),
+  ];
+  const csv = lines.map((row) => row.map(csvCell).join(",")).join("\r\n");
+  const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `${eventLabel || "event"}_統計_${new Date().toISOString().slice(0, 10)}.csv`;
+  link.click();
+  URL.revokeObjectURL(url);
 }
 
 function StatCard({
@@ -65,7 +97,7 @@ function Bars({
   );
 }
 
-export function AnalyticsTab({ eventId }: { eventId: string }) {
+export function AnalyticsTab({ eventId, eventName }: { eventId: string; eventName?: string }) {
   // リアルタイム自動更新 (2026-07-12): ON で 15 秒ごとに再取得する。
   // 開催中の混雑状況/売上をライブで見るための機能。
   const [live, setLive] = useState(false);
@@ -103,6 +135,14 @@ export function AnalyticsTab({ eventId }: { eventId: string }) {
           <BarChart3 className="h-4 w-4" /> 統計・分析
         </h2>
         <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => downloadCsv(eventName || "event", data)}
+            className="flex items-center gap-1 font-mono text-[11px] uppercase border-thick border-border px-2 py-1 hover:bg-muted"
+            title="統計・精算データをCSVで書き出す"
+          >
+            <Download className="h-3.5 w-3.5" /> CSV
+          </button>
           <button
             type="button"
             onClick={() => setLive((v) => !v)}

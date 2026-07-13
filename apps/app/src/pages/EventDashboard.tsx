@@ -120,7 +120,7 @@ export default function EventDashboard() {
       >
         <div className="space-y-6">
           {/* TAB: 統計・分析 */}
-          {activeTab === "analytics" && <AnalyticsTab eventId={eventId} />}
+          {activeTab === "analytics" && <AnalyticsTab eventId={eventId} eventName={eventName} />}
 
           {/* TAB 1: サークル管理 */}
           {activeTab === "circles" && (
