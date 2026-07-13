@@ -549,7 +549,6 @@ orderRoutes.post(
             .where(eq(menu.id, menuId));
         }
       }
-
       // 2026-07-06: 既知の制約 (M-5)。D1 はマルチステートメントの対話的トランザクションに
       // 対応していないため、この関数全体 (在庫減算 → order insert → orderItem/topping insert)
       // は単一のACIDトランザクションではなく逐次実行になっている。途中で失敗すると
@@ -573,7 +572,7 @@ orderRoutes.post(
       }
 
       try {
-        // 注文を作成 (注文モードに応じて初期ステータスを決定)
+        // 2. 注文を作成 (注文モードに応じて初期ステータスを決定)
         const isDirectComplete = orderFlowMode === "completed";
         await db.insert(order).values({
           id: orderId,
@@ -589,7 +588,7 @@ orderRoutes.post(
           completedAt: isDirectComplete ? new Date() : undefined,
         });
 
-        // 未着手以外(調理中/即完成)で受け付けた場合、この時点でスタンプを付与する。
+        // 3. 未着手以外(調理中/即完成)で受け付けた場合、この時点でスタンプを付与する。
         // 未着手受付の場合は従来どおり pending→preparing 遷移時に付与される。
         if (orderFlowMode !== "pending" && input.userId) {
           const existingStamp = await db
@@ -668,7 +667,7 @@ orderRoutes.post(
       // ここで握りつぶして 500 に丸めないよう、AppError はそのまま再 throw して onError に委ねる。
       if (error instanceof AppError) throw error;
       console.error("Order creation error:", error);
-      apiError("INTERNAL", "注文の作成に失敗しました");
+      apiError("INTERNAL", `注文の作成に失敗しました: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 );
