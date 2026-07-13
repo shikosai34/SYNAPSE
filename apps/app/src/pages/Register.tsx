@@ -433,50 +433,16 @@ function RegisterPageContent() {
       const parsedCode = extractIdFromCode(code);
       return await wristbandApi.lookup(parsedCode);
     },
-    onSuccess: async (data) => {
+    onSuccess: (data) => {
       if (data.user) {
+        // 顧客を特定するだけ。事前オーダーのロードは activeCustomer の変化を監視する
+        // useEffect 側で行う (カメラスキャン経由でも確実に走らせるための共通化)。
         setActiveCustomer({
           userId: data.user.id,
           wristbandId: data.wristband?.id || null,
         });
         toast.success(`顧客を特定しました: ${data.wristband?.id || data.user.id}`);
         setScannedCode("");
-
-        // 2026-07-13: 顧客特定時に該当サークルの pending な事前オーダーがあれば自動でカートにロードする
-        try {
-          const preOrders = await preOrderApi.getByCode(data.user.id, circleId);
-          const pendingOrders = preOrders.filter(
-            (po) => po.status === "pending" && po.circleId === circleId
-          );
-          if (pendingOrders.length > 0) {
-            const po = pendingOrders[0]!;
-            setActivePreOrderId(po.id);
-            setCart(
-              po.items.map((item) => ({
-                lineId: crypto.randomUUID(),
-                menuId: item.menuId,
-                menuName: item.menu?.name || "不明なメニュー",
-                menuPrice: item.menu?.price || 0,
-                quantity: item.quantity,
-                toppings: [],
-              }))
-            );
-            toast.success("事前オーダーの内容をカートにロードしました！", {
-              style: {
-                border: "3px solid var(--border)",
-                borderRadius: "var(--radius)",
-                background: "var(--primary)",
-                color: "var(--primary-foreground)",
-                fontWeight: "bold",
-              },
-            });
-          } else {
-            setActivePreOrderId(null);
-          }
-        } catch (err) {
-          console.error("Failed to load pre-order items:", err);
-          setActivePreOrderId(null);
-        }
       } else {
         toast.error("ユーザーが見つかりませんでした");
       }
@@ -485,6 +451,63 @@ function RegisterPageContent() {
       toast.error(error.message || "照会に失敗しました");
     },
   });
+
+  // 2026-07-13: 顧客が特定されたら (カメラスキャン/手入力どちらでも) 該当サークルの
+  // pending な事前オーダーを自動でカートにロードする。特定手段による分岐をなくすため、
+  // activeCustomer の変化を監視するリアクティブな設計にしている。
+  useEffect(() => {
+    if (!activeCustomer) {
+      setActivePreOrderId(null);
+      return;
+    }
+
+    // アンマウントや顧客切替時に、遅れて解決した fetch がカートを上書きしないようにするガード
+    let isMounted = true;
+    const loadPreOrder = async () => {
+      try {
+        const preOrders = await preOrderApi.getByCode(activeCustomer.userId, circleId);
+        const pendingOrders = preOrders.filter(
+          (po) => po.status === "pending" && po.circleId === circleId
+        );
+        if (!isMounted) return;
+        if (pendingOrders.length > 0) {
+          const po = pendingOrders[0]!;
+          setActivePreOrderId(po.id);
+          setCart(
+            po.items.map((item) => ({
+              lineId: crypto.randomUUID(),
+              menuId: item.menuId,
+              menuName: item.menu?.name || "不明なメニュー",
+              menuPrice: item.menu?.price || 0,
+              quantity: item.quantity,
+              toppings: [],
+            }))
+          );
+          toast.success("事前オーダーの内容をカートにロードしました！", {
+            style: {
+              border: "3px solid var(--border)",
+              borderRadius: "var(--radius)",
+              background: "var(--primary)",
+              color: "var(--primary-foreground)",
+              fontWeight: "bold",
+            },
+          });
+        } else {
+          setActivePreOrderId(null);
+        }
+      } catch (err) {
+        console.error("Failed to load pre-order items:", err);
+        if (isMounted) setActivePreOrderId(null);
+      }
+    };
+
+    loadPreOrder();
+
+    return () => {
+      isMounted = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeCustomer, circleId]);
 
   const createOrder = useMutation({
     mutationFn: async (input: {
