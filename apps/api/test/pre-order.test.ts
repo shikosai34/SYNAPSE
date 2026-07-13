@@ -1,5 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { event, circle, eventUser, menu, membership, wristband } from "@fesflow/db";
+import {
+	event,
+	circle,
+	eventUser,
+	menu,
+	membership,
+	wristband,
+	topping,
+	menuTopping,
+	orderItem,
+	orderItemTopping,
+} from "@fesflow/db";
+import { eq, inArray } from "drizzle-orm";
 import { postJson, request, testDb, uid } from "./helpers";
 
 // テスト対象と同等のID抽出ロジック (app/src/lib/utils.ts に実装されているもの)
@@ -132,6 +144,85 @@ describe("事前オーダー機能", () => {
 		expect(getAfterClaimRes.status).toBe(200);
 		const getAfterClaimData = (await getAfterClaimRes.json()) as any[];
 		expect(getAfterClaimData).toHaveLength(0);
+	});
+
+	it("トッピング付き事前オーダーが作成・取得でき、claim 時に正規注文へ引き継がれる", async () => {
+		const db = testDb();
+		const { circleId, menuId, userId } = await seedTestData();
+		const { cookie, email } = await signUpAndGetCookie();
+
+		// claim 権限 (order:write) を持つスタッフ
+		const memId = uid("mem");
+		await db.insert(membership).values({
+			id: memId,
+			userEmail: email,
+			userName: "テストスタッフ",
+			circleId,
+			role: "circle_manager",
+			isActive: true,
+		});
+
+		// トッピングを作成し、対象メニューに紐付ける
+		const toppingId = uid("top");
+		await db.insert(topping).values({
+			id: toppingId,
+			circleId,
+			name: "大盛り",
+			price: 100,
+			soldOut: false,
+		});
+		await db.insert(menuTopping).values({
+			id: uid("mt"),
+			menuId,
+			toppingId,
+		});
+
+		// 1. トッピング付きで作成 -> 合計は (500 + 100) * 2 = 1200
+		const createRes = await postJson("/api/pre-orders", {
+			userId,
+			circleId,
+			items: [{ menuId, quantity: 2, toppingIds: [toppingId] }],
+		});
+		expect(createRes.status).toBe(201);
+		const createData = (await createRes.json()) as { id: string; totalPrice: number };
+		expect(createData.totalPrice).toBe(1200);
+
+		// 2. 取得時に items[].toppings がスナップショットで返る
+		const getRes = await request(`/api/pre-orders/user/${userId}?circleId=${circleId}`);
+		const getData = (await getRes.json()) as any[];
+		expect(getData).toHaveLength(1);
+		expect(getData[0].items[0].toppings).toHaveLength(1);
+		expect(getData[0].items[0].toppings[0]).toMatchObject({
+			id: toppingId,
+			name: "大盛り",
+			price: 100,
+		});
+
+		// 3. claim -> 正規注文アイテムにトッピングが引き継がれている
+		const claimRes = await request(`/api/pre-orders/${createData.id}/claim`, {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Cookie: cookie,
+				"X-Active-Membership-Id": memId,
+			},
+			body: JSON.stringify({ cashierId: "test-cashier" }),
+		});
+		expect(claimRes.status).toBe(200);
+		const claimData = (await claimRes.json()) as { orderId: string };
+
+		const createdItems = await db
+			.select()
+			.from(orderItem)
+			.where(eq(orderItem.orderId, claimData.orderId));
+		expect(createdItems).toHaveLength(1);
+		const createdItemToppings = await db
+			.select()
+			.from(orderItemTopping)
+			.where(inArray(orderItemTopping.orderItemId, createdItems.map((i) => i.id)));
+		expect(createdItemToppings).toHaveLength(1);
+		expect(createdItemToppings[0]!.toppingName).toBe("大盛り");
+		expect(createdItemToppings[0]!.toppingPrice).toBe(100);
 	});
 
 	it("ID抽出処理 (extractIdFromCode) が新旧URL形式と生のIDを正しく処理できる", () => {

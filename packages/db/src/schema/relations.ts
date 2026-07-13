@@ -14,6 +14,7 @@ import {
   orderItemTopping,
   preOrder,
   preOrderItem,
+  preOrderItemTopping,
 } from "./order";
 import {
   eventUser,
@@ -93,6 +94,7 @@ export const toppingRelations = relations(topping, ({ one, many }) => ({
   }),
   menuToppings: many(menuTopping),
   orderItemToppings: many(orderItemTopping),
+  preOrderItemToppings: many(preOrderItemTopping),
 }));
 
 export const menuToppingRelations = relations(menuTopping, ({ one }) => ({
@@ -153,7 +155,7 @@ export const preOrderRelations = relations(preOrder, ({ one, many }) => ({
   items: many(preOrderItem),
 }));
 
-export const preOrderItemRelations = relations(preOrderItem, ({ one }) => ({
+export const preOrderItemRelations = relations(preOrderItem, ({ one, many }) => ({
   preOrder: one(preOrder, {
     fields: [preOrderItem.preOrderId],
     references: [preOrder.id],
@@ -162,7 +164,22 @@ export const preOrderItemRelations = relations(preOrderItem, ({ one }) => ({
     fields: [preOrderItem.menuId],
     references: [menu.id],
   }),
+  preOrderItemToppings: many(preOrderItemTopping),
 }));
+
+export const preOrderItemToppingRelations = relations(
+  preOrderItemTopping,
+  ({ one }) => ({
+    preOrderItem: one(preOrderItem, {
+      fields: [preOrderItemTopping.preOrderItemId],
+      references: [preOrderItem.id],
+    }),
+    topping: one(topping, {
+      fields: [preOrderItemTopping.toppingId],
+      references: [topping.id],
+    }),
+  })
+);
 
 // --- visitor ---
 export const eventUserRelations = relations(eventUser, ({ one, many }) => ({

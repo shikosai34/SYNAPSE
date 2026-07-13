@@ -5,9 +5,13 @@ import { z } from "zod";
 import {
   preOrder,
   preOrderItem,
+  preOrderItemTopping,
   order,
   orderItem,
+  orderItemTopping,
   menu,
+  menuTopping,
+  topping,
   wristband,
   eventUser,
   userStamp,
@@ -65,6 +69,8 @@ preOrderRoutes.post(
         z.object({
           menuId: z.string(),
           quantity: z.number().min(1).default(1),
+          // 2026-07-13: 来場者モバイルオーダーのトッピング対応。省略時は従来通りトッピング無し。
+          toppingIds: z.array(z.string()).optional(),
         })
       ),
     })
@@ -114,8 +120,32 @@ preOrderRoutes.post(
         .from(menu)
         .where(inArray(menu.id, menuIds));
 
+      // トッピング取得 (order.ts と同じ検証方針)。指定が無ければ空。
+      const allToppingIds = items.flatMap((i) => i.toppingIds || []);
+      const toppings =
+        allToppingIds.length > 0
+          ? await db
+              .select()
+              .from(topping)
+              .where(inArray(topping.id, allToppingIds))
+          : [];
+      // 指定トッピングが対象メニューに実際に紐付いているかを検証するための関連
+      const menuToppingLinks =
+        allToppingIds.length > 0
+          ? await db
+              .select()
+              .from(menuTopping)
+              .where(inArray(menuTopping.menuId, menuIds))
+          : [];
+
       let totalPrice = 0;
-      const itemList: { id: string; menuId: string; quantity: number }[] = [];
+      // トッピングも一緒に保持し、後段でスナップショット挿入する
+      const itemList: {
+        id: string;
+        menuId: string;
+        quantity: number;
+        toppings: { id: string; name: string; price: number }[];
+      }[] = [];
 
       for (const item of items) {
         const m = menus.find((menuItem) => menuItem.id === item.menuId);
@@ -133,11 +163,39 @@ preOrderRoutes.post(
           apiError("BAD_REQUEST", `${m.name}は売り切れです`);
         }
 
-        totalPrice += m.price * item.quantity;
+        // 2026-07-13: トッピング検証 (order.ts の POST / と同等)。
+        const itemToppings = toppings.filter((t) =>
+          (item.toppingIds || []).includes(t.id)
+        );
+        if (itemToppings.length !== (item.toppingIds || []).length) {
+          apiError("BAD_REQUEST", "存在しないトッピングが指定されています");
+        }
+        for (const t of itemToppings) {
+          if (t.circleId !== circleId) {
+            apiError("BAD_REQUEST", `トッピング ${t.name} は指定サークルに属していません`);
+          }
+          if (t.soldOut) {
+            apiError("BAD_REQUEST", `${t.name}は売り切れです`);
+          }
+          const isLinked = menuToppingLinks.some(
+            (mt) => mt.menuId === m.id && mt.toppingId === t.id
+          );
+          if (!isLinked) {
+            apiError("BAD_REQUEST", `トッピング ${t.name} はメニュー ${m.name} に紐付いていません`);
+          }
+        }
+
+        const toppingTotal = itemToppings.reduce((sum, t) => sum + t.price, 0);
+        totalPrice += (m.price + toppingTotal) * item.quantity;
         itemList.push({
           id: ulid(),
           menuId: item.menuId,
           quantity: item.quantity,
+          toppings: itemToppings.map((t) => ({
+            id: t.id,
+            name: t.name,
+            price: t.price,
+          })),
         });
       }
 
@@ -150,7 +208,7 @@ preOrderRoutes.post(
         status: "pending",
       });
 
-      // 事前オーダーアイテム挿入
+      // 事前オーダーアイテム + トッピング挿入
       for (const item of itemList) {
         await db.insert(preOrderItem).values({
           id: item.id,
@@ -158,6 +216,15 @@ preOrderRoutes.post(
           menuId: item.menuId,
           quantity: item.quantity,
         });
+        for (const t of item.toppings) {
+          await db.insert(preOrderItemTopping).values({
+            id: ulid(),
+            preOrderItemId: item.id,
+            toppingId: t.id,
+            toppingName: t.name,
+            toppingPrice: t.price,
+          });
+        }
       }
 
       return c.json({ id: preOrderId, totalPrice }, 201);
@@ -240,6 +307,17 @@ preOrderRoutes.get("/user/:code", async (c) => {
       ? await db.select().from(menu).where(inArray(menu.id, menuIds))
       : [];
 
+  // 2026-07-13: アイテムに紐づくトッピング(スナップショット)を取得。
+  // Register の自動ロードでカートにトッピングまで復元できるようにするため。
+  const itemIds = items.map((i) => i.id);
+  const itemToppings =
+    itemIds.length > 0
+      ? await db
+          .select()
+          .from(preOrderItemTopping)
+          .where(inArray(preOrderItemTopping.preOrderItemId, itemIds))
+      : [];
+
   const result = preOrders.map((po) => ({
     ...po,
     items: items
@@ -247,6 +325,13 @@ preOrderRoutes.get("/user/:code", async (c) => {
       .map((i) => ({
         ...i,
         menu: menus.find((m) => m.id === i.menuId),
+        toppings: itemToppings
+          .filter((it) => it.preOrderItemId === i.id)
+          .map((it) => ({
+            id: it.toppingId,
+            name: it.toppingName,
+            price: it.toppingPrice,
+          })),
       })),
   }));
 
@@ -295,6 +380,17 @@ preOrderRoutes.post(
         .from(menu)
         .where(inArray(menu.id, menuIds));
 
+      // 2026-07-13: 事前オーダーに紐づくトッピング(スナップショット)を取得し、
+      // 正規注文へ引き継ぐ。totalPrice は作成時にトッピング込みで計算済みなので再計算しない。
+      const itemIds = items.map((i) => i.id);
+      const itemToppings =
+        itemIds.length > 0
+          ? await db
+              .select()
+              .from(preOrderItemTopping)
+              .where(inArray(preOrderItemTopping.preOrderItemId, itemIds))
+          : [];
+
       // 正規注文を作成
       const newOrderId = ulid();
       const orderNumber = await generateOrderNumber(db, po.circleId);
@@ -315,14 +411,29 @@ preOrderRoutes.post(
       for (const item of items) {
         const m = menus.find((menuItem) => menuItem.id === item.menuId);
         if (m) {
+          const newOrderItemId = ulid();
           await db.insert(orderItem).values({
-            id: ulid(),
+            id: newOrderItemId,
             orderId: newOrderId,
             menuId: m.id,
             menuName: m.name,
             menuPrice: m.price,
             quantity: item.quantity,
           });
+
+          // 事前オーダーのトッピングを正規注文アイテムへスナップショットのまま引き継ぐ
+          const toppingsForItem = itemToppings.filter(
+            (it) => it.preOrderItemId === item.id
+          );
+          for (const t of toppingsForItem) {
+            await db.insert(orderItemTopping).values({
+              id: ulid(),
+              orderItemId: newOrderItemId,
+              toppingId: t.toppingId,
+              toppingName: t.toppingName,
+              toppingPrice: t.toppingPrice,
+            });
+          }
         }
       }
 
