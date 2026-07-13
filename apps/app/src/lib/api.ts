@@ -141,6 +141,8 @@ export const circleApi = {
     }),
   delete: (id: string) =>
     fetchApi<{ success: boolean }>(`/api/circles/${id}`, { method: "DELETE" }),
+  // サークル統計・分析 (2026-07-13)
+  analytics: (id: string) => fetchApi<CircleAnalytics>(`/api/circles/${id}/analytics`),
 };
 
 // Menu API
@@ -448,6 +450,25 @@ export interface EventAnalytics {
   }[];
   menuRanking: { menuName: string; quantity: number; revenue: number }[];
   ageBuckets: { label: string; count: number }[];
+  paymentBreakdown: { method: string; orders: number; revenue: number }[];
+}
+
+// サークル統計 (GET /api/circles/:id/analytics) のレスポンス (2026-07-13)
+export interface CircleAnalytics {
+  totals: {
+    orders: number;
+    revenue: number;
+    customers: number;
+    avgSpend: number;
+    completedRate: number;
+    avgPrepMin: number | null;
+    reviews: number;
+    avgRating: number | null;
+    visitors: number;
+    menus: number;
+  };
+  byHour: { hour: number; orders: number; revenue: number }[];
+  menuRanking: { menuName: string; quantity: number; revenue: number }[];
   paymentBreakdown: { method: string; orders: number; revenue: number }[];
 }
 
@@ -1128,6 +1149,7 @@ export interface AdminOverview {
   lockouts: number;
   byPlan: Record<string, number>;
   byStatus: Record<string, number>;
+  userGrowth: { date: string; accounts: number; visitors: number }[];
 }
 
 export type BillingStatus = "active" | "trial" | "suspended" | "unpaid";

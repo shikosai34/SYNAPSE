@@ -121,6 +121,148 @@ export function OverviewTab() {
           </div>
         </div>
       </div>
+
+      {/* ユーザー成長数推移グラフ */}
+      {(() => {
+        const userGrowth = data.userGrowth ?? [];
+        const maxVal = Math.max(1, ...userGrowth.map((g) => Math.max(g.accounts, g.visitors)));
+
+        const svgWidth = 500;
+        const svgHeight = 200;
+        const paddingLeft = 40;
+        const paddingRight = 15;
+        const paddingTop = 15;
+        const paddingBottom = 30;
+        const chartWidth = svgWidth - paddingLeft - paddingRight;
+        const chartHeight = svgHeight - paddingTop - paddingBottom;
+
+        const points = userGrowth.map((g, i) => {
+          const x = paddingLeft + (i / Math.max(1, userGrowth.length - 1)) * chartWidth;
+          const yAcc = paddingTop + chartHeight - (g.accounts / maxVal) * chartHeight;
+          const yVis = paddingTop + chartHeight - (g.visitors / maxVal) * chartHeight;
+          return { x, yAcc, yVis, ...g };
+        });
+
+        const lineAccPath = points.reduce(
+          (acc, p, i) => (i === 0 ? `M ${p.x} ${p.yAcc}` : `${acc} L ${p.x} ${p.yAcc}`),
+          ""
+        );
+
+        const lineVisPath = points.reduce(
+          (acc, p, i) => (i === 0 ? `M ${p.x} ${p.yVis}` : `${acc} L ${p.x} ${p.yVis}`),
+          ""
+        );
+
+        return (
+          <div className="border-thick border-border bg-background p-4 space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-border pb-2">
+              <h3 className="text-[11px] uppercase font-mono font-bold tracking-wider">[ユーザー登録成長推移 (過去14日間)]</h3>
+              <div className="flex items-center gap-4 text-[10px] font-mono">
+                <div className="flex items-center gap-1.5">
+                  <span className="inline-block w-3 h-1 bg-foreground" />
+                  <span>アカウント</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="inline-block w-3 h-1 bg-accent" />
+                  <span>来場者</span>
+                </div>
+              </div>
+            </div>
+            {userGrowth.length === 0 ? (
+              <p className="font-mono text-[11px] text-muted-foreground text-center py-12 uppercase">No growth data</p>
+            ) : (
+              <div className="w-full overflow-x-auto no-scrollbar">
+                <div className="min-w-[500px]">
+                  <svg viewBox={`0 0 ${svgWidth} ${svgHeight}`} className="w-full h-auto overflow-visible">
+                    {/* Y軸グリッド */}
+                    {Array.from({ length: 5 }).map((_, i) => {
+                      const y = paddingTop + (i / 4) * chartHeight;
+                      const val = Math.round(maxVal * (1 - i / 4));
+                      return (
+                        <g key={i}>
+                          <line
+                            x1={paddingLeft}
+                            y1={y}
+                            x2={svgWidth - paddingRight}
+                            y2={y}
+                            stroke="#E5E5E5"
+                            strokeWidth="1"
+                            strokeDasharray="2 2"
+                          />
+                          <text
+                            x={paddingLeft - 6}
+                            y={y + 3}
+                            className="font-mono text-[9px] fill-muted-foreground"
+                            textAnchor="end"
+                          >
+                            {val}
+                          </text>
+                        </g>
+                      );
+                    })}
+
+                    {/* X軸目盛り */}
+                    {points.map((p, i) => {
+                      // 重なりを防ぐため奇数インデックス＋最後のみ
+                      if (i % 2 !== 0 && i !== points.length - 1) return null;
+                      return (
+                        <text
+                          key={i}
+                          x={p.x}
+                          y={svgHeight - paddingBottom + 15}
+                          className="font-mono text-[9px] fill-muted-foreground"
+                          textAnchor="middle"
+                        >
+                          {p.date}
+                        </text>
+                      );
+                    })}
+
+                    {/* アカウント折れ線 */}
+                    <path
+                      d={lineAccPath}
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      className="text-foreground"
+                    />
+
+                    {/* 来場者折れ線 */}
+                    <path
+                      d={lineVisPath}
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      className="text-accent"
+                    />
+
+                    {/* データ点 */}
+                    {points.map((p, i) => (
+                      <g key={i} className="group">
+                        <circle
+                          cx={p.x}
+                          cy={p.yAcc}
+                          r="3"
+                          fill="currentColor"
+                          className="text-foreground cursor-pointer hover:scale-150 transition-all"
+                        />
+                        <circle
+                          cx={p.x}
+                          cy={p.yVis}
+                          r="3"
+                          fill="currentColor"
+                          className="text-accent cursor-pointer hover:scale-150 transition-all"
+                        />
+                        <title>{`${p.date} - アカウント: ${p.accounts}人 / 来場者: ${p.visitors}人`}</title>
+                      </g>
+                    ))}
+                  </svg>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })()}
     </div>
   );
 }
