@@ -14,13 +14,8 @@ export function extractIdFromCode(code: string): string {
 	if (wMatch && wMatch[1]) {
 		return wMatch[1];
 	}
-	// 2. ?wb=usr_xxxx などの URL またはクエリから ID を抽出する
+	// 2. ?wb=usr_xxxx などの URL またはクエリから ID を抽出する (店頭スキャン等で https://.../circle/checkin?wb=sp_usr_xxx が入ってきた場合に対応)
 	const wbMatch = trimmed.match(/[?&]wb=([a-zA-Z0-9_\-]+)/);
-	if (wbMatch && wbMatch[1]) {
-		return wbMatch[1];
-	}
-	// 2026-07-13: 店頭スキャン等でチェックインURL (例: https://.../circle/checkin?wb=sp_usr_xxx) が入ってきた場合に対応
-	const wbMatch = trimmed.match(/[\?&]wb=([a-zA-Z0-9_\-]+)/);
 	if (wbMatch && wbMatch[1]) {
 		return wbMatch[1];
 	}
