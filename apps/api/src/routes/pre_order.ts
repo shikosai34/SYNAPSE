@@ -14,7 +14,7 @@ import {
   circle,
   type DB,
 } from "@fesflow/db";
-import { eq, and, inArray, desc, sql } from "drizzle-orm";
+import { eq, and, or, inArray, desc, sql } from "drizzle-orm";
 import { ulid } from "ulidx";
 import { hasPermission } from "../utils/auth";
 import type { AppEnv } from "../types";
@@ -185,7 +185,15 @@ preOrderRoutes.get("/user/:code", async (c) => {
   // 1. ユーザーIDの特定
   let targetUserId: string | null = null;
 
-  const wbs = await db.select().from(wristband).where(eq(wristband.id, code));
+  const wbs = await db
+    .select()
+    .from(wristband)
+    .where(
+      and(
+        eq(wristband.id, code),
+        or(eq(wristband.status, "active"), eq(wristband.status, "smartphone"))
+      )
+    );
   if (wbs.length > 0) {
     targetUserId = wbs[0]!.userId;
   } else {

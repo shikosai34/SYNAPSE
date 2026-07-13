@@ -9,10 +9,15 @@ export { cn } from "@fesflow/config/cn";
 
 export function extractIdFromCode(code: string): string {
 	const trimmed = code.trim();
-	// http://localhost:3001/w/usr_xxxx などの URL から ID を抽出する
-	const match = trimmed.match(/\/w\/([a-zA-Z0-9_\-]+)/);
-	if (match && match[1]) {
-		return match[1];
+	// 1. /w/usr_xxxx などの URL から ID を抽出する
+	const wMatch = trimmed.match(/\/w\/([a-zA-Z0-9_\-]+)/);
+	if (wMatch && wMatch[1]) {
+		return wMatch[1];
+	}
+	// 2. ?wb=usr_xxxx などの URL またはクエリから ID を抽出する
+	const wbMatch = trimmed.match(/[?&]wb=([a-zA-Z0-9_\-]+)/);
+	if (wbMatch && wbMatch[1]) {
+		return wbMatch[1];
 	}
 	return trimmed;
 }
