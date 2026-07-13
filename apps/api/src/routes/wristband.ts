@@ -92,7 +92,7 @@ async function nextDisplayId(db: DB, eventId: string): Promise<number> {
 
 // コード (リストバンドID、ユーザーID) によるユーザー照会
 // 2026-07-13: URLエンコードされたスラッシュを含むコードに対応するため、正規表現でスラッシュを含む全文字列をキャッチできるようにする
-wristbandRoutes.get("/lookup/:code{.++}", async (c) => {
+wristbandRoutes.get("/lookup/:code{.+}", async (c) => {
   const db = c.get("db");
   let code = c.req.param("code");
 
