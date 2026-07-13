@@ -299,39 +299,43 @@ circleRoutes.post(
       apiError("BAD_REQUEST", "同じ名前のサークルが既に存在します");
     }
 
-    // 2026-07-13 (D1トランザクション対応): アトミック性を保証するため、
-    // 招待の消費、サークルとメンバーシップの登録を db.transaction 内で実行します。
-    // エラー時は自動でロールバックされるため、手動の補償削除は不要です。
-    await db.transaction(async (tx) => {
-      // 招待経由の場合は、作成を確定する直前に招待を TOCTOU 安全に消費する
-      // (used_count < max_uses を満たす場合のみ +1。0件更新なら上限到達で中断)。
-      if (hostInvite) {
-        const upd = await tx
-          .update(inviteToken)
-          .set({ usedCount: hostInvite.usedCount + 1 })
-          .where(
-            and(
-              eq(inviteToken.id, hostInvite.id),
-              hostInvite.maxUses !== null
-                ? lt(inviteToken.usedCount, hostInvite.maxUses)
-                : undefined
-            )
-          );
-        const changes = (upd as unknown as { meta?: { changes?: number } })?.meta?.changes ?? 0;
-        if (changes === 0) {
-          apiError("BAD_REQUEST", "招待の使用回数上限に達しました");
-        }
+    // 招待経由の場合は、作成を確定する直前に招待を TOCTOU 安全に消費する
+    // (used_count < max_uses を満たす場合のみ +1。0件更新なら上限到達で中断)。
+    if (hostInvite) {
+      const upd = await db
+        .update(inviteToken)
+        .set({ usedCount: hostInvite.usedCount + 1 })
+        .where(
+          and(
+            eq(inviteToken.id, hostInvite.id),
+            hostInvite.maxUses !== null
+              ? lt(inviteToken.usedCount, hostInvite.maxUses)
+              : undefined
+          )
+        );
+      const changes = (upd as unknown as { meta?: { changes?: number } })?.meta?.changes ?? 0;
+      if (changes === 0) {
+        apiError("BAD_REQUEST", "招待の使用回数上限に達しました");
       }
+    }
 
-      await tx.insert(circle).values({
-        id,
-        eventId: input.eventId,
-        name: input.name,
-        description: input.description,
-      });
+    // サークルと代表者メンバーシップを作成
+    // 2026-07-04: Cloudflare D1 は HTTP 経由の対話的トランザクション (BEGIN TRANSACTION) をサポートしておらず、
+    // db.transaction() を実行すると "Failed query: begin" エラーで 500 になるため、順次実行に変更。
+    await db.insert(circle).values({
+      id,
+      eventId: input.eventId,
+      name: input.name,
+      description: input.description,
+    });
 
-      const membershipId = ulid();
-      await tx.insert(membership).values({
+    // 2026-07-06 (M5): D1 はトランザクション非対応のため、membership insert が
+    // 失敗すると代表者不在のサークルが残ってしまう。失敗時は先に作成した circle 行を
+    // 補償削除してからエラーを返す。
+    // 2026-07-07 (Phase 3a): 代表者は常に作成者本人 (session.user.email)。
+    const membershipId = ulid();
+    try {
+      await db.insert(membership).values({
         id: membershipId,
         userEmail: session.user.email.toLowerCase(), // メールアドレスは小文字で保存
         userName: session.user.name || `${input.name} 代表者`,
@@ -339,7 +343,10 @@ circleRoutes.post(
         role: "circle_manager",
         isActive: true,
       });
-    });
+    } catch (e) {
+      await db.delete(circle).where(eq(circle.id, id));
+      apiError("INTERNAL", "サークルの作成に失敗しました");
+    }
 
     return c.json({ id }, 201);
   }
