@@ -75,6 +75,10 @@ function EventMenuContent({
 
   const theme = useMemo(() => event ?? null, [event]);
 
+  const uniqueCircles = circles
+    ? Array.from(new Map(circles.map(c => [c.id, c])).values())
+    : undefined;
+
   return (
     <EventTheme theme={theme} className="min-h-screen bg-background text-foreground">
       <div className="mx-auto max-w-4xl px-4 py-8 font-mono">
@@ -134,7 +138,7 @@ function EventMenuContent({
         {/* サークル一覧 */}
         <h2 className="text-sm font-black uppercase tracking-wider mb-3 flex items-center gap-2">
           <Store className="h-4 w-4" />
-          出店一覧 {circles ? `(${circles.length})` : ""}
+          出店一覧 {uniqueCircles ? `(${uniqueCircles.length})` : ""}
         </h2>
 
         {circlesLoading ? (
@@ -145,9 +149,9 @@ function EventMenuContent({
           </div>
         ) : circlesError ? (
           <ErrorState error={circlesErrorObj} onRetry={() => refetchCircles()} />
-        ) : circles && circles.length > 0 ? (
+        ) : uniqueCircles && uniqueCircles.length > 0 ? (
           <div className="grid gap-3 sm:grid-cols-2">
-            {circles.map((circle) => (
+            {uniqueCircles.map((circle) => (
               <button
                 key={circle.id}
                 type="button"
