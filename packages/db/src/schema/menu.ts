@@ -9,12 +9,13 @@ import {
   index,
 } from "drizzle-orm/sqlite-core";
 import { circle } from "./core";
+import { ulid } from "ulidx";
 
 // メニューテーブル
 export const menu = sqliteTable(
   "menu",
   {
-    id: text("id").primaryKey(),
+    id: text("id").primaryKey().$defaultFn(() => ulid()),
     circleId: text("circle_id")
       .notNull()
       .references(() => circle.id, { onDelete: "cascade" }),
@@ -45,7 +46,7 @@ export const menu = sqliteTable(
 export const topping = sqliteTable(
   "topping",
   {
-    id: text("id").primaryKey(),
+    id: text("id").primaryKey().$defaultFn(() => ulid()),
     circleId: text("circle_id")
       .notNull()
       .references(() => circle.id, { onDelete: "cascade" }),
@@ -69,7 +70,7 @@ export const topping = sqliteTable(
 export const menuTopping = sqliteTable(
   "menu_topping",
   {
-    id: text("id").primaryKey(),
+    id: text("id").primaryKey().$defaultFn(() => ulid()),
     menuId: text("menu_id")
       .notNull()
       .references(() => menu.id, { onDelete: "cascade" }),

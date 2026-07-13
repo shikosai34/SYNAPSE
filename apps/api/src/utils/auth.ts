@@ -1,6 +1,6 @@
 import { membership, circle } from "@fesflow/db";
 import { eq, and } from "drizzle-orm";
-import { nanoid } from "nanoid";
+import { ulid } from "ulidx";
 import { Context } from "hono";
 import { ROLE_PERMISSIONS, type Permission } from "@fesflow/db";
 import type { AppEnv } from "../types";
@@ -58,7 +58,7 @@ export async function getAdminSession(c: Context<AppEnv>) {
     if (existing.length === 0) {
       // super_admin としてメンバーシップを自動作成
       await db.insert(membership).values({
-        id: nanoid(),
+        id: ulid(),
         userEmail: email.toLowerCase(),
         userName: session.user.name || "Super Admin",
         role: "super_admin",
@@ -156,21 +156,44 @@ export async function hasPermission(
 
   if (memberships.length === 0) return false;
 
-  // 1. super_admin はテナント内容にアクセスできない (2026-07-12 Phase D 分離)。
-  //    SaaS 運営者がテナントのメニュー/注文/売上を素通しで覗ける状態をなくす。
-  //    内容を見る必要がある時は「昇格(sudo)→なりすまし」経由に限る (上の imp 分岐)。
-  const superAdminM = memberships.find((m) => m.role === "super_admin");
-  if (superAdminM) {
-    return false;
-  }
-
-  // 2. event_manager のチェック (イベント内のすべてのサークル/設定に対して権限を持つ)
+  // 対象イベントの解決 (circleId 指定時はその親イベント)。super_admin 分岐でも使う。
   let resolvedEventId = eventId;
   if (!resolvedEventId && circleId) {
     const circles = await db.select().from(circle).where(eq(circle.id, circleId));
     if (circles.length > 0) {
       resolvedEventId = circles[0]!.eventId;
     }
+  }
+
+  // 1. super_admin は「肩書きだけ」ではテナント内容にアクセスできない (2026-07-12 Phase D 分離)。
+  //    SaaS 運営者がテナントのメニュー/注文/売上を素通しで覗ける状態をなくす。
+  //    ただし本人が「対象イベント/サークルの正規ロール(event_manager / circle_*)」も実際に
+  //    持っている場合は、その正規ロールとして許可する (自分でイベントを作った=super_admin かつ
+  //    event_manager である運営者が、自分のイベントの統計等を見られないと困るため)。
+  //    対象に正規ロールが無ければ従来どおり不可 = 昇格→なりすまし経由でのみ閲覧 (分離を維持)。
+  const superAdminM = memberships.find((m) => m.role === "super_admin");
+  if (superAdminM) {
+    const legit = await db
+      .select()
+      .from(membership)
+      .where(and(eq(membership.userEmail, email), eq(membership.isActive, true)));
+    const em = legit.find(
+      (m) => m.role === "event_manager" && m.eventId && (!resolvedEventId || m.eventId === resolvedEventId)
+    );
+    if (em) {
+      const perms = ROLE_PERMISSIONS["event_manager"] as readonly string[];
+      if (perms.includes(requiredPermission)) return true;
+    }
+    if (circleId) {
+      const cm = legit.find(
+        (m) => m.circleId === circleId && (m.role === "circle_manager" || m.role === "circle_staff")
+      );
+      if (cm) {
+        const perms = ROLE_PERMISSIONS[cm.role as keyof typeof ROLE_PERMISSIONS] as readonly string[] | undefined;
+        if (perms && perms.includes(requiredPermission)) return true;
+      }
+    }
+    return false;
   }
 
   const eventM = memberships.find((m) => m.role === "event_manager");

@@ -3,8 +3,10 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { CircleAuthGuard, useAuth } from "@/hooks/useCircleAuth";
 import {
   circleApi,
+  eventApi,
   membershipApi,
   parseCircleSettings,
+  parseEventPaymentMethods,
   type OrderFlowMode,
 } from "@/lib/api";
 import DashboardLayout from "@/components/DashboardLayout";
@@ -25,7 +27,7 @@ import { OptionCard } from "@/components/ui/OptionCard";
 import { ToggleSwitch } from "@/components/ui/ToggleSwitch";
 import { ExtensionsManager } from "@/components/circle/ExtensionsManager";
 import { toast } from "sonner";
-import { Save, Package, UserCheck, Crown, Clock, ChefHat, CheckCircle2 } from "lucide-react";
+import { Save, Package, UserCheck, CreditCard, Crown, Clock, ChefHat, CheckCircle2 } from "lucide-react";
 
 // 注文モードの選択肢
 const ORDER_FLOW_OPTIONS: {
@@ -66,6 +68,8 @@ function CircleSettingsContent() {
   const [orderFlowMode, setOrderFlowMode] = useState<OrderFlowMode>("pending");
   const [stockEnabled, setStockEnabled] = useState(false);
   const [staffEnabled, setStaffEnabled] = useState(false);
+  // 対応する支払い方法 (2026-07-12)。イベントの paymentMethods の部分集合。
+  const [acceptedPayments, setAcceptedPayments] = useState<string[]>([]);
 
   // オーナー譲渡確認
   const [pendingTransfer, setPendingTransfer] = useState<{ id: string; name: string } | null>(
@@ -110,8 +114,17 @@ function CircleSettingsContent() {
       setOrderFlowMode(s.orderFlowMode);
       setStockEnabled(s.extensions.stock);
       setStaffEnabled(s.extensions.staff);
+      setAcceptedPayments(s.acceptedPayments);
     }
   }, [circle]);
+
+  // イベントの支払い方法一覧 (サークルはこの中から対応方法を選ぶ)
+  const { data: eventData } = useQuery({
+    queryKey: ["event", circle?.eventId],
+    queryFn: () => eventApi.get(circle!.eventId),
+    enabled: !!circle?.eventId,
+  });
+  const eventPayments = parseEventPaymentMethods(eventData?.paymentMethods);
 
   const updateCircle = useMutation({
     mutationFn: async (input: { id: string; name?: string; description?: string }) => {
@@ -131,6 +144,8 @@ function CircleSettingsContent() {
       circleApi.updateSettings(circleId, {
         orderFlowMode,
         extensions: { stock: stockEnabled, staff: staffEnabled },
+        // イベントに存在する方法だけ残す (イベント側で削除された方法を掃除)
+        acceptedPayments: acceptedPayments.filter((p) => eventPayments.includes(p)),
       }),
     onSuccess: () => {
       toast.success("運用設定を保存しました");
@@ -282,6 +297,48 @@ function CircleSettingsContent() {
               enabled={staffEnabled}
               onToggle={() => setStaffEnabled((v) => !v)}
             />
+          </CardContent>
+        </Card>
+
+        {/* 対応する支払い方法 (2026-07-12) */}
+        <Card className="rounded-none shadow-none">
+          <CardHeader className="pb-3 border-b-thick border-border">
+            <CardTitle className="text-sm font-bold uppercase flex items-center gap-2">
+              <CreditCard className="h-4 w-4" /> 対応する支払い方法
+            </CardTitle>
+            <CardDescription className="text-xs text-muted-foreground">
+              このサークルが受け付ける支払い方法を選びます。1つだけ選ぶとレジで選択せず自動で使われます。
+              未選択の場合はイベントの全方法に対応しているものとして扱います。
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="pt-4 space-y-2">
+            {eventPayments.length === 0 ? (
+              <p className="font-mono text-[12px] text-muted-foreground">
+                イベント側で支払い方法が設定されていません。
+              </p>
+            ) : (
+              eventPayments.map((p) => {
+                const checked = acceptedPayments.includes(p);
+                return (
+                  <label
+                    key={p}
+                    className="flex items-center gap-2 border-thin border-border p-2 font-mono text-[13px] cursor-pointer hover:bg-muted"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={(e) =>
+                        setAcceptedPayments((prev) =>
+                          e.target.checked ? [...prev, p] : prev.filter((x) => x !== p)
+                        )
+                      }
+                      className="h-4 w-4"
+                    />
+                    {p}
+                  </label>
+                );
+              })
+            )}
           </CardContent>
         </Card>
 

@@ -1,11 +1,12 @@
 import { useState, useEffect } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { eventApi, uploadImage } from "@/lib/api";
+import { eventApi, uploadImage, parseEventPaymentMethods } from "@/lib/api";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Settings, Save, Upload, Loader2, Palette } from "lucide-react";
+import { Settings, Save, Upload, Loader2, Palette, CreditCard, Plus, X, Ticket } from "lucide-react";
+import { ToggleSwitch } from "@/components/ui/ToggleSwitch";
 import { toast } from "sonner";
 
 interface SettingsTabProps {
@@ -33,12 +34,48 @@ const FONT_OPTIONS = [
 export function SettingsTab({ eventId, event }: SettingsTabProps) {
   const queryClient = useQueryClient();
 
+  // 支払い方法 (2026-07-12): テーマ保存とは独立して管理・保存する。
+  const [payments, setPayments] = useState<string[]>([]);
+  const [newPayment, setNewPayment] = useState("");
+  useEffect(() => {
+    if (event) setPayments(parseEventPaymentMethods(event.paymentMethods));
+  }, [event]);
+  const savePayments = useMutation({
+    mutationFn: () => eventApi.setPaymentMethods(eventId, payments),
+    onSuccess: () => {
+      toast.success("支払い方法を保存しました");
+      queryClient.invalidateQueries({ queryKey: ["event", eventId] });
+    },
+    onError: (e: any) => toast.error(e?.message || "保存に失敗しました"),
+  });
+  const addPayment = () => {
+    const v = newPayment.trim();
+    if (!v || payments.includes(v)) return;
+    setPayments((p) => [...p, v]);
+    setNewPayment("");
+  };
+
+  // 抽選機能(拡張)の有効化トグル (2026-07-12)。event.lotteryEnabled を更新する。
+  const [lotteryEnabled, setLotteryEnabled] = useState(false);
+  useEffect(() => {
+    if (event) setLotteryEnabled(!!event.lotteryEnabled);
+  }, [event]);
+  const saveLottery = useMutation({
+    mutationFn: (enabled: boolean) => eventApi.setLotteryEnabled(eventId, enabled),
+    onSuccess: () => {
+      toast.success("抽選機能の設定を保存しました");
+      queryClient.invalidateQueries({ queryKey: ["event", eventId] });
+    },
+    onError: (e: any) => toast.error(e?.message || "保存に失敗しました"),
+  });
+
   const [form, setForm] = useState({
     eventName: "",
     description: "",
     startDate: "",
     endDate: "",
     logoUrl: "",
+    hasPhysicalWristband: true,
     ...DEFAULT_THEME,
   });
 
@@ -51,6 +88,7 @@ export function SettingsTab({ eventId, event }: SettingsTabProps) {
         startDate: event.startDate ? String(event.startDate).slice(0, 10) : "",
         endDate: event.endDate ? String(event.endDate).slice(0, 10) : "",
         logoUrl: event.logoUrl || "",
+        hasPhysicalWristband: event.hasPhysicalWristband !== undefined ? event.hasPhysicalWristband : true,
         primaryColor: event.primaryColor || DEFAULT_THEME.primaryColor,
         primaryTextColor: event.primaryTextColor || DEFAULT_THEME.primaryTextColor,
         accentColor: event.accentColor || DEFAULT_THEME.accentColor,
@@ -71,6 +109,7 @@ export function SettingsTab({ eventId, event }: SettingsTabProps) {
         startDate: data.startDate || null,
         endDate: data.endDate || null,
         logoUrl: data.logoUrl || null,
+        hasPhysicalWristband: data.hasPhysicalWristband,
         primaryColor: data.primaryColor,
         primaryTextColor: data.primaryTextColor,
         accentColor: data.accentColor,
@@ -126,6 +165,77 @@ export function SettingsTab({ eventId, event }: SettingsTabProps) {
         </h2>
       </div>
 
+      {/* 支払い方法 (2026-07-12) */}
+      <Card className="rounded-none bg-background shadow-none">
+        <CardContent className="pt-6 space-y-3">
+          <div className="flex items-center gap-2 border-b-thin border-border pb-2">
+            <CreditCard className="h-4 w-4" />
+            <h3 className="text-xs font-bold uppercase tracking-wider">支払い方法</h3>
+          </div>
+          <p className="font-mono text-[11px] text-muted-foreground leading-[1.6]">
+            イベントで使える支払い方法を登録します。各サークルはこの中から対応する方法を選び、
+            レジで選択して注文します(1つだけ対応のサークルは選択を省略)。
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {payments.map((p) => (
+              <span key={p} className="flex items-center gap-1 border-thick border-border px-2 py-1 font-mono text-[12px]">
+                {p}
+                <button
+                  type="button"
+                  onClick={() => setPayments((prev) => prev.filter((x) => x !== p))}
+                  disabled={payments.length <= 1}
+                  className="text-muted-foreground hover:text-error disabled:opacity-30"
+                  title={payments.length <= 1 ? "最低1つ必要です" : "削除"}
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </span>
+            ))}
+          </div>
+          <div className="flex gap-2">
+            <Input
+              value={newPayment}
+              onChange={(e) => setNewPayment(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), addPayment())}
+              placeholder="例: PayPay / 金券"
+              maxLength={30}
+              className="max-w-xs"
+            />
+            <Button type="button" variant="outline" onClick={addPayment}>
+              <Plus className="h-4 w-4 mr-1" /> 追加
+            </Button>
+          </div>
+          <div className="flex justify-end">
+            <Button onClick={() => savePayments.mutate()} disabled={savePayments.isPending}>
+              <Save className="h-4 w-4 mr-1.5" /> {savePayments.isPending ? "保存中..." : "支払い方法を保存"}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* 抽選 (拡張機能) */}
+      <Card className="rounded-none bg-background shadow-none">
+        <CardContent className="pt-6">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-start gap-2 min-w-0">
+              <Ticket className="h-4 w-4 mt-0.5 shrink-0" />
+              <div className="min-w-0">
+                <h3 className="text-xs font-bold uppercase tracking-wider">抽選機能</h3>
+                <p className="font-mono text-[11px] text-muted-foreground leading-[1.6] mt-0.5">
+                  ONにすると「抽選」タブが有効になり、景品と口数(当選確率)を設定して抽選できます。
+                </p>
+              </div>
+            </div>
+            <ToggleSwitch
+              checked={lotteryEnabled}
+              onChange={(v) => { setLotteryEnabled(v); saveLottery.mutate(v); }}
+              disabled={saveLottery.isPending}
+              label="抽選機能"
+            />
+          </div>
+        </CardContent>
+      </Card>
+
       {/* 基本情報 + ロゴ */}
       <Card className="rounded-none bg-background shadow-none">
         <CardContent className="pt-6 space-y-4">
@@ -170,6 +280,23 @@ export function SettingsTab({ eventId, event }: SettingsTabProps) {
                     onChange={(e) => setForm({ ...form, endDate: e.target.value })}
                     className="border-thick border-border rounded-none focus-visible:ring-0 h-10 text-xs bg-background font-mono"
                   />
+                </div>
+              </div>
+
+              {/* 物理リストバンド有無設定 */}
+              <div className="flex items-center gap-3 border-thick border-border p-3 bg-muted/10">
+                <input
+                  id="hasPhysicalWristband"
+                  type="checkbox"
+                  checked={form.hasPhysicalWristband}
+                  onChange={(e) => setForm({ ...form, hasPhysicalWristband: e.target.checked })}
+                  className="h-4 w-4 border-thick border-border bg-background cursor-pointer focus:ring-0"
+                />
+                <div className="space-y-0.5">
+                  <Label htmlFor="hasPhysicalWristband" className="text-xs font-bold uppercase cursor-pointer">物理リストバンドを使用する</Label>
+                  <p className="text-[9px] text-muted-foreground leading-normal">
+                    OFFにすると、物理バンドの発行手順がスキップされ、来場者はスマホのデジタルQRのみで入場・注文ができます。
+                  </p>
                 </div>
               </div>
             </div>

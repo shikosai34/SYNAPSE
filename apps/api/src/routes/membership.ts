@@ -5,6 +5,7 @@ import { z } from "zod";
 import { membership, inviteToken, circle, event, notification } from "@fesflow/db";
 import { eq, and, inArray, gt, isNull, lt } from "drizzle-orm";
 import { nanoid, customAlphabet } from "nanoid";
+import { ulid } from "ulidx";
 import { Context } from "hono";
 import { requireAuth } from "../middleware/auth";
 import type { AppEnv } from "../types";
@@ -268,7 +269,7 @@ membershipRoutes.get("/my", async (c) => {
       );
     if (existing.length === 0) {
       await db.insert(membership).values({
-        id: nanoid(),
+        id: ulid(),
         userEmail: userEmail.toLowerCase(),
         userName: session.user.name || "Super Admin",
         role: "super_admin",
@@ -453,7 +454,7 @@ membershipRoutes.post(
   async (c) => {
     const db = c.get("db");
     const input = c.req.valid("json");
-    const id = nanoid();
+    const id = ulid();
 
     const err = await checkMemberWritePermission(c, input.circleId || null, "viewer", input.role, input.eventId);
     if (err) apiError(err.code, err.error, { status: err.status });
@@ -555,7 +556,7 @@ membershipRoutes.post(
   async (c) => {
     const db = c.get("db");
     const input = c.req.valid("json");
-    const id = nanoid();
+    const id = ulid();
     const token = nanoid(32);
     const code = genInviteCode(); // 手入力用の短コード (2026-07-12)
 
@@ -598,7 +599,7 @@ membershipRoutes.post(
       const displayRole = input.role === "circle_manager" ? "管理者" : input.role === "circle_staff" ? "スタッフ" : input.role === "event_manager" ? "イベントマネージャー" : "メンバー";
 
       await db.insert(notification).values({
-        id: nanoid(),
+        id: ulid(),
         userEmail: input.targetEmail.toLowerCase(),
         title: `${spaceName} からの招待`,
         message: `${spaceName} から ${displayRole} として招待されました。`,
@@ -777,7 +778,7 @@ membershipRoutes.post(
 
     // メンバーシップを作成
     // 2026-07-07 (Phase 3a): 独自 PIN 認証の廃止に伴い pin 保存を撤去。
-    const membershipId = nanoid();
+    const membershipId = ulid();
     await db.insert(membership).values({
       id: membershipId,
       userEmail,
@@ -1000,7 +1001,7 @@ membershipRoutes.post(
       // メンバーシップ作成
       // 2026-07-07 (Phase 3a): 独自 PIN 認証の廃止に伴い pin 保存を撤去。
       await db.insert(membership).values({
-        id: nanoid(),
+        id: ulid(),
         userEmail: email,
         userName: input.userName || session.user.name || "メンバー",
         circleId: foundToken.circleId,

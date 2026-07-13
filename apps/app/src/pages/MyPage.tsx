@@ -1,12 +1,13 @@
 import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { wristbandApi, eventApi } from "@/lib/api";
-import { useVisitor } from "@/hooks/useVisitor";
+import { useVisitor, saveVisitor } from "@/hooks/useVisitor";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ErrorState } from "@/components/ui/ErrorState";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { ArrowLeft, QrCode, Receipt, ChevronRight } from "lucide-react";
+import { toast } from "sonner";
 
 /**
  * 来場者マイページ (2026-07-11 注文履歴を /orders に分離しマイQR/身分表示に専念)。
@@ -16,9 +17,57 @@ import { ArrowLeft, QrCode, Receipt, ChevronRight } from "lucide-react";
  */
 export default function MyPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const paramEventId = searchParams.get("eventId");
+  const action = searchParams.get("action");
+
   const { session, userId: visitorUserId, isLoaded } = useVisitor();
-  const eventId = session?.eventId;
+  const eventId = paramEventId || session?.eventId;
   const userId = visitorUserId ?? "";
+
+  const [origin, setOrigin] = useState("");
+  const [isIssuing, setIsIssuing] = useState(false);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      setOrigin(window.location.origin);
+    }
+  }, []);
+
+  // 2026-07-12: セルフ発行用QRスキャン時の自動発行処理
+  useEffect(() => {
+    if (action === "issue" && paramEventId && isLoaded) {
+      if (session && session.eventId === paramEventId && session.userId) {
+        // すでに現在のイベントのセッションがローカルストレージにある場合はクリーンなURLにリダイレクトして通常表示
+        navigate("/visitor/mypage", { replace: true });
+        return;
+      }
+
+      const runIssue = async () => {
+        setIsIssuing(true);
+        try {
+          // 物理リストバンドなし（スマホのみ）のイベントとして ID とデジタルQR用疑似バンドを発行
+          const res = await wristbandApi.issue(paramEventId);
+          saveVisitor({
+            userId: res.userId,
+            wristbandId: res.wristbandId,
+            eventId: paramEventId,
+            displayId: res.displayId,
+            nickname: null,
+            onboarded: false,
+          });
+          toast.success("デジタルQRを発行しました！");
+          navigate("/visitor/onboarding", { replace: true });
+        } catch (e) {
+          console.error("Self issuance failed:", e);
+          alert("QRコードのセルフ発行に失敗しました。再試行してください。");
+        } finally {
+          setIsIssuing(false);
+        }
+      };
+      runIssue();
+    }
+  }, [action, paramEventId, session, isLoaded, navigate]);
 
   // eventData はヘッダーのロゴ表示のみに使う装飾的な値。取得失敗しても
   // ロゴが出ないだけで画面は成立するため ErrorState は出さない (判断: 2026-07-07)。
@@ -27,13 +76,6 @@ export default function MyPage() {
     queryFn: () => eventApi.get(eventId!),
     enabled: !!eventId,
   });
-
-  const [origin, setOrigin] = useState("");
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      setOrigin(window.location.origin);
-    }
-  }, []);
 
   // ユーザー＆リストバンド状態取得 (マイQRの表示IDに使う)
   const {
@@ -45,10 +87,10 @@ export default function MyPage() {
   } = useQuery({
     queryKey: ["userWristbandStatus", userId],
     queryFn: () => wristbandApi.lookup(userId),
-    enabled: !!userId,
+    enabled: !!userId && !isIssuing,
   });
 
-  if (!isLoaded || statusLoading) {
+  if (!isLoaded || statusLoading || isIssuing) {
     return (
       <div className="max-w-3xl mx-auto p-4 space-y-4 font-mono">
         <Skeleton className="h-12 w-48" />

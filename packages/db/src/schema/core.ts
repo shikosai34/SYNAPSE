@@ -10,6 +10,7 @@ import {
   index,
   uniqueIndex,
 } from "drizzle-orm/sqlite-core";
+import { ulid } from "ulidx";
 
 // ロール定義 (SaaS対応 - 2026-07-04)
 // システム管理、イベント管理、サークル管理の3階層へ統合再構築。
@@ -106,7 +107,7 @@ export type Permission = (typeof ROLE_PERMISSIONS)[RoleType][number];
 
 // イベントテーブル
 export const event = sqliteTable("event", {
-  id: text("id").primaryKey(),
+  id: text("id").primaryKey().$defaultFn(() => ulid()),
   eventName: text("event_name").notNull(),
   description: text("description"),
   startDate: integer("start_date", { mode: "timestamp_ms" }),
@@ -121,6 +122,13 @@ export const event = sqliteTable("event", {
   // maxCircles: このイベント配下に作成できるサークル数の上限。無料枠=1。
   // プラン変更 (手動 or 将来 Stripe webhook) でここを書き換える。
   maxCircles: integer("max_circles").default(1).notNull(),
+  // paymentMethods: イベントで利用可能な支払い方法の一覧 (JSON 文字列配列)。
+  // 例: '["現金","PayPay","金券"]'。各サークルはこの中から対応する方法を選ぶ。
+  // 2026-07-12: レジで支払い方法を選択して注文するフローの基盤。
+  paymentMethods: text("payment_methods").default('["現金"]').notNull(),
+  // lotteryEnabled: 抽選機能(イベント単位)の有効化フラグ。拡張機能=ONにしないと使えない。
+  // 2026-07-12。実際の抽選設定・景品・応募・当選は lottery テーブル群。
+  lotteryEnabled: integer("lottery_enabled", { mode: "boolean" }).default(false).notNull(),
   // ownerEmail: 作成者=主たる event_manager。課金・連絡の主体。
   ownerEmail: text("owner_email"),
   // Stripe 連携用 (将来フェーズ。現状は未使用の予約カラム)。
@@ -142,6 +150,9 @@ export const event = sqliteTable("event", {
   backgroundColor: text("background_color").default("#FFFFFF"),
   textColor: text("text_color").default("#000000"),
 
+  // 物理リストバンドの有無フラグ (2026-07-12)
+  hasPhysicalWristband: integer("has_physical_wristband", { mode: "boolean" }).default(true).notNull(),
+
   // 論理削除 (2026-07-04): 物理削除せず deletedAt に時刻を入れて非表示化する
   deletedAt: integer("deleted_at", { mode: "timestamp_ms" }),
 
@@ -159,7 +170,7 @@ export const event = sqliteTable("event", {
 export const circle = sqliteTable(
   "circle",
   {
-    id: text("id").primaryKey(),
+    id: text("id").primaryKey().$defaultFn(() => ulid()),
     eventId: text("event_id")
       .notNull()
       .references(() => event.id, { onDelete: "cascade" }),
@@ -200,7 +211,7 @@ export const circle = sqliteTable(
 export const staff = sqliteTable(
   "staff",
   {
-    id: text("id").primaryKey(),
+    id: text("id").primaryKey().$defaultFn(() => ulid()),
     circleId: text("circle_id")
       .notNull()
       .references(() => circle.id, { onDelete: "cascade" }),
@@ -222,7 +233,7 @@ export const staff = sqliteTable(
 export const membership = sqliteTable(
   "membership",
   {
-    id: text("id").primaryKey(),
+    id: text("id").primaryKey().$defaultFn(() => ulid()),
     // ユーザー識別（メールアドレスまたはユーザーID）
     userEmail: text("user_email").notNull(),
     userName: text("user_name").notNull(),
@@ -270,7 +281,7 @@ export const membership = sqliteTable(
 export const inviteToken = sqliteTable(
   "invite_token",
   {
-    id: text("id").primaryKey(),
+    id: text("id").primaryKey().$defaultFn(() => ulid()),
     token: text("token").notNull().unique(),
     // 2026-07-12 (SaaS): 手入力用の短い人間可読コード (例: 8桁英数)。
     // token(32桁) はリンク用、code は口頭/チャットで伝える手入力用。どちらでも受理する。

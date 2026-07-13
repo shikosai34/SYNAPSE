@@ -48,7 +48,7 @@ export function UnsavedChangesDialog({
           </p>
         </div>
 
-        <div className="flex flex-col sm:flex-row gap-2 pt-2">
+        <div className="flex flex-col gap-2 pt-2">
           <Button
             onClick={onConfirm}
             className="flex-1 h-10 border-thick border-primary bg-primary text-primary-foreground font-bold text-xs uppercase rounded-none hover:bg-background hover:text-foreground"

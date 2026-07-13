@@ -2,7 +2,7 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { CircleAuthGuard } from "@/hooks/useCircleAuth";
-import { menuApi, toppingApi, orderApi, circleApi, wristbandApi, type MenuWithToppings, type Topping } from "@/lib/api";
+import { menuApi, toppingApi, orderApi, circleApi, eventApi, wristbandApi, parseCircleSettings, parseEventPaymentMethods, type MenuWithToppings, type Topping } from "@/lib/api";
 import { extractIdFromCode, cn } from "@/lib/utils";
 import { undoableAction } from "@/lib/toast-undo";
 import { ModSandbox } from "@/components/ModSandbox";
@@ -182,6 +182,9 @@ function CartBody({
   onSubmit,
   onClear,
   total,
+  paymentMethods,
+  paymentMethod,
+  onSetPayment,
 }: {
   cart: CartLine[];
   menuMap: Map<string, MenuWithToppings>;
@@ -195,7 +198,13 @@ function CartBody({
   onSubmit: () => void;
   onClear: () => void;
   total: number;
+  // 支払い方法 (2026-07-12)。要素が2つ以上のときだけ選択UIを出す。
+  paymentMethods: string[];
+  paymentMethod: string;
+  onSetPayment: (m: string) => void;
 }) {
+  // 支払い方法が2つ以上あるのに未選択なら確定を止める。
+  const needsPayment = paymentMethods.length > 1 && !paymentMethod;
   return (
     <div className="flex flex-col h-full font-mono">
       {/* アイテム一覧 */}
@@ -298,6 +307,30 @@ function CartBody({
           <span className="font-mono text-sm uppercase tracking-wider">合計金額</span>
           <span className="font-headline text-2xl sm:text-3xl font-black">¥{total.toLocaleString()}</span>
         </div>
+
+        {/* 支払い方法の選択 (対応が2つ以上のサークルのみ表示。1つなら自動採用) */}
+        {paymentMethods.length > 1 && (
+          <div className="space-y-1.5">
+            <p className="font-mono text-xs uppercase tracking-wider">支払い方法</p>
+            <div className="grid grid-cols-2 gap-1.5">
+              {paymentMethods.map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => onSetPayment(m)}
+                  className={cn(
+                    "border-thick rounded-none px-2 py-2.5 text-sm font-bold transition-all",
+                    paymentMethod === m
+                      ? "border-primary bg-primary text-primary-foreground"
+                      : "border-border bg-background hover:bg-muted"
+                  )}
+                >
+                  {m}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
         {activeCustomer && (
           <div className="border-thick border-border bg-muted/20 p-2 text-xs font-mono">
             選択中の顧客: [{activeCustomer.userId}]
@@ -313,9 +346,9 @@ function CartBody({
         <Button
           className="w-full h-14 border-thick border-border bg-primary text-primary-foreground font-mono text-base font-black uppercase rounded-none hover:bg-background hover:text-foreground transition-all"
           onClick={onSubmit}
-          disabled={cart.length === 0 || submitting || !activeCustomer}
+          disabled={cart.length === 0 || submitting || !activeCustomer || needsPayment}
         >
-          {submitting ? "注文中..." : "注文を確定する"}
+          {submitting ? "注文中..." : needsPayment ? "支払い方法を選択" : "注文を確定する"}
         </Button>
         {cart.length > 0 && (
           <Button
@@ -351,6 +384,27 @@ function RegisterPageContent() {
     queryFn: () => circleApi.get(circleId),
     enabled: !!circleId,
   });
+
+  // 支払い方法 (2026-07-12): サークルの対応方法 ∩ イベントの方法。
+  // サークルが未指定ならイベントの全方法。1つだけならレジで選択させず自動採用する。
+  const { data: registerEvent } = useQuery({
+    queryKey: ["event", circle?.eventId],
+    queryFn: () => eventApi.get(circle!.eventId),
+    enabled: !!circle?.eventId,
+  });
+  const effectivePayments = (() => {
+    const eventMethods = parseEventPaymentMethods(registerEvent?.paymentMethods);
+    const accepted = parseCircleSettings(circle?.settings).acceptedPayments;
+    const list = accepted.length > 0 ? accepted.filter((p) => eventMethods.includes(p)) : eventMethods;
+    return list.length > 0 ? list : eventMethods;
+  })();
+  const [paymentMethod, setPaymentMethod] = useState<string>("");
+  // 対応が1つだけなら自動採用。選択肢が変わって現在値が無効になったらリセット。
+  useEffect(() => {
+    if (effectivePayments.length === 1) setPaymentMethod(effectivePayments[0]!);
+    else if (paymentMethod && !effectivePayments.includes(paymentMethod)) setPaymentMethod("");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [effectivePayments.join("|")]);
 
   const {
     data: menus,
@@ -401,6 +455,7 @@ function RegisterPageContent() {
       userId: string;
       peopleCount: number;
       items: { menuId: string; quantity: number; toppingIds?: string[] }[];
+      paymentMethod?: string;
     }) => orderApi.create(input),
     onSuccess: (data) => {
       toast.success(`注文完了！注文番号: ${data.orderNumber}`);
@@ -408,6 +463,8 @@ function RegisterPageContent() {
       setPeopleCount(1);
       setActiveCustomer(null); // 会計完了後に顧客情報をクリア
       setIsCartPanelOpen(false);
+      // 支払い方法は次の会計で選び直す (単一方法は effect で再セットされる)
+      setPaymentMethod("");
     },
     onError: (error: any) => {
       toast.error(error.message || "注文に失敗しました");
@@ -489,11 +546,14 @@ function RegisterPageContent() {
   const handleSubmitOrder = async () => {
     if (cart.length === 0) { toast.error("カートが空です"); return; }
     if (!activeCustomer) { toast.error("顧客が特定されていません。リストバンド/QRをスキャンしてください"); return; }
+    if (effectivePayments.length > 1 && !paymentMethod) { toast.error("支払い方法を選択してください"); return; }
     await createOrder.mutateAsync({
       circleId,
       userId: activeCustomer.userId,
       peopleCount,
       items: cart.map((l) => ({ menuId: l.menuId, quantity: l.quantity, toppingIds: l.toppings.map((t) => t.toppingId) })),
+      // 1つだけの場合は空でもサーバが補完するが、選択済みなら明示的に送る。
+      paymentMethod: paymentMethod || undefined,
     });
   };
 
@@ -703,6 +763,9 @@ function RegisterPageContent() {
             onSubmit={handleSubmitOrder}
             onClear={clearCart}
             total={getTotalPrice()}
+            paymentMethods={effectivePayments}
+            paymentMethod={paymentMethod}
+            onSetPayment={setPaymentMethod}
           />
         </aside>
       </div>
@@ -757,6 +820,9 @@ function RegisterPageContent() {
               onSubmit={handleSubmitOrder}
               onClear={clearCart}
               total={getTotalPrice()}
+              paymentMethods={effectivePayments}
+              paymentMethod={paymentMethod}
+              onSetPayment={setPaymentMethod}
             />
           </div>
         </div>

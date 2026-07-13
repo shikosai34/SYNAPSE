@@ -1,0 +1,1 @@
+ALTER TABLE `event_user` DROP COLUMN `birthday`;

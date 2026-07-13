@@ -13,16 +13,17 @@
     "db:migrate:remote": "CI=true wrangler d1 migrations apply fesflow-db --remote"
   },
   "dependencies": {
-    "@hono/zod-validator": "^0.7.5",
     "@fesflow/auth": "workspace:*",
     "@fesflow/config": "workspace:*",
     "@fesflow/db": "workspace:*",
     "@fesflow/storage": "workspace:*",
+    "@hono/zod-validator": "^0.7.5",
     "bcryptjs": "^2.4.3",
     "better-auth": "catalog:",
     "drizzle-orm": "^0.45.0",
     "hono": "catalog:",
     "nanoid": "^5.0.9",
+    "ulidx": "^2.4.1",
     "zod": "catalog:"
   },
   "devDependencies": {

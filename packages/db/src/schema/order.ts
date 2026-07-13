@@ -12,12 +12,13 @@ import {
 import { circle } from "./core";
 import { menu, topping } from "./menu";
 import { eventUser } from "./visitor";
+import { ulid } from "ulidx";
 
 // 注文テーブル
 export const order = sqliteTable(
   "orders",
   {
-    id: text("id").primaryKey(),
+    id: text("id").primaryKey().$defaultFn(() => ulid()),
     userId: text("user_id"), // ゲストの匿名ID (スタンプラリー用)
     circleId: text("circle_id")
       .notNull()
@@ -32,6 +33,9 @@ export const order = sqliteTable(
     completedAt: integer("completed_at", { mode: "timestamp_ms" }),
     estimatedTime: integer("estimated_time"), // 完成までの予想時間（分）
     cashierId: text("cashier_id"),
+    // 支払い方法 (2026-07-12): レジで選択された方法。集計・日次締めに使う。
+    // null=未記録 (支払い方法機能を使う前の注文 / 単一方法で省略された場合はサーバが補完)。
+    paymentMethod: text("payment_method"),
     createdAt: integer("created_at", { mode: "timestamp_ms" })
       .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
       .notNull(),
@@ -43,6 +47,7 @@ export const order = sqliteTable(
   (table) => [
     index("order_circleId_idx").on(table.circleId),
     index("order_orderNumber_idx").on(table.orderNumber),
+    index("orders_circle_status_created_idx").on(table.circleId, table.status, table.createdAt),
   ]
 );
 
@@ -50,7 +55,7 @@ export const order = sqliteTable(
 export const orderItem = sqliteTable(
   "order_item",
   {
-    id: text("id").primaryKey(),
+    id: text("id").primaryKey().$defaultFn(() => ulid()),
     orderId: text("order_id")
       .notNull()
       .references(() => order.id, { onDelete: "cascade" }),
@@ -74,7 +79,7 @@ export const orderItem = sqliteTable(
 export const orderItemTopping = sqliteTable(
   "order_item_topping",
   {
-    id: text("id").primaryKey(),
+    id: text("id").primaryKey().$defaultFn(() => ulid()),
     orderItemId: text("order_item_id")
       .notNull()
       .references(() => orderItem.id, { onDelete: "cascade" }),
@@ -97,7 +102,7 @@ export const orderItemTopping = sqliteTable(
 export const preOrder = sqliteTable(
   "pre_order",
   {
-    id: text("id").primaryKey(),
+    id: text("id").primaryKey().$defaultFn(() => ulid()),
     userId: text("user_id")
       .notNull()
       .references(() => eventUser.id, { onDelete: "cascade" }),
@@ -118,6 +123,7 @@ export const preOrder = sqliteTable(
     index("pre_order_userId_idx").on(table.userId),
     index("pre_order_circleId_idx").on(table.circleId),
     index("pre_order_status_idx").on(table.status),
+    index("pre_order_circle_status_idx").on(table.circleId, table.status),
   ]
 );
 
@@ -125,7 +131,7 @@ export const preOrder = sqliteTable(
 export const preOrderItem = sqliteTable(
   "pre_order_item",
   {
-    id: text("id").primaryKey(),
+    id: text("id").primaryKey().$defaultFn(() => ulid()),
     preOrderId: text("pre_order_id")
       .notNull()
       .references(() => preOrder.id, { onDelete: "cascade" }),

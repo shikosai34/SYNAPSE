@@ -12,11 +12,14 @@ import {
   sudoSession,
   impersonationSession,
   auditLog,
+  session,
+  user,
+  eventUser,
   type DB,
   type WorkerEnv,
 } from "@fesflow/db";
-import { eq, and, gt, isNotNull, isNull, desc } from "drizzle-orm";
-import { nanoid } from "nanoid";
+import { eq, and, gt, lt, isNotNull, isNull, desc, sql } from "drizzle-orm";
+import { ulid } from "ulidx";
 import { requireSuperAdmin } from "../middleware/auth";
 import {
   betterAuthSessionId,
@@ -153,7 +156,7 @@ adminRoutes.get("/announcements", async (c) => {
 adminRoutes.post("/announcements", zBody(announcementInput), async (c) => {
   const db = c.get("db");
   const input = c.req.valid("json");
-  const id = nanoid();
+  const id = ulid();
   await db.insert(announcement).values({ id, ...input });
   return c.json({ success: true, id });
 });
@@ -299,6 +302,28 @@ adminRoutes.patch(
   },
 );
 
+// 期限切れセッション数を取得
+adminRoutes.get("/sessions/expired-count", async (c) => {
+  const db = c.get("db");
+  const now = new Date();
+  const rows = await db
+    .select({ count: sql<number>`count(*)` })
+    .from(session)
+    .where(lt(session.expiresAt, now));
+  const count = rows[0]?.count ?? 0;
+  return c.json({ count });
+});
+
+// 期限切れセッションをクリーンアップ
+adminRoutes.post("/sessions/cleanup", async (c) => {
+  const db = c.get("db");
+  const now = new Date();
+  await db.delete(session).where(lt(session.expiresAt, now));
+  const email = c.get("adminEmail");
+  await audit(c, { actorEmail: email, action: "impersonated_write", summary: "Cleaned up expired sessions" });
+  return c.json({ success: true });
+});
+
 // ── SaaS 運営コンソール: イベント/課金管理 (2026-07-12 Phase C) ──────────
 // これらは「運営(admin)情報」= 集計・契約状態・名簿の俯瞰であり、テナントの
 // 「内容」(メニュー/注文/売上の中身) には触れない。内容の閲覧は Phase D/E の
@@ -324,6 +349,46 @@ adminRoutes.get("/overview", async (c) => {
     byPlan[e.plan] = (byPlan[e.plan] ?? 0) + 1;
     byStatus[e.billingStatus] = (byStatus[e.billingStatus] ?? 0) + 1;
   }
+
+  // 過去14日間のアカウント（user）および来場ユーザー（eventUser）登録数推移の集計
+  const fourteenDaysAgo = new Date(Date.now() - 14 * 24 * 3600 * 1000);
+  fourteenDaysAgo.setHours(0, 0, 0, 0);
+
+  // 日付キー生成関数 (JST想定。+9時間してJSTの日付文字列を作る)
+  const getJstDateString = (date: Date) => {
+    const jstDate = new Date(date.getTime() + 9 * 3600 * 1000);
+    return `${jstDate.getUTCFullYear()}-${String(jstDate.getUTCMonth() + 1).padStart(2, "0")}-${String(jstDate.getUTCDate()).padStart(2, "0")}`;
+  };
+
+  // 14日分のデフォルトマップを用意
+  const growthMap = new Map<string, { date: string; accounts: number; visitors: number }>();
+  const today = new Date();
+  for (let i = 0; i < 14; i++) {
+    const d = new Date(today.getTime() - i * 24 * 3600 * 1000);
+    const key = getJstDateString(d);
+    growthMap.set(key, { date: key.slice(5), accounts: 0, visitors: 0 }); // date: "MM-DD"
+  }
+
+  // アカウント（user）と来場者（eventUser）の直近14日分の作成時刻を取得
+  const [usersCreated, visitorsCreated] = await Promise.all([
+    db.select({ createdAt: user.createdAt }).from(user).where(gt(user.createdAt, fourteenDaysAgo)),
+    db.select({ createdAt: eventUser.createdAt }).from(eventUser).where(gt(eventUser.createdAt, fourteenDaysAgo)),
+  ]);
+
+  for (const u of usersCreated) {
+    const key = getJstDateString(u.createdAt);
+    const entry = growthMap.get(key);
+    if (entry) entry.accounts += 1;
+  }
+
+  for (const v of visitorsCreated) {
+    const key = getJstDateString(v.createdAt);
+    const entry = growthMap.get(key);
+    if (entry) entry.visitors += 1;
+  }
+
+  const userGrowth = Array.from(growthMap.values()).reverse();
+
   return c.json({
     events: events.length,
     circles: circles.length,
@@ -331,6 +396,7 @@ adminRoutes.get("/overview", async (c) => {
     lockouts: lockouts.length,
     byPlan,
     byStatus,
+    userGrowth,
   });
 });
 
@@ -427,7 +493,7 @@ adminRoutes.post("/sudo/elevate", async (c) => {
   // セッションごとに1行 (再昇格で更新)。
   await db
     .insert(sudoSession)
-    .values({ id: nanoid(), sessionId: sid, userEmail: email, method: "passkey", expiresAt })
+    .values({ id: ulid(), sessionId: sid, userEmail: email, method: "passkey", expiresAt })
     .onConflictDoUpdate({ target: sudoSession.sessionId, set: { expiresAt, createdAt: new Date() } });
   await audit(c, { actorEmail: email, action: "elevate" });
   return c.json({ elevated: true, expiresAt });
@@ -500,7 +566,7 @@ adminRoutes.post(
     await db
       .insert(impersonationSession)
       .values({
-        id: nanoid(),
+        id: ulid(),
         sessionId: sid,
         actorEmail,
         role: input.role,

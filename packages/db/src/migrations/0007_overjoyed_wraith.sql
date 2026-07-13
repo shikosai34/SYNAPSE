@@ -1,0 +1,2 @@
+ALTER TABLE `event` ADD `lottery_enabled` integer DEFAULT false NOT NULL;--> statement-breakpoint
+ALTER TABLE `lottery` ADD `entry_config` text DEFAULT '{"base":1,"perStamp":0,"perReview":0}' NOT NULL;

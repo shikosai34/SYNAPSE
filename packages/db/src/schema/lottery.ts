@@ -11,18 +11,23 @@ import {
 } from "drizzle-orm/sqlite-core";
 import { event } from "./core";
 import { eventUser } from "./visitor";
+import { ulid } from "ulidx";
 
 // 抽選: イベント単位の抽選設定 (発表時刻など)。
 export const lottery = sqliteTable(
   "lottery",
   {
-    id: text("id").primaryKey(),
+    id: text("id").primaryKey().$defaultFn(() => ulid()),
     eventId: text("event_id")
       .notNull()
       .references(() => event.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
     drawAt: integer("draw_at", { mode: "timestamp_ms" }), // 当選発表時刻 (例 17:00)
     status: text("status").notNull().default("open"), // open / drawn / closed
+    // 口数(当選確率)の重み設定 (2026-07-12)。JSON: { base, perStamp, perReview }。
+    // 応募者の口数 = base + perStamp*スタンプ数 + perReview*レビュー数。
+    // 「様々なニーズ」に対応するため重みを主催者が調整できる。
+    entryConfig: text("entry_config").default('{"base":1,"perStamp":0,"perReview":0}').notNull(),
     createdAt: integer("created_at", { mode: "timestamp_ms" })
       .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
       .notNull(),
@@ -34,7 +39,7 @@ export const lottery = sqliteTable(
 export const lotteryPrize = sqliteTable(
   "lottery_prize",
   {
-    id: text("id").primaryKey(),
+    id: text("id").primaryKey().$defaultFn(() => ulid()),
     lotteryId: text("lottery_id")
       .notNull()
       .references(() => lottery.id, { onDelete: "cascade" }),
@@ -48,7 +53,7 @@ export const lotteryPrize = sqliteTable(
 export const lotteryEntry = sqliteTable(
   "lottery_entry",
   {
-    id: text("id").primaryKey(),
+    id: text("id").primaryKey().$defaultFn(() => ulid()),
     lotteryId: text("lottery_id")
       .notNull()
       .references(() => lottery.id, { onDelete: "cascade" }),
@@ -72,7 +77,7 @@ export const lotteryEntry = sqliteTable(
 export const lotteryWinner = sqliteTable(
   "lottery_winner",
   {
-    id: text("id").primaryKey(),
+    id: text("id").primaryKey().$defaultFn(() => ulid()),
     lotteryId: text("lottery_id")
       .notNull()
       .references(() => lottery.id, { onDelete: "cascade" }),

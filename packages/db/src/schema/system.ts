@@ -9,12 +9,13 @@ import {
   index,
   uniqueIndex,
 } from "drizzle-orm/sqlite-core";
+import { ulid } from "ulidx";
 
 // 通知テーブル (2026-07-04 SaaS通知対応)
 export const notification = sqliteTable(
   "notification",
   {
-    id: text("id").primaryKey(),
+    id: text("id").primaryKey().$defaultFn(() => ulid()),
     userEmail: text("user_email").notNull(), // 受信者のメールアドレス
     title: text("title").notNull(),
     message: text("message").notNull(),
@@ -64,7 +65,7 @@ export const systemSetting = sqliteTable("system_setting", {
 export const announcement = sqliteTable(
   "announcement",
   {
-    id: text("id").primaryKey(),
+    id: text("id").primaryKey().$defaultFn(() => ulid()),
     title: text("title").notNull(),
     body: text("body").notNull().default(""),
     // 表示レベル: info | warning | critical
@@ -95,7 +96,7 @@ export const announcement = sqliteTable(
 export const sudoSession = sqliteTable(
   "sudo_session",
   {
-    id: text("id").primaryKey(),
+    id: text("id").primaryKey().$defaultFn(() => ulid()),
     // better-auth のセッション ID (この昇格が有効なログインセッション)
     sessionId: text("session_id").notNull(),
     userEmail: text("user_email").notNull(),
@@ -114,7 +115,7 @@ export const sudoSession = sqliteTable(
 export const impersonationSession = sqliteTable(
   "impersonation_session",
   {
-    id: text("id").primaryKey(),
+    id: text("id").primaryKey().$defaultFn(() => ulid()),
     sessionId: text("session_id").notNull(),
     // なりすましている本人 (super_admin) のメール
     actorEmail: text("actor_email").notNull(),
@@ -136,7 +137,7 @@ export const impersonationSession = sqliteTable(
 export const auditLog = sqliteTable(
   "audit_log",
   {
-    id: text("id").primaryKey(),
+    id: text("id").primaryKey().$defaultFn(() => ulid()),
     actorEmail: text("actor_email").notNull(),
     // 種別: "elevate" | "impersonate_start" | "impersonate_stop" | "impersonated_write"
     action: text("action").notNull(),
@@ -162,7 +163,7 @@ export const auditLog = sqliteTable(
 export const authAttempt = sqliteTable(
   "auth_attempt",
   {
-    id: text("id").primaryKey(),
+    id: text("id").primaryKey().$defaultFn(() => ulid()),
     // レート制限バケットキー (scope + 識別子を結合)。1 バケット 1 行。
     key: text("key").notNull(),
     // 分類ラベル (可観測性 / 一括クリーンアップ用): "pin" | "circle_login" など

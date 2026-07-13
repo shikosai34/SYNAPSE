@@ -10,12 +10,13 @@ import {
   uniqueIndex,
 } from "drizzle-orm/sqlite-core";
 import { event, circle } from "./core";
+import { ulid } from "ulidx";
 
 // イベント来場ユーザーテーブル
 export const eventUser = sqliteTable(
   "event_user",
   {
-    id: text("id").primaryKey(),
+    id: text("id").primaryKey().$defaultFn(() => ulid()),
     eventId: text("event_id")
       .notNull()
       .references(() => event.id, { onDelete: "cascade" }),
@@ -24,7 +25,7 @@ export const eventUser = sqliteTable(
     // 来場者マイページの最小プロフィール (2026-07-04 追加)。
     // リストバンド紛失時の本人確認/再紐付け用にニックネーム+誕生日のみ収集。
     nickname: text("nickname"),
-    birthday: text("birthday"), // YYYY-MM-DD
+    favoriteDate: text("favorite_date"), // YYYY-MM-DD (旧 birthday)
     onboardedAt: integer("onboarded_at", { mode: "timestamp_ms" }), // 初回入力完了時刻
     createdAt: integer("created_at", { mode: "timestamp_ms" })
       .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
@@ -47,7 +48,7 @@ export const eventUser = sqliteTable(
 export const wristband = sqliteTable(
   "wristband",
   {
-    id: text("id").primaryKey(), // リストバンドの物理コード / QR値
+    id: text("id").primaryKey().$defaultFn(() => ulid()), // リストバンドの物理コード / QR値
     userId: text("user_id")
       .notNull()
       .references(() => eventUser.id, { onDelete: "cascade" }),
@@ -75,7 +76,7 @@ export const wristband = sqliteTable(
 export const circleVisit = sqliteTable(
   "circle_visit",
   {
-    id: text("id").primaryKey(),
+    id: text("id").primaryKey().$defaultFn(() => ulid()),
     eventUserId: text("event_user_id")
       .notNull()
       .references(() => eventUser.id, { onDelete: "cascade" }),
@@ -98,7 +99,7 @@ export const circleVisit = sqliteTable(
 export const numberedTicket = sqliteTable(
   "numbered_ticket",
   {
-    id: text("id").primaryKey(),
+    id: text("id").primaryKey().$defaultFn(() => ulid()),
     circleId: text("circle_id")
       .notNull()
       .references(() => circle.id, { onDelete: "cascade" }),
@@ -128,7 +129,7 @@ export const numberedTicket = sqliteTable(
 export const review = sqliteTable(
   "review",
   {
-    id: text("id").primaryKey(),
+    id: text("id").primaryKey().$defaultFn(() => ulid()),
     eventUserId: text("event_user_id")
       .notNull()
       .references(() => eventUser.id, { onDelete: "cascade" }),
@@ -155,7 +156,7 @@ export const review = sqliteTable(
 export const userStamp = sqliteTable(
   "user_stamp",
   {
-    id: text("id").primaryKey(),
+    id: text("id").primaryKey().$defaultFn(() => ulid()),
     userId: text("user_id").notNull(), // ゲストの匿名ID
     circleId: text("circle_id")
       .notNull()
@@ -178,7 +179,7 @@ export const userStamp = sqliteTable(
 export const rewardRedemption = sqliteTable(
   "reward_redemption",
   {
-    id: text("id").primaryKey(),
+    id: text("id").primaryKey().$defaultFn(() => ulid()),
     userId: text("user_id").notNull().unique(), // 1人1回まで
     staffId: text("staff_id").notNull(), // 交換を対応したスタッフのIDまたはメール
     createdAt: integer("created_at", { mode: "timestamp_ms" })

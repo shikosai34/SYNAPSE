@@ -15,7 +15,7 @@ import {
   type DB,
 } from "@fesflow/db";
 import { eq, and, inArray, desc, sql } from "drizzle-orm";
-import { nanoid } from "nanoid";
+import { ulid } from "ulidx";
 import { hasPermission } from "../utils/auth";
 import type { AppEnv } from "../types";
 
@@ -73,7 +73,7 @@ preOrderRoutes.post(
     const db = c.get("db");
     try {
       const { userId, circleId, items } = c.req.valid("json");
-      const preOrderId = nanoid();
+      const preOrderId = ulid();
 
       // 2026-07-04: 新規スマホユーザーの外部キーエラー回避のため、サークルの eventId を取得し、
       // 必要に応じて eventUser を自動シード挿入する。
@@ -135,7 +135,7 @@ preOrderRoutes.post(
 
         totalPrice += m.price * item.quantity;
         itemList.push({
-          id: nanoid(),
+          id: ulid(),
           menuId: item.menuId,
           quantity: item.quantity,
         });
@@ -288,7 +288,7 @@ preOrderRoutes.post(
         .where(inArray(menu.id, menuIds));
 
       // 正規注文を作成
-      const newOrderId = nanoid();
+      const newOrderId = ulid();
       const orderNumber = await generateOrderNumber(db, po.circleId);
 
       await db.insert(order).values({
@@ -308,7 +308,7 @@ preOrderRoutes.post(
         const m = menus.find((menuItem) => menuItem.id === item.menuId);
         if (m) {
           await db.insert(orderItem).values({
-            id: nanoid(),
+            id: ulid(),
             orderId: newOrderId,
             menuId: m.id,
             menuName: m.name,
@@ -334,7 +334,7 @@ preOrderRoutes.post(
         );
         if (existingStamp.length === 0) {
           await db.insert(userStamp).values({
-            id: nanoid(),
+            id: ulid(),
             userId: po.userId,
             circleId: po.circleId,
           });

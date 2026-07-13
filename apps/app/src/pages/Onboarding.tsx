@@ -15,7 +15,7 @@ export default function Onboarding() {
   const navigate = useNavigate();
   const { isLoaded, isEntered, session } = useVisitor();
   const [nickname, setNickname] = useState("");
-  const [birthday, setBirthday] = useState("");
+  const [favoriteDate, setFavoriteDate] = useState("");
 
   // 入場前(セッション無し)に直接来たら入場を促す
   useEffect(() => {
@@ -35,7 +35,7 @@ export default function Onboarding() {
       return visitorApi.onboard({
         userId: v.userId,
         nickname: nickname.trim(),
-        birthday: birthday || undefined,
+        favoriteDate: favoriteDate || undefined,
       });
     },
     onSuccess: (profile) => {
@@ -101,16 +101,16 @@ export default function Onboarding() {
 
         <div className="space-y-2">
           <label className="text-[11px] font-black uppercase tracking-wider text-muted-foreground">
-            誕生日 (任意)
+            お好きな日付 (任意)
           </label>
           <Input
             type="date"
-            value={birthday}
-            onChange={(e) => setBirthday(e.target.value)}
+            value={favoriteDate}
+            onChange={(e) => setFavoriteDate(e.target.value)}
             className="rounded-none border-[2px] h-11"
           />
           <p className="text-[10px] text-muted-foreground">
-            リストバンドを紛失した際の本人確認に使います。公開されません。
+            リストバンドを紛失した際の本人確認に使います（誕生日や記念日など、ご自身が覚えられる日付を入力してください）。公開されません。
           </p>
         </div>
 

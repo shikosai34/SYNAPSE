@@ -7,11 +7,12 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { ErrorState } from "@/components/ui/ErrorState";
-import { Building2, Plus, Edit, Trash2, Users } from "lucide-react";
+import { Building2, Plus, Edit, Trash2, Users, Settings2 } from "lucide-react";
 import { toast } from "sonner";
 
 // モーダル
 import { CircleFormModal } from "./CircleFormModal";
+import { CircleManageModal } from "./CircleManageModal";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 
 interface CirclesTabProps {
@@ -40,6 +41,9 @@ export function CirclesTab({
 
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const [circleToDelete, setCircleToDelete] = useState<any | null>(null);
+
+  // サークル運営管理 (拡張機能ON/OFF + メンバーのロール)
+  const [manageCircle, setManageCircle] = useState<any | null>(null);
 
   // サークル削除 API
   const deleteCircleMutation = useMutation({
@@ -157,14 +161,24 @@ export function CirclesTab({
                 </div>
               </div>
               
-              <Button
-                variant="outline"
-                size="sm"
-                className="w-full border-thick border-border hover:bg-neutral-100 rounded-none uppercase font-bold tracking-wider text-[10px] h-8 shadow-none"
-                onClick={() => handleSwitchToCircle(cir)}
-              >
-                サークル管理へ切替
-              </Button>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="flex-1 border-thick border-border hover:bg-neutral-100 rounded-none uppercase font-bold tracking-wider text-[10px] h-8 shadow-none"
+                  onClick={() => setManageCircle(cir)}
+                >
+                  <Settings2 className="h-3.5 w-3.5 mr-1" /> 運営
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="flex-1 border-thick border-border hover:bg-neutral-100 rounded-none uppercase font-bold tracking-wider text-[10px] h-8 shadow-none"
+                  onClick={() => handleSwitchToCircle(cir)}
+                >
+                  管理へ切替
+                </Button>
+              </div>
             </Card>
           ))}
         </div>
@@ -183,6 +197,13 @@ export function CirclesTab({
         isOpen={isFormOpen}
         onClose={() => setIsFormOpen(false)}
         circle={selectedCircle}
+      />
+
+      {/* サークル運営管理モーダル (拡張機能ON/OFF + ロール調整) */}
+      <CircleManageModal
+        circle={manageCircle}
+        isOpen={!!manageCircle}
+        onClose={() => setManageCircle(null)}
       />
 
       {/* 削除確認ダイアログ (破壊的操作のため ConfirmDialog を使用) */}

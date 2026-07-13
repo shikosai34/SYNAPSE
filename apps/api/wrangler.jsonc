@@ -53,5 +53,8 @@
 		// 対になる GOOGLE_CLIENT_SECRET は機密なので `wrangler secret put GOOGLE_CLIENT_SECRET` で登録する。
 		// 空文字だと better-auth の Google プロバイダは実質無効 (ボタンを押すとエラー) になる。
 		"GOOGLE_CLIENT_ID": "348576370071-llmo72072onaunniqart2ccc1u52g4ps.apps.googleusercontent.com"
+	},
+	"triggers": {
+		"crons": ["0 2 * * *"]
 	}
 }

@@ -9,11 +9,18 @@ import { Building2 } from "lucide-react";
 
 // 切り出したタブコンポーネント
 import { CirclesTab } from "@/components/event/CirclesTab";
+import { AnalyticsTab } from "@/components/event/AnalyticsTab";
+import { OrderMonitorTab } from "@/components/event/OrderMonitorTab";
+import { InventoryTab } from "@/components/event/InventoryTab";
+import { AnnounceTab } from "@/components/event/AnnounceTab";
+import { SettlementTab } from "@/components/event/SettlementTab";
+import { DailyCloseTab } from "@/components/event/DailyCloseTab";
+import { LotteryTab } from "@/components/event/LotteryTab";
 import { SalesTab } from "@/components/event/SalesTab";
 import { StaffTab } from "@/components/event/StaffTab";
 import { SettingsTab } from "@/components/event/SettingsTab";
 import { WristbandsTab } from "@/components/event/WristbandsTab";
-import { IssueTab } from "@/components/event/IssueTab";
+import { ExportTab } from "@/components/event/ExportTab";
 
 export default function EventDashboard() {
   const { eventId } = useAuth();
@@ -116,8 +123,33 @@ export default function EventDashboard() {
         type="event"
         activeTab={activeTab}
         onTabChange={setActiveTab}
+        lotteryEnabled={!!eventData?.lotteryEnabled}
       >
         <div className="space-y-6">
+          {/* TAB: 統計・分析 */}
+          {activeTab === "analytics" && <AnalyticsTab eventId={eventId} eventName={eventName} />}
+
+          {/* TAB: データエクスポート */}
+          {activeTab === "export" && <ExportTab eventId={eventId} />}
+
+          {/* TAB: 注文モニタ */}
+          {activeTab === "order-monitor" && <OrderMonitorTab eventId={eventId} />}
+
+          {/* TAB: 在庫・売り切れ */}
+          {activeTab === "inventory" && <InventoryTab eventId={eventId} />}
+
+          {/* TAB: 一斉アナウンス */}
+          {activeTab === "announce" && <AnnounceTab eventId={eventId} />}
+
+          {/* TAB: 精算 */}
+          {activeTab === "settlement" && <SettlementTab eventId={eventId} eventName={eventName} />}
+
+          {/* TAB: 日次締め */}
+          {activeTab === "daily-close" && <DailyCloseTab eventId={eventId} eventName={eventName} />}
+
+          {/* TAB: 抽選 (event.lotteryEnabled のとき有効) */}
+          {activeTab === "lottery" && <LotteryTab eventId={eventId} />}
+
           {/* TAB 1: サークル管理 */}
           {activeTab === "circles" && (
             <CirclesTab
@@ -165,13 +197,6 @@ export default function EventDashboard() {
           {/* TAB 5: リストバンド紛失処理 */}
           {activeTab === "wristbands" && (
             <WristbandsTab
-              eventId={eventId}
-            />
-          )}
-
-          {/* TAB 6: スマホリストバンド発行 */}
-          {activeTab === "issue" && (
-            <IssueTab
               eventId={eventId}
             />
           )}

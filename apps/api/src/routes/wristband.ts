@@ -6,6 +6,7 @@ import { nanoid } from "nanoid";
 import { hasPermission } from "../utils/auth";
 import { zBody, zQuery } from "../z-validator";
 import { apiError } from "../http-error";
+import { audit } from "../utils/sudo";
 import type { AppEnv } from "../types";
 
 
@@ -17,7 +18,7 @@ wristbandRoutes.get(
   zQuery(
     z.object({
       eventId: z.string().min(1),
-      query: z.string().min(1),
+      query: z.string().optional().default(""),
     })
   ),
   async (c) => {
@@ -30,17 +31,25 @@ wristbandRoutes.get(
       apiError("FORBIDDEN", "この操作にはスタッフ権限が必要です");
     }
 
-    const queryNum = parseInt(query, 10);
-    const isNum = !isNaN(queryNum) && /^\d+$/.test(query);
-
     const conditions = [eq(eventUser.eventId, eventId)];
-    const orConditions = [
-      like(eventUser.nickname, `%${query}%`),
-      like(eventUser.birthday, `%${query}%`),
-    ];
 
-    if (isNum) {
-      orConditions.push(eq(eventUser.displayId, queryNum));
+    if (query && query.trim().length > 0) {
+      const queryNum = parseInt(query, 10);
+      const isNum = !isNaN(queryNum) && /^\d+$/.test(query);
+
+      const orConditions = [
+        like(eventUser.nickname, `%${query}%`),
+        like(eventUser.favoriteDate, `%${query}%`),
+      ];
+
+      if (isNum) {
+        orConditions.push(eq(eventUser.displayId, queryNum));
+      }
+
+      const orOp = or(...orConditions);
+      if (orOp) {
+        conditions.push(orOp);
+      }
     }
 
     const rows = await db
@@ -53,10 +62,11 @@ wristbandRoutes.get(
         wristband,
         and(
           eq(wristband.userId, eventUser.id),
-          eq(wristband.status, "active")
+          or(eq(wristband.status, "active"), eq(wristband.status, "smartphone"))
         )
       )
-      .where(and(...conditions, or(...orConditions)))
+      .where(and(...conditions))
+      .orderBy(desc(eventUser.createdAt))
       .limit(50);
 
     return c.json(
@@ -127,16 +137,56 @@ wristbandRoutes.get("/lookup/:code", async (c) => {
 
   if (users.length > 0) {
     const user = users[0]!;
-    // 最新のアクティブリストバンドを取得
+    // 最新のアクティブ/スマホリストバンドを取得
     const activeWristbands = await db
       .select()
       .from(wristband)
-      .where(and(eq(wristband.userId, user.id), eq(wristband.status, "active")))
+      .where(
+        and(
+          eq(wristband.userId, user.id),
+          or(eq(wristband.status, "active"), eq(wristband.status, "smartphone"))
+        )
+      )
       .orderBy(desc(wristband.assignedAt));
+
+    if (activeWristbands.length > 0) {
+      return c.json({
+        user,
+        wristband: activeWristbands[0],
+      });
+    }
+
+    // 2026-07-12: リストバンドが存在しない場合で、イベントが「物理リストバンドなし(スマホのみ)」に
+    // 設定されている場合、その場で自動的にスマホデジタルID用の疑似バンドレコード(status: "smartphone")を登録する。
+    const events = await db.select().from(event).where(eq(event.id, user.eventId));
+    if (events.length > 0 && !events[0]!.hasPhysicalWristband) {
+      const dummyWbId = `sp_${user.id}`;
+      // 重複チェック
+      const existingWb = await db.select().from(wristband).where(eq(wristband.id, dummyWbId));
+      if (existingWb.length === 0) {
+        await db.insert(wristband).values({
+          id: dummyWbId,
+          userId: user.id,
+          status: "smartphone",
+          assignedAt: new Date(),
+        });
+      } else {
+        await db
+          .update(wristband)
+          .set({ status: "smartphone", deactivatedAt: null })
+          .where(eq(wristband.id, dummyWbId));
+      }
+
+      const newWb = (await db.select().from(wristband).where(eq(wristband.id, dummyWbId)))[0]!;
+      return c.json({
+        user,
+        wristband: newWb,
+      });
+    }
 
     return c.json({
       user,
-      wristband: activeWristbands.length > 0 ? activeWristbands[0] : null,
+      wristband: null,
     });
   }
 
@@ -271,14 +321,11 @@ wristbandRoutes.post(
     const id = c.req.param("id");
 
     // 2026-07-05: 存在確認とアクティブ状態のみロック可能に限定する。
-    // (ベアラーモデルのため所有証明までは行えないが、既に無効化済みのバンドを
-    //  再度 lost 化する無意味な操作・存在しないIDへの操作を弾く。恒久的には
-    //  紛失報告を本人セッション or スタッフ権限で保護する再設計が望ましい。)
     const wbs = await db.select().from(wristband).where(eq(wristband.id, id));
     if (wbs.length === 0) {
       apiError("NOT_FOUND", "リストバンドが見つかりません");
     }
-    if (wbs[0]!.status !== "active") {
+    if (wbs[0]!.status !== "active" && wbs[0]!.status !== "smartphone") {
       apiError("BAD_REQUEST", "このリストバンドは既に無効です");
     }
 
@@ -286,6 +333,129 @@ wristbandRoutes.post(
       .update(wristband)
       .set({ status: "lost", deactivatedAt: new Date() })
       .where(eq(wristband.id, id));
+
+    return c.json({ success: true });
+  }
+);
+
+// リストバンド更新 (状態変更、紐付け先変更等) - 2026-07-12 追加
+wristbandRoutes.patch(
+  "/:id",
+  zBody(
+    z.object({
+      status: z.enum(["active", "lost", "replaced", "revoked", "smartphone"]),
+      userId: z.string().optional(),
+    })
+  ),
+  async (c) => {
+    const db = c.get("db");
+    const id = c.req.param("id");
+    const { status, userId } = c.req.valid("json");
+
+    // 権限チェック (スタッフ member:write 権限が必要)
+    const allowed = await hasPermission(c, null, "member:write", undefined);
+    if (!allowed) {
+      apiError("FORBIDDEN", "この操作にはスタッフ権限が必要です");
+    }
+
+    const wbs = await db.select().from(wristband).where(eq(wristband.id, id));
+    if (wbs.length === 0) {
+      apiError("NOT_FOUND", "リストバンドが見つかりません");
+    }
+
+    const patch: Record<string, any> = { status };
+    if (status === "lost" || status === "replaced" || status === "revoked") {
+      patch.deactivatedAt = new Date();
+    } else {
+      patch.deactivatedAt = null;
+    }
+
+    if (userId !== undefined) {
+      patch.userId = userId;
+    }
+
+    await db.update(wristband).set(patch).where(eq(wristband.id, id));
+
+    // 監査ログ
+    const auth = c.get("auth");
+    const session = await auth.api.getSession({ headers: c.req.raw.headers });
+    if (session && session.user) {
+      await audit(c, {
+        actorEmail: session.user.email,
+        action: "impersonated_write",
+        summary: `Updated wristband ${id} status to ${status} and userId to ${userId || "unchanged"}`,
+      });
+    }
+
+    return c.json({ success: true });
+  }
+);
+
+// 来場者ユーザー情報更新 (ニックネーム、お好きな日付、呼出ID、ステータス) - 2026-07-13 追加
+wristbandRoutes.patch(
+  "/user/:userId",
+  zBody(
+    z.object({
+      nickname: z.string().trim().min(1).max(30).nullable().optional(),
+      favoriteDate: z.string().nullable().optional(),
+      displayId: z.number().int().positive().optional(),
+      status: z.enum(["available", "banned"]).optional(),
+    })
+  ),
+  async (c) => {
+    const db = c.get("db");
+    const userId = c.req.param("userId");
+    const body = c.req.valid("json");
+
+    // 権限チェック (スタッフ member:write 権限が必要)
+    const allowed = await hasPermission(c, null, "member:write", undefined);
+    if (!allowed) {
+      apiError("FORBIDDEN", "この操作にはスタッフ権限が必要です");
+    }
+
+    const users = await db.select().from(eventUser).where(eq(eventUser.id, userId));
+    if (users.length === 0) {
+      apiError("NOT_FOUND", "ユーザーが見つかりません");
+    }
+
+    const patch: Record<string, any> = {};
+    if (body.nickname !== undefined) patch.nickname = body.nickname;
+    if (body.favoriteDate !== undefined) {
+      if (body.favoriteDate && !/^\d{4}-\d{2}-\d{2}$/.test(body.favoriteDate)) {
+        apiError("BAD_REQUEST", "日付は YYYY-MM-DD 形式で入力してください");
+      }
+      patch.favoriteDate = body.favoriteDate || null;
+    }
+    if (body.displayId !== undefined) {
+      // 重複チェック
+      const existing = await db
+        .select()
+        .from(eventUser)
+        .where(
+          and(
+            eq(eventUser.eventId, users[0]!.eventId),
+            eq(eventUser.displayId, body.displayId)
+          )
+        );
+      if (existing.length > 0 && existing[0]!.id !== userId) {
+        apiError("CONFLICT", "この呼出IDは既に使用されています");
+      }
+      patch.displayId = body.displayId;
+    }
+    if (body.status !== undefined) patch.status = body.status;
+
+    await db.update(eventUser).set(patch).where(eq(eventUser.id, userId));
+
+    // 監査ログ
+    const auth = c.get("auth");
+    const session = await auth.api.getSession({ headers: c.req.raw.headers });
+    if (session && session.user) {
+      await audit(c, {
+        actorEmail: session.user.email,
+        action: "impersonated_write",
+        summary: `Updated visitor user profile for user ID ${userId}`,
+      });
+    }
 
     return c.json({ success: true });
   }
@@ -300,12 +470,12 @@ wristbandRoutes.post(
     z.object({
       userId: z.string().min(1),
       nickname: z.string().trim().min(1).max(30),
-      birthday: z.string().optional(), // YYYY-MM-DD
+      favoriteDate: z.string().optional(), // YYYY-MM-DD
     })
   ),
   async (c) => {
     const db = c.get("db");
-    const { userId, nickname, birthday } = c.req.valid("json");
+    const { userId, nickname, favoriteDate } = c.req.valid("json");
 
     const users = await db.select().from(eventUser).where(eq(eventUser.id, userId));
     if (users.length === 0) {
@@ -324,7 +494,7 @@ wristbandRoutes.post(
       .update(eventUser)
       .set({
         nickname,
-        birthday: birthday || null,
+        favoriteDate: favoriteDate || null,
         // 初回のみ確定させる (再編集で入場日時が動かないように)
         onboardedAt: new Date(),
       })
@@ -336,7 +506,7 @@ wristbandRoutes.post(
       eventId: updated.eventId,
       displayId: updated.displayId,
       nickname: updated.nickname,
-      birthday: updated.birthday,
+      favoriteDate: updated.favoriteDate,
       onboardedAt: updated.onboardedAt,
     });
   }
@@ -356,16 +526,19 @@ wristbandRoutes.post(
   ),
   async (c) => {
     const db = c.get("db");
-    const auth = c.get("auth");
-    const session = await auth.api.getSession({ headers: c.req.raw.headers });
-    if (!session || !session.user) {
-      apiError("UNAUTHORIZED", "認証されていません");
-    }
     const { eventId, wristbandId } = c.req.valid("json");
-
+ 
     const events = await db.select().from(event).where(eq(event.id, eventId));
     if (events.length === 0) {
       apiError("NOT_FOUND", "イベントが見つかりません");
+    }
+
+    const auth = c.get("auth");
+    const session = await auth.api.getSession({ headers: c.req.raw.headers });
+    // 物理リストバンドの紐付け(wristbandId指定)がある場合のみスタッフ権限(セッション)を必須とする。
+    // wristbandIdがない場合はデジタルQRコードのセルフ発行であるため、セッションなしでも許可する。
+    if (wristbandId && (!session || !session.user)) {
+      apiError("UNAUTHORIZED", "認証されていません");
     }
 
     const userId = `usr_${nanoid(12)}`;
@@ -382,6 +555,15 @@ wristbandRoutes.post(
         id: wristbandId,
         userId,
         status: "active",
+        assignedAt: new Date(),
+      });
+    } else {
+      // 物理リストバンドIDが指定されない場合は、イベントの設定に関わらず
+      // 来場者自身のスマホで使えるようにスマホ用疑似リストバンド(smartphone)を常に登録する
+      await db.insert(wristband).values({
+        id: `sp_${userId}`,
+        userId,
+        status: "smartphone",
         assignedAt: new Date(),
       });
     }

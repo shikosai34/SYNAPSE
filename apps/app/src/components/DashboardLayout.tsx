@@ -20,8 +20,16 @@ import {
   Megaphone,
   Wrench,
   ScrollText,
+  BarChart3,
+  MonitorCheck,
+  Boxes,
+  Calculator,
+  CalendarCheck,
+  Ticket,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  Download,
+  IdCard,
 } from "lucide-react";
 
 interface MenuItem {
@@ -42,6 +50,8 @@ interface DashboardLayoutProps {
   // これを使うことで、各ページが children 内に独自の見出し行+ボタンを重ねて
   // 二重ヘッダーになるのを防ぎ、全ダッシュボード画面でボタン位置を統一する (2026-07-11)
   actions?: ReactNode;
+  // イベントの抽選機能が有効なとき「抽選」タブを出す (2026-07-12)
+  lotteryEnabled?: boolean;
 }
 
 export default function DashboardLayout({
@@ -51,7 +61,8 @@ export default function DashboardLayout({
   type,
   activeTab,
   onTabChange,
-  actions
+  actions,
+  lotteryEnabled,
 }: DashboardLayoutProps) {
   const location = useLocation();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -78,6 +89,8 @@ export default function DashboardLayout({
     { title: "ダッシュボード", href: "/circle/dashboard", icon: LayoutDashboard },
     { title: "メニュー管理", href: "/circle/dashboard/menu", icon: UtensilsCrossed },
     { title: "売上管理", href: "/circle/dashboard/sales", icon: TrendingUp },
+    { title: "統計・分析", href: "/circle/dashboard/analytics", icon: BarChart3 },
+    { title: "データエクスポート", href: "/circle/dashboard/export", icon: Download },
     { title: "サークル設定", href: "/circle/dashboard/circle", icon: Settings },
     { title: "メンバー管理", href: "/circle/dashboard/members", icon: Users },
     { title: "モバイルオーダーQR", href: "/circle/dashboard/qr", icon: QrCode },
@@ -93,12 +106,19 @@ export default function DashboardLayout({
 
   // イベント管理のメニュー項目 (タブ切り替え)
   const eventMenuItems: MenuItem[] = [
+    { title: "統計・分析", tab: "analytics", icon: BarChart3 },
+    { title: "データエクスポート", tab: "export", icon: Download },
+    { title: "注文モニタ", tab: "order-monitor", icon: MonitorCheck },
+    { title: "在庫・売り切れ", tab: "inventory", icon: Boxes },
+    { title: "一斉アナウンス", tab: "announce", icon: Megaphone },
     { title: "サークル管理", tab: "circles", icon: Grid },
     { title: "全体売上管理", tab: "sales", icon: TrendingUp },
+    { title: "精算", tab: "settlement", icon: Calculator },
+    { title: "日次締め", tab: "daily-close", icon: CalendarCheck },
+    ...(lotteryEnabled ? [{ title: "抽選", tab: "lottery", icon: Ticket }] : []),
     { title: "スタッフ管理", tab: "staff", icon: Users },
     { title: "イベント設定", tab: "settings", icon: Settings },
-    { title: "リストバンド紛失処理", tab: "wristbands", icon: Lock },
-    { title: "スマホリストバンド発行", tab: "issue", icon: Smartphone },
+    { title: "リストバンド管理", tab: "wristbands", icon: IdCard },
   ];
 
   // システム管理のメニュー項目

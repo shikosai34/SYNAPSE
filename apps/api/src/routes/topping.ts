@@ -4,7 +4,7 @@ import { apiError } from "../http-error";
 import { z } from "zod";
 import { topping, menuTopping } from "@fesflow/db";
 import { eq } from "drizzle-orm";
-import { nanoid } from "nanoid";
+import { ulid } from "ulidx";
 import { hasPermission } from "../utils/auth";
 import type { AppEnv } from "../types";
 
@@ -73,7 +73,7 @@ toppingRoutes.post(
       apiError("FORBIDDEN", "権限がありません");
     }
 
-    const id = nanoid();
+    const id = ulid();
 
     await db.insert(topping).values({
       id,

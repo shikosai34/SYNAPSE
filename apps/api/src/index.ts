@@ -23,8 +23,22 @@ import { logger } from "hono/logger";
 import { secureHeaders } from "hono/secure-headers";
 import { nanoid } from "nanoid";
 
-import { createDb, membership, type WorkerEnv } from "@fesflow/db";
-import { eq, and } from "drizzle-orm";
+import {
+  createDb,
+  membership,
+  event,
+  circle,
+  order,
+  preOrder,
+  circleVisit,
+  numberedTicket,
+  review,
+  userStamp,
+  eventUser,
+  lottery,
+  type WorkerEnv,
+} from "@fesflow/db";
+import { eq, and, lt, inArray, isNotNull } from "drizzle-orm";
 import { createAuth } from "@fesflow/auth";
 import { createStorage } from "@fesflow/storage";
 import { getSession } from "./utils/auth";
@@ -51,6 +65,7 @@ import {
   wristbandRoutes,
   preOrderRoutes,
   accountRoutes,
+  lotteryRoutes,
   systemRoutes,
   adminRoutes,
 } from "./routes";
@@ -200,6 +215,7 @@ app.route("/api/stamps", stampRoutes);
 app.route("/api/wristbands", wristbandRoutes);
 app.route("/api/pre-orders", preOrderRoutes);
 app.route("/api/account", accountRoutes);
+app.route("/api/lottery", lotteryRoutes);
 app.route("/api/system", systemRoutes);
 app.route("/api/admin", adminRoutes);
 
@@ -309,4 +325,55 @@ app.get("/api/uploads/*", serveUpload);
 
 app.get("/", (c) => c.text("OK"));
 
-export default app;
+export default {
+  fetch: app.fetch,
+  async scheduled(_eventInfo: unknown, env: WorkerEnv, ctx: { waitUntil: (promise: Promise<void>) => void }) {
+    ctx.waitUntil((async () => {
+      console.log("Running scheduled cleanup for events closed more than 2 months ago...");
+      const db = createDb(env.DB);
+      const twoMonthsAgo = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000); // 60日前
+
+      // 2ヶ月以上前に終了したイベントを取得
+      const expiredEvents = await db
+        .select({ id: event.id })
+        .from(event)
+        .where(and(isNotNull(event.endDate), lt(event.endDate, twoMonthsAgo)));
+
+      if (expiredEvents.length === 0) {
+        console.log("No expired events found for cleanup.");
+        return;
+      }
+
+      const eventIds = expiredEvents.map((e) => e.id);
+
+      // それらのイベントに属するサークルを取得
+      const expiredCircles = await db
+        .select({ id: circle.id })
+        .from(circle)
+        .where(inArray(circle.eventId, eventIds));
+
+      const circleIds = expiredCircles.map((c) => c.id);
+
+      console.log(`Cleaning up data for ${eventIds.length} events and ${circleIds.length} circles...`);
+
+      // トランザクションデータの一括削除
+      // サークルに紐づくデータ
+      if (circleIds.length > 0) {
+        await Promise.all([
+          db.delete(order).where(inArray(order.circleId, circleIds)),
+          db.delete(preOrder).where(inArray(preOrder.circleId, circleIds)),
+          db.delete(circleVisit).where(inArray(circleVisit.circleId, circleIds)),
+          db.delete(numberedTicket).where(inArray(numberedTicket.circleId, circleIds)),
+          db.delete(review).where(inArray(review.circleId, circleIds)),
+          db.delete(userStamp).where(inArray(userStamp.circleId, circleIds)),
+        ]);
+      }
+
+      // イベントに紐づくデータ (eventUser は wristband, lottery_entry, lottery_winner 等を CASCADE 削除)
+      await db.delete(eventUser).where(inArray(eventUser.eventId, eventIds));
+      await db.delete(lottery).where(inArray(lottery.eventId, eventIds));
+
+      console.log("Scheduled cleanup completed successfully.");
+    })());
+  }
+};

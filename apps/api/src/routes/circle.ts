@@ -2,9 +2,19 @@ import { Hono } from "hono";
 import { zBody } from "../z-validator";
 import { apiError } from "../http-error";
 import { z } from "zod";
-import { circle, event, membership, inviteToken } from "@fesflow/db";
-import { eq, and, isNull, gt, lt } from "drizzle-orm";
-import { nanoid } from "nanoid";
+import {
+  circle,
+  event,
+  membership,
+  inviteToken,
+  order,
+  orderItem,
+  review,
+  circleVisit,
+  menu,
+} from "@fesflow/db";
+import { eq, and, isNull, gt, lt, inArray } from "drizzle-orm";
+import { ulid } from "ulidx";
 import { getAdminSession, hasPermission } from "../utils/auth";
 import { requireAuth } from "../middleware/auth";
 import type { AppEnv } from "../types";
@@ -103,6 +113,91 @@ circleRoutes.get("/:id", async (c) => {
   return c.json(rest);
 });
 
+// サークル統計・分析 (2026-07-12)
+// 単一サークルの売上/注文/メニュー/支払い方法/評価/来訪を集計して返す。
+// sales:read 権限が必要 (circle_manager 相当。circle_staff には無い)。
+circleRoutes.get("/:id/analytics", async (c) => {
+  const db = c.get("db");
+  const circleId = c.req.param("id");
+  if (!(await hasPermission(c, circleId, "sales:read"))) {
+    apiError("FORBIDDEN", "このサークルの統計を閲覧する権限がありません");
+  }
+
+  const orders = await db.select().from(order).where(eq(order.circleId, circleId));
+  const liveOrders = orders.filter((o) => o.status !== "cancelled");
+  const orderIds = liveOrders.map((o) => o.id);
+  const items = orderIds.length
+    ? await db.select().from(orderItem).where(inArray(orderItem.orderId, orderIds))
+    : [];
+  const reviews = await db.select().from(review).where(eq(review.circleId, circleId));
+  const visits = await db.select().from(circleVisit).where(eq(circleVisit.circleId, circleId));
+  const menus = await db.select({ id: menu.id }).from(menu).where(eq(menu.circleId, circleId));
+
+  const jstHour = (ms: number) => new Date(ms + 9 * 3600 * 1000).getUTCHours();
+  const revenue = liveOrders.reduce((s, o) => s + o.totalPrice, 0);
+  const customers = liveOrders.reduce((s, o) => s + o.peopleCount, 0);
+  const completed = liveOrders.filter((o) => o.status === "completed" || o.completed);
+  // 平均調理時間 (完成注文の completedAt - createdAt の平均、分)
+  const prepMins = completed
+    .filter((o) => o.completedAt)
+    .map((o) => (o.completedAt!.getTime() - o.createdAt.getTime()) / 60000)
+    .filter((m) => m >= 0);
+  const avgPrepMin = prepMins.length
+    ? Math.round((prepMins.reduce((s, m) => s + m, 0) / prepMins.length) * 10) / 10
+    : null;
+
+  const byHour = Array.from({ length: 24 }, (_, h) => ({ hour: h, orders: 0, revenue: 0 }));
+  for (const o of liveOrders) {
+    const h = jstHour(o.createdAt.getTime());
+    byHour[h]!.orders += 1;
+    byHour[h]!.revenue += o.totalPrice;
+  }
+
+  const menuAgg = new Map<string, { quantity: number; revenue: number }>();
+  for (const it of items) {
+    const a = menuAgg.get(it.menuName) || { quantity: 0, revenue: 0 };
+    a.quantity += it.quantity;
+    a.revenue += it.menuPrice * it.quantity;
+    menuAgg.set(it.menuName, a);
+  }
+  const menuRanking = Array.from(menuAgg.entries())
+    .map(([menuName, a]) => ({ menuName, ...a }))
+    .sort((a, b) => b.quantity - a.quantity)
+    .slice(0, 20);
+
+  const payAgg = new Map<string, { orders: number; revenue: number }>();
+  for (const o of liveOrders) {
+    const key = o.paymentMethod || "未設定";
+    const a = payAgg.get(key) || { orders: 0, revenue: 0 };
+    a.orders += 1;
+    a.revenue += o.totalPrice;
+    payAgg.set(key, a);
+  }
+  const paymentBreakdown = Array.from(payAgg.entries())
+    .map(([method, a]) => ({ method, ...a }))
+    .sort((a, b) => b.revenue - a.revenue);
+
+  return c.json({
+    totals: {
+      orders: liveOrders.length,
+      revenue,
+      customers,
+      avgSpend: customers ? Math.round(revenue / customers) : 0,
+      completedRate: liveOrders.length ? Math.round((completed.length / liveOrders.length) * 100) : 0,
+      avgPrepMin,
+      reviews: reviews.length,
+      avgRating: reviews.length
+        ? Math.round((reviews.reduce((s, r) => s + r.rating, 0) / reviews.length) * 10) / 10
+        : null,
+      visitors: new Set(visits.map((v) => v.eventUserId)).size,
+      menus: menus.length,
+    },
+    byHour,
+    menuRanking,
+    paymentBreakdown,
+  });
+});
+
 // サークル作成
 // 2026-07-07 (Phase 3a): セルフサービス化。旧仕様は管理者(getAdminSession)のみが
 // managerEmail/managerPin を指定してサークル + 代表者メンバーシップを代理作成する
@@ -128,7 +223,7 @@ circleRoutes.post(
     const db = c.get("db");
     const session = c.get("session")!;
     const input = c.req.valid("json");
-    const id = nanoid();
+    const id = ulid();
     const email = session.user.email.toLowerCase();
 
     // イベントの存在確認
@@ -204,43 +299,39 @@ circleRoutes.post(
       apiError("BAD_REQUEST", "同じ名前のサークルが既に存在します");
     }
 
-    // 招待経由の場合は、作成を確定する直前に招待を TOCTOU 安全に消費する
-    // (used_count < max_uses を満たす場合のみ +1。0件更新なら上限到達で中断)。
-    if (hostInvite) {
-      const upd = await db
-        .update(inviteToken)
-        .set({ usedCount: hostInvite.usedCount + 1 })
-        .where(
-          and(
-            eq(inviteToken.id, hostInvite.id),
-            hostInvite.maxUses !== null
-              ? lt(inviteToken.usedCount, hostInvite.maxUses)
-              : undefined
-          )
-        );
-      const changes = (upd as unknown as { meta?: { changes?: number } })?.meta?.changes ?? 0;
-      if (changes === 0) {
-        apiError("BAD_REQUEST", "招待の使用回数上限に達しました");
+    // 2026-07-13 (D1トランザクション対応): アトミック性を保証するため、
+    // 招待の消費、サークルとメンバーシップの登録を db.transaction 内で実行します。
+    // エラー時は自動でロールバックされるため、手動の補償削除は不要です。
+    await db.transaction(async (tx) => {
+      // 招待経由の場合は、作成を確定する直前に招待を TOCTOU 安全に消費する
+      // (used_count < max_uses を満たす場合のみ +1。0件更新なら上限到達で中断)。
+      if (hostInvite) {
+        const upd = await tx
+          .update(inviteToken)
+          .set({ usedCount: hostInvite.usedCount + 1 })
+          .where(
+            and(
+              eq(inviteToken.id, hostInvite.id),
+              hostInvite.maxUses !== null
+                ? lt(inviteToken.usedCount, hostInvite.maxUses)
+                : undefined
+            )
+          );
+        const changes = (upd as unknown as { meta?: { changes?: number } })?.meta?.changes ?? 0;
+        if (changes === 0) {
+          apiError("BAD_REQUEST", "招待の使用回数上限に達しました");
+        }
       }
-    }
 
-    // サークルと代表者メンバーシップを作成
-    // 2026-07-04: Cloudflare D1 は HTTP 経由の対話的トランザクション (BEGIN TRANSACTION) をサポートしておらず、
-    // db.transaction() を実行すると "Failed query: begin" エラーで 500 になるため、順次実行に変更。
-    await db.insert(circle).values({
-      id,
-      eventId: input.eventId,
-      name: input.name,
-      description: input.description,
-    });
+      await tx.insert(circle).values({
+        id,
+        eventId: input.eventId,
+        name: input.name,
+        description: input.description,
+      });
 
-    // 2026-07-06 (M5): D1 はトランザクション非対応のため、membership insert が
-    // 失敗すると代表者不在のサークルが残ってしまう。失敗時は先に作成した circle 行を
-    // 補償削除してからエラーを返す。
-    // 2026-07-07 (Phase 3a): 代表者は常に作成者本人 (session.user.email)。
-    const membershipId = nanoid();
-    try {
-      await db.insert(membership).values({
+      const membershipId = ulid();
+      await tx.insert(membership).values({
         id: membershipId,
         userEmail: session.user.email.toLowerCase(), // メールアドレスは小文字で保存
         userName: session.user.name || `${input.name} 代表者`,
@@ -248,10 +339,7 @@ circleRoutes.post(
         role: "circle_manager",
         isActive: true,
       });
-    } catch (e) {
-      await db.delete(circle).where(eq(circle.id, id));
-      apiError("INTERNAL", "サークルの作成に失敗しました");
-    }
+    });
 
     return c.json({ id }, 201);
   }

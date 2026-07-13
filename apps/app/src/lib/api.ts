@@ -80,12 +80,35 @@ async function fetchApi<T>(
 export const eventApi = {
   list: () => fetchApi<Event[]>("/api/festivals"),
   get: (id: string) => fetchApi<Event>(`/api/festivals/${id}`),
+  // イベント統計・分析 (2026-07-12)。event_manager (sales:read) 権限が必要。
+  analytics: (id: string) => fetchApi<EventAnalytics>(`/api/festivals/${id}/analytics`),
+  // 日次締め (指定日 JST の売上を支払い方法別/サークル別に集計)。event_manager sales:read。
+  dailyClose: (id: string, date?: string) =>
+    fetchApi<DailyClose>(`/api/festivals/${id}/daily-close${date ? `?date=${date}` : ""}`),
+  // 抽選機能の有効化トグル (event_manager event:write 権限)。
+  setLotteryEnabled: (id: string, enabled: boolean) =>
+    fetchApi<{ success: boolean }>(`/api/festivals/${id}/lottery-enabled`, { method: "PUT", body: { enabled } }),
+  // 支払い方法の設定 (event_manager event:write 権限)。
+  setPaymentMethods: (id: string, paymentMethods: string[]) =>
+    fetchApi<{ success: boolean; paymentMethods: string[] }>(`/api/festivals/${id}/payment-methods`, {
+      method: "PUT",
+      body: { paymentMethods },
+    }),
+  // 進行中注文モニタ (全サークル横断)。event_manager (order:read) 権限が必要。
+  liveOrders: (id: string) => fetchApi<LiveOrder[]>(`/api/festivals/${id}/orders/live`),
+  // 在庫/売り切れ一覧 (全サークル横断)。event_manager (stock:read) 権限が必要。
+  inventory: (id: string) => fetchApi<InventoryItem[]>(`/api/festivals/${id}/inventory`),
+  // イベント内スタッフへの一斉アナウンス。event_manager (member:write) 権限が必要。
+  announce: (id: string, data: { title: string; message: string }) =>
+    fetchApi<{ sent: number }>(`/api/festivals/${id}/announce`, { method: "POST", body: data }),
   create: (data: CreateEventInput) =>
     fetchApi<{ id: string }>("/api/festivals", { method: "POST", body: data }),
   updateTheme: (id: string, data: EventTheme) =>
     fetchApi<Event>(`/api/festivals/${id}/theme`, { method: "PUT", body: data }),
   delete: (id: string) =>
     fetchApi<{ success: boolean }>(`/api/festivals/${id}`, { method: "DELETE" }),
+  // 来場者一覧取得 (CSVエクスポート等) - member:read。
+  visitors: (id: string) => fetchApi<EventUser[]>(`/api/festivals/${id}/visitors`),
   // 2026-07-07 (Phase 3a/3b): 独自のイベントパスワードログイン (POST /login) は
   // バックエンドで廃止済み。認証は better-auth に一本化。
 };
@@ -120,6 +143,8 @@ export const circleApi = {
     }),
   delete: (id: string) =>
     fetchApi<{ success: boolean }>(`/api/circles/${id}`, { method: "DELETE" }),
+  // サークル統計・分析 (2026-07-13)
+  analytics: (id: string) => fetchApi<CircleAnalytics>(`/api/circles/${id}/analytics`),
 };
 
 // Menu API
@@ -369,6 +394,7 @@ export interface EventTheme {
   description?: string | null;
   startDate?: string | Date | null;
   endDate?: string | Date | null;
+  hasPhysicalWristband?: boolean;
 }
 
 
@@ -377,8 +403,107 @@ export interface Event extends EventTheme {
   id: string;
   eventName: string;
   description: string | null;
+  hasPhysicalWristband: boolean;
+  // 利用可能な支払い方法 (JSON 文字列配列)。parseEventPaymentMethods でパースする。
+  paymentMethods?: string;
+  // 抽選機能(イベント単位)の有効化フラグ (2026-07-12)。
+  lotteryEnabled?: boolean;
   startDate: Date | null;
   endDate: Date | null;
+}
+
+// event.paymentMethods (JSON文字列) を配列にパースする。既定は ["現金"]。
+export function parseEventPaymentMethods(raw?: string | null): string[] {
+  if (!raw) return ["現金"];
+  try {
+    const arr = JSON.parse(raw);
+    if (Array.isArray(arr) && arr.every((x) => typeof x === "string") && arr.length > 0) return arr;
+  } catch {
+    /* fall through */
+  }
+  return ["現金"];
+}
+
+// イベント統計 (GET /api/festivals/:id/analytics) のレスポンス
+export interface EventAnalytics {
+  totals: {
+    visitors: number;
+    onboarded: number;
+    onboardedRate: number;
+    orders: number;
+    revenue: number;
+    customers: number;
+    avgSpend: number;
+    circles: number;
+    reviews: number;
+    avgRating: number | null;
+    completedRate: number;
+    circleVisits: number;
+    visitingUsers: number;
+  };
+  byHour: { hour: number; orders: number; revenue: number; visitors: number }[];
+  circleRanking: {
+    circleId: string;
+    name: string;
+    revenue: number;
+    orders: number;
+    reviews: number;
+    avgRating: number | null;
+  }[];
+  menuRanking: { menuName: string; quantity: number; revenue: number }[];
+  ageBuckets: { label: string; count: number }[];
+  paymentBreakdown: { method: string; orders: number; revenue: number }[];
+}
+
+// サークル統計 (GET /api/circles/:id/analytics) のレスポンス (2026-07-13)
+export interface CircleAnalytics {
+  totals: {
+    orders: number;
+    revenue: number;
+    customers: number;
+    avgSpend: number;
+    completedRate: number;
+    avgPrepMin: number | null;
+    reviews: number;
+    avgRating: number | null;
+    visitors: number;
+    menus: number;
+  };
+  byHour: { hour: number; orders: number; revenue: number }[];
+  menuRanking: { menuName: string; quantity: number; revenue: number }[];
+  paymentBreakdown: { method: string; orders: number; revenue: number }[];
+}
+
+// 日次締め (GET /api/festivals/:id/daily-close)
+export interface DailyClose {
+  date: string;
+  totals: { orders: number; revenue: number; customers: number };
+  paymentBreakdown: { method: string; orders: number; revenue: number }[];
+  circleBreakdown: { circleId: string; name: string; orders: number; revenue: number }[];
+}
+
+// 進行中注文モニタの1件 (GET /api/festivals/:id/orders/live)
+export interface LiveOrder {
+  id: string;
+  orderNumber: string;
+  circleId: string;
+  circleName: string;
+  status: string;
+  peopleCount: number;
+  totalPrice: number;
+  estimatedTime: number | null;
+  createdAt: string;
+}
+
+// 在庫一覧の1件 (GET /api/festivals/:id/inventory)
+export interface InventoryItem {
+  id: string;
+  circleId: string;
+  circleName: string;
+  name: string;
+  price: number;
+  soldOut: boolean;
+  stockQuantity: number;
 }
 
 
@@ -405,6 +530,9 @@ export interface CircleSettings {
     stock: boolean;
     staff: boolean;
   };
+  // このサークルが対応する支払い方法 (2026-07-12)。イベントの paymentMethods の部分集合。
+  // 空=イベントの全方法に対応とみなす。1つだけならレジで選択させず自動採用する。
+  acceptedPayments: string[];
 }
 
 // settings JSON をパースし、未設定キーを既定値で補完する
@@ -412,6 +540,7 @@ export function parseCircleSettings(raw?: string | null): CircleSettings {
   const defaults: CircleSettings = {
     orderFlowMode: "pending",
     extensions: { stock: false, staff: false },
+    acceptedPayments: [],
   };
   if (!raw) return defaults;
   try {
@@ -426,6 +555,9 @@ export function parseCircleSettings(raw?: string | null): CircleSettings {
         stock: parsed?.extensions?.stock === true,
         staff: parsed?.extensions?.staff === true,
       },
+      acceptedPayments: Array.isArray(parsed?.acceptedPayments)
+        ? parsed.acceptedPayments.filter((x: unknown) => typeof x === "string")
+        : [],
     };
   } catch {
     return defaults;
@@ -487,6 +619,8 @@ export interface Order {
   estimatedMinutes: number | null;
   createdAt: Date | null;
   completedAt: Date | null;
+  peopleCount: number;
+  paymentMethod: string | null;
 }
 
 export interface OrderItemTopping {
@@ -669,6 +803,8 @@ export interface CreateOrderInput {
     toppingIds?: string[];
   }[];
   notes?: string;
+  // 支払い方法 (2026-07-12)。省略時はサーバがサークルの単一対応方法を補完する。
+  paymentMethod?: string;
 }
 
 export interface CheckPermissionInput {
@@ -725,6 +861,18 @@ export interface InviteLookupResult {
   reason: string | null;
 }
 
+// 来場ユーザー情報 (2026-07-13)
+export interface EventUser {
+  id: string;
+  eventId: string;
+  displayId: number;
+  status: string;
+  nickname?: string | null;
+  favoriteDate?: string | null;
+  onboardedAt?: string | null;
+  createdAt: string;
+}
+
 // Wristband API
 export interface WristbandLookupResult {
   user: {
@@ -733,7 +881,7 @@ export interface WristbandLookupResult {
     displayId: number;
     status: string;
     nickname?: string | null;
-    birthday?: string | null;
+    favoriteDate?: string | null;
     onboardedAt?: string | null;
   };
   wristband: {
@@ -770,6 +918,16 @@ export const wristbandApi = {
       method: "POST",
       body: { eventId, wristbandId },
     }),
+  update: (id: string, data: { status: "active" | "lost" | "replaced" | "revoked" | "smartphone"; userId?: string }) =>
+    fetchApi<{ success: boolean }>(`/api/wristbands/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      body: data,
+    }),
+  updateUser: (userId: string, data: { nickname?: string | null; favoriteDate?: string | null; displayId?: number; status?: string }) =>
+    fetchApi<{ success: boolean }>(`/api/wristbands/user/${encodeURIComponent(userId)}`, {
+      method: "PATCH",
+      body: data,
+    }),
 };
 
 // 来場者オンボーディング API (2026-07-04)
@@ -778,12 +936,12 @@ export interface VisitorProfile {
   eventId: string;
   displayId: number;
   nickname: string | null;
-  birthday: string | null;
+  favoriteDate: string | null;
   onboardedAt: string | null;
 }
 
 export const visitorApi = {
-  onboard: (data: { userId: string; nickname: string; birthday?: string }) =>
+  onboard: (data: { userId: string; nickname: string; favoriteDate?: string }) =>
     fetchApi<VisitorProfile>("/api/wristbands/onboard", {
       method: "POST",
       body: data,
@@ -923,6 +1081,9 @@ export const adminApi = {
     }),
   deleteAnnouncement: (id: string) =>
     fetchApi<{ success: boolean }>(`/api/admin/announcements/${id}`, { method: "DELETE" }),
+  // セッションクリーンアップ (2026-07-12)
+  expiredSessionsCount: () => fetchApi<{ count: number }>("/api/admin/sessions/expired-count"),
+  cleanupSessions: () => fetchApi<{ success: boolean }>("/api/admin/sessions/cleanup", { method: "POST" }),
   // SaaS 運営: イベント/課金管理 (2026-07-12 Phase C)
   overview: () => fetchApi<AdminOverview>("/api/admin/overview"),
   listEvents: () => fetchApi<AdminEvent[]>("/api/admin/events"),
@@ -939,6 +1100,45 @@ export const adminApi = {
     fetchApi<ImpersonationStatus>("/api/admin/impersonate", { method: "POST", body: data }),
   impersonateStop: () => fetchApi<{ success: boolean }>("/api/admin/impersonate/stop", { method: "POST" }),
   listAudit: () => fetchApi<AuditEntry[]>("/api/admin/audit"),
+};
+
+// 抽選 (2026-07-12)
+export interface LotteryEntryConfig {
+  base: number;
+  perStamp: number;
+  perReview: number;
+}
+export interface LotteryData {
+  lottery: {
+    id: string;
+    eventId: string;
+    name: string;
+    drawAt: string | null;
+    status: string;
+    entryConfig: LotteryEntryConfig;
+  } | null;
+  prizes?: { id: string; name: string; quantity: number }[];
+  entryCount?: number;
+  winners?: { id: string; prizeId: string; prizeName: string; eventUserId: string; userLabel: string; claimedAt: string | null }[];
+}
+
+export const lotteryApi = {
+  get: (eventId: string) => fetchApi<LotteryData>(`/api/lottery?eventId=${eventId}`),
+  upsert: (data: { eventId: string; name: string; drawAt?: string; entryConfig?: LotteryEntryConfig }) =>
+    fetchApi<{ id: string }>("/api/lottery", { method: "POST", body: data }),
+  addPrize: (id: string, data: { name: string; quantity: number }) =>
+    fetchApi<{ id: string }>(`/api/lottery/${id}/prizes`, { method: "POST", body: data }),
+  deletePrize: (id: string, prizeId: string) =>
+    fetchApi<{ success: boolean }>(`/api/lottery/${id}/prizes/${prizeId}`, { method: "DELETE" }),
+  draw: (id: string) => fetchApi<{ drawn: number }>(`/api/lottery/${id}/draw`, { method: "POST" }),
+  claim: (id: string, winnerId: string) =>
+    fetchApi<{ success: boolean }>(`/api/lottery/${id}/winners/${winnerId}/claim`, { method: "POST" }),
+  enter: (id: string, userId: string) =>
+    fetchApi<{ entered: boolean }>(`/api/lottery/${id}/enter`, { method: "POST", body: { userId } }),
+  result: (id: string, userId: string) =>
+    fetchApi<{ status: string; entered: boolean; wins: { prizeName: string; claimedAt: string | null }[] }>(
+      `/api/lottery/${id}/result?userId=${userId}`
+    ),
 };
 
 export interface ImpersonationStatus {
@@ -970,6 +1170,7 @@ export interface AdminOverview {
   lockouts: number;
   byPlan: Record<string, number>;
   byStatus: Record<string, number>;
+  userGrowth: { date: string; accounts: number; visitors: number }[];
 }
 
 export type BillingStatus = "active" | "trial" | "suspended" | "unpaid";
