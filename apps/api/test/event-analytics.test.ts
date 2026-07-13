@@ -72,6 +72,60 @@ describe("イベント統計 analytics", () => {
 		expect(a.totals.circles).toBe(1);
 	});
 
+	it("super_admin かつ当該イベントの event_manager なら、active=super_admin でも analytics を見られる", async () => {
+		// 自分で作ったイベントを持つ運営者(super_admin かつ event_manager)を再現する。
+		const owner = await signUp("saowner");
+		const db = testDb();
+		const evRes = await request("/api/festivals", {
+			method: "POST",
+			headers: { "Content-Type": "application/json", Cookie: owner.cookie },
+			body: JSON.stringify({ eventName: uid("自作イベント") }),
+		});
+		const { id: eventId } = (await evRes.json()) as { id: string };
+
+		// super_admin membership を付与 (active スペースとして使う)
+		const saId = uid("m");
+		await db.insert(membership).values({
+			id: saId,
+			userEmail: owner.email.toLowerCase(),
+			userName: "SA",
+			role: "super_admin",
+			isActive: true,
+		});
+
+		// active = super_admin membership でも、本人が event_manager でもあるので 200
+		const res = await request(`/api/festivals/${eventId}/analytics`, {
+			headers: { Cookie: owner.cookie, "X-Active-Membership-Id": saId },
+		});
+		expect(res.status).toBe(200);
+	});
+
+	it("super_admin でも当該イベントに正規ロールが無ければ analytics は 403 (Phase D 分離)", async () => {
+		const owner = await signUp("otherowner");
+		const evRes = await request("/api/festivals", {
+			method: "POST",
+			headers: { "Content-Type": "application/json", Cookie: owner.cookie },
+			body: JSON.stringify({ eventName: uid("他人イベント") }),
+		});
+		const { id: eventId } = (await evRes.json()) as { id: string };
+
+		// 別人の super_admin (このイベントには何のロールも持たない)
+		const admin = await signUp("pureadmin");
+		const db = testDb();
+		const saId = uid("m");
+		await db.insert(membership).values({
+			id: saId,
+			userEmail: admin.email.toLowerCase(),
+			userName: "SA2",
+			role: "super_admin",
+			isActive: true,
+		});
+		const res = await request(`/api/festivals/${eventId}/analytics`, {
+			headers: { Cookie: admin.cookie, "X-Active-Membership-Id": saId },
+		});
+		expect(res.status).toBe(403);
+	});
+
 	it("権限のないユーザーの analytics は 403", async () => {
 		const owner = await signUp("aowner");
 		const evRes = await request("/api/festivals", {
