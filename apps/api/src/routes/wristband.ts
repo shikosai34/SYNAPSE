@@ -18,7 +18,7 @@ wristbandRoutes.get(
   zQuery(
     z.object({
       eventId: z.string().min(1),
-      query: z.string().min(1),
+      query: z.string().optional().default(""),
     })
   ),
   async (c) => {
@@ -31,17 +31,25 @@ wristbandRoutes.get(
       apiError("FORBIDDEN", "この操作にはスタッフ権限が必要です");
     }
 
-    const queryNum = parseInt(query, 10);
-    const isNum = !isNaN(queryNum) && /^\d+$/.test(query);
-
     const conditions = [eq(eventUser.eventId, eventId)];
-    const orConditions = [
-      like(eventUser.nickname, `%${query}%`),
-      like(eventUser.birthday, `%${query}%`),
-    ];
 
-    if (isNum) {
-      orConditions.push(eq(eventUser.displayId, queryNum));
+    if (query && query.trim().length > 0) {
+      const queryNum = parseInt(query, 10);
+      const isNum = !isNaN(queryNum) && /^\d+$/.test(query);
+
+      const orConditions = [
+        like(eventUser.nickname, `%${query}%`),
+        like(eventUser.birthday, `%${query}%`),
+      ];
+
+      if (isNum) {
+        orConditions.push(eq(eventUser.displayId, queryNum));
+      }
+
+      const orOp = or(...orConditions);
+      if (orOp) {
+        conditions.push(orOp);
+      }
     }
 
     const rows = await db
@@ -57,7 +65,8 @@ wristbandRoutes.get(
           or(eq(wristband.status, "active"), eq(wristband.status, "smartphone"))
         )
       )
-      .where(and(...conditions, or(...orConditions)))
+      .where(and(...conditions))
+      .orderBy(desc(eventUser.createdAt))
       .limit(50);
 
     return c.json(

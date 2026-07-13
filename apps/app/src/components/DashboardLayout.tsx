@@ -28,7 +28,8 @@ import {
   Ticket,
   ChevronDown,
   ChevronUp,
-  Download
+  Download,
+  IdCard,
 } from "lucide-react";
 
 interface MenuItem {
@@ -117,8 +118,7 @@ export default function DashboardLayout({
     ...(lotteryEnabled ? [{ title: "抽選", tab: "lottery", icon: Ticket }] : []),
     { title: "スタッフ管理", tab: "staff", icon: Users },
     { title: "イベント設定", tab: "settings", icon: Settings },
-    { title: "リストバンド紛失処理", tab: "wristbands", icon: Lock },
-    { title: "スマホリストバンド発行", tab: "issue", icon: Smartphone },
+    { title: "リストバンド管理", tab: "wristbands", icon: IdCard },
   ];
 
   // システム管理のメニュー項目

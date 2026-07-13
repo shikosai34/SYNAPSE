@@ -1,127 +1,109 @@
 import { useState, useEffect } from "react";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { wristbandApi } from "@/lib/api";
 import { extractIdFromCode } from "@/lib/utils";
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Lock, Search, RefreshCw, Users, Camera, QrCode } from "lucide-react";
+import {
+  Search,
+  RefreshCw,
+  Users,
+  Camera,
+  QrCode,
+  Plus,
+  Smartphone,
+  Loader2,
+  IdCard,
+  Ban,
+  CheckCircle,
+  XCircle,
+  HelpCircle,
+  Copy,
+  ChevronRight
+} from "lucide-react";
 import { toast } from "sonner";
 import { QrScannerModal } from "@/components/pos/qr-scanner-modal";
 import { Modal } from "@/components/ui/Modal";
+import { QRCodeSVG } from "qrcode.react";
 
 interface WristbandsTabProps {
   eventId: string;
 }
 
-export function WristbandsTab({
-  eventId
-}: WristbandsTabProps) {
-  const [lostSearchCode, setLostSearchCode] = useState("");
-  const [newWristbandId, setNewWristbandId] = useState("");
-  const [profileSearchQuery, setProfileSearchQuery] = useState("");
-  const [searchResults, setSearchResults] = useState<any[]>([]);
-  const [lookupResult, setLookupResult] = useState<any | null>(null);
-  const [isScannerOpen, setIsScannerOpen] = useState(false);
-  const [scannerTarget, setScannerTarget] = useState<"search" | "reissue">("search");
+export function WristbandsTab({ eventId }: WristbandsTabProps) {
+  const queryClient = useQueryClient();
 
-  // Modal & profile form states (2026-07-13)
+  // 検索・表示関連の状態
+  const [searchInput, setSearchInput] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
+
+  // モーダル開閉状態
+  const [isScanModalOpen, setIsScanModalOpen] = useState(false);
+  const [isIssueModalOpen, setIsIssueModalOpen] = useState(false);
   const [isDetailsModalOpen, setIsDetailsModalOpen] = useState(false);
+  const [isScannerOpen, setIsScannerOpen] = useState(false);
+  const [scannerTarget, setScannerTarget] = useState<"search" | "reissue" | "lookup">("lookup");
+
+  // スキャン・照会モーダル用の手入力コード
+  const [lookupCode, setLookupCode] = useState("");
+
+  // 詳細編集モーダル用の状態
+  const [selectedUser, setSelectedUser] = useState<any | null>(null);
   const [editNickname, setEditNickname] = useState("");
   const [editBirthday, setEditBirthday] = useState("");
   const [editDisplayId, setEditDisplayId] = useState<number | "">("");
   const [editUserStatus, setEditUserStatus] = useState("available");
+  const [reissueWristbandId, setReissueWristbandId] = useState("");
 
-  // Sync profile edit state when lookupResult changes
+  // 新規スマホ用来場者発行モーダル用の状態
+  const [issuedUser, setIssuedUser] = useState<{ userId: string; displayId: number } | null>(null);
+
+  // 来場者一覧・検索クエリ (React Query を使って自動フェッチ&キャッシュ)
+  const { data: visitors = [], isLoading, refetch } = useQuery({
+    queryKey: ["eventVisitors", eventId, searchQuery],
+    queryFn: () => wristbandApi.search(eventId, searchQuery),
+  });
+
+  // 詳細編集モーダルのデータ同期
   useEffect(() => {
-    if (lookupResult?.user) {
-      setEditNickname(lookupResult.user.nickname || "");
-      setEditBirthday(lookupResult.user.birthday || "");
-      setEditDisplayId(lookupResult.user.displayId || "");
-      setEditUserStatus(lookupResult.user.status || "available");
+    if (selectedUser?.user) {
+      setEditNickname(selectedUser.user.nickname || "");
+      setEditBirthday(selectedUser.user.birthday || "");
+      setEditDisplayId(selectedUser.user.displayId || "");
+      setEditUserStatus(selectedUser.user.status || "available");
     } else {
       setEditNickname("");
       setEditBirthday("");
       setEditDisplayId("");
       setEditUserStatus("available");
     }
-  }, [lookupResult]);
+    setReissueWristbandId("");
+  }, [selectedUser]);
 
   // リストバンド照会 API
-  const lookupWristbandMutation = useMutation({
+  const lookupMutation = useMutation({
     mutationFn: (code: string) => {
       const parsedCode = extractIdFromCode(code);
       return wristbandApi.lookup(parsedCode);
     },
     onSuccess: (data) => {
-      setLookupResult(data);
+      setSelectedUser(data);
       if (!data.wristband) {
-        toast.info("指定のコードに紐づく有効なリストバンドはありません");
+        toast.info("指定のコードに紐づく有効なリストバンドはありませんが、ユーザー情報は取得されました。");
       } else {
         toast.success("ユーザー情報を取得しました");
       }
       setIsDetailsModalOpen(true);
+      setIsScanModalOpen(false); // 照会モーダルは閉じる
     },
     onError: () => {
       toast.error("照会に失敗しました。正しいコードを入力してください。");
     },
   });
 
-  // 来場者プロフィール検索 API
-  const searchProfileMutation = useMutation({
-    mutationFn: (query: string) => wristbandApi.search(eventId, query),
-    onSuccess: (data) => {
-      setSearchResults(data);
-      if (data.length === 0) {
-        toast.info("該当する来場者が見つかりませんでした");
-      } else {
-        toast.success(`${data.length} 件の来場者が見つかりました`);
-      }
-    },
-    onError: () => {
-      toast.error("検索に失敗しました");
-    },
-  });
-
-  // 紛失ロック API
-  const reportLostMutation = useMutation({
-    mutationFn: (wristbandId: string) => wristbandApi.reportLost(wristbandId),
-    onSuccess: () => {
-      toast.success("紛失ロック（無効化）が完了しました");
-      if (lostSearchCode) {
-        lookupWristbandMutation.mutate(lostSearchCode);
-      } else if (lookupResult?.user?.id) {
-        lookupWristbandMutation.mutate(lookupResult.user.id);
-      }
-      // 検索結果も更新する
-      if (profileSearchQuery) {
-        searchProfileMutation.mutate(profileSearchQuery);
-      }
-    },
-  });
-
-  // リストバンド更新 (2026-07-12)
-  const updateWbMutation = useMutation({
-    mutationFn: (input: { id: string; status: any; userId?: string }) =>
-      wristbandApi.update(input.id, { status: input.status, userId: input.userId }),
-    onSuccess: () => {
-      toast.success("リストバンド情報を更新しました");
-      if (lostSearchCode) {
-        lookupWristbandMutation.mutate(lostSearchCode);
-      } else if (lookupResult?.user?.id) {
-        lookupWristbandMutation.mutate(lookupResult.user.id);
-      }
-      if (profileSearchQuery) {
-        searchProfileMutation.mutate(profileSearchQuery);
-      }
-    },
-    onError: (err: any) => {
-      toast.error(err.message || "更新に失敗しました");
-    },
-  });
-
-  // 来場者プロフィール更新 API (2026-07-13)
+  // プロフィール更新 API
   const updateProfileMutation = useMutation({
     mutationFn: (input: { userId: string; nickname: string | null; birthday: string | null; displayId: number; status: string }) =>
       wristbandApi.updateUser(input.userId, {
@@ -132,32 +114,42 @@ export function WristbandsTab({
       }),
     onSuccess: (_, variables) => {
       toast.success("ユーザー情報を更新しました");
-      // 更新後の情報で詳細を再読み込みする
-      lookupWristbandMutation.mutate(variables.userId);
-      if (profileSearchQuery) {
-        searchProfileMutation.mutate(profileSearchQuery);
-      }
+      // キャッシュ更新
+      queryClient.invalidateQueries({ queryKey: ["eventVisitors"] });
+      // 詳細データを再照会
+      lookupMutation.mutate(variables.userId);
     },
     onError: (err: any) => {
-      toast.error(err.message || "プロフィール更新に失敗しました");
+      toast.error(err.message || "プロフィールの更新に失敗しました");
     },
   });
 
-  // 新規リストバンド再紐付け
+  // リストバンド状態更新 API
+  const updateWristbandMutation = useMutation({
+    mutationFn: (input: { id: string; status: any; userId?: string }) =>
+      wristbandApi.update(input.id, { status: input.status, userId: input.userId }),
+    onSuccess: () => {
+      toast.success("リストバンド情報を更新しました");
+      queryClient.invalidateQueries({ queryKey: ["eventVisitors"] });
+      if (selectedUser?.user?.id) {
+        lookupMutation.mutate(selectedUser.user.id);
+      }
+    },
+    onError: (err: any) => {
+      toast.error(err.message || "リストバンド状態の更新に失敗しました");
+    },
+  });
+
+  // 物理リストバンド新規紐付け・再発行 API
   const registerWristbandMutation = useMutation({
     mutationFn: (input: { userId: string; wristbandId: string }) =>
       wristbandApi.register(input.userId, input.wristbandId),
     onSuccess: () => {
       toast.success("新しいリストバンドをアカウントに紐付けました");
-      setNewWristbandId("");
-      if (lostSearchCode) {
-        lookupWristbandMutation.mutate(lostSearchCode);
-      } else if (lookupResult?.user?.id) {
-        lookupWristbandMutation.mutate(lookupResult.user.id);
-      }
-      // 検索結果も更新する
-      if (profileSearchQuery) {
-        searchProfileMutation.mutate(profileSearchQuery);
+      setReissueWristbandId("");
+      queryClient.invalidateQueries({ queryKey: ["eventVisitors"] });
+      if (selectedUser?.user?.id) {
+        lookupMutation.mutate(selectedUser.user.id);
       }
     },
     onError: (err: any) => {
@@ -165,84 +157,318 @@ export function WristbandsTab({
     },
   });
 
-  const handleSearchLost = () => {
-    if (!lostSearchCode.trim()) return;
-    lookupWristbandMutation.mutate(lostSearchCode.trim());
-  };
+  // スマホ用デジタルQR新規発行 API
+  const issueUserMutation = useMutation({
+    mutationFn: () => wristbandApi.issue(eventId),
+    onSuccess: (data) => {
+      setIssuedUser({ userId: data.userId, displayId: data.displayId });
+      toast.success("新規来場者アカウントを発行しました");
+      queryClient.invalidateQueries({ queryKey: ["eventVisitors"] });
+    },
+    onError: (err: any) => {
+      toast.error(err.message || "発行に失敗しました");
+    },
+  });
 
-  const handleSearchProfile = () => {
-    if (!profileSearchQuery.trim()) return;
-    searchProfileMutation.mutate(profileSearchQuery.trim());
-  };
-
-  const handleSelectUser = (result: any) => {
-    setLookupResult(result);
-    setLostSearchCode(result.user.id);
-    setIsDetailsModalOpen(true);
-  };
-
+  // 紛失ロックの簡易実行
   const handleReportLost = (wbId: string) => {
-    reportLostMutation.mutate(wbId);
+    if (!window.confirm("このリストバンドを紛失としてロックしますか？")) return;
+    updateWristbandMutation.mutate({ id: wbId, status: "lost" });
   };
 
-  const handleReissueWb = (userId: string) => {
-    if (!newWristbandId.trim()) return;
-    const parsedWbId = extractIdFromCode(newWristbandId);
-    registerWristbandMutation.mutate({ userId, wristbandId: parsedWbId });
+  const handleUnlinkWristband = (wbId: string) => {
+    if (!window.confirm("このリストバンドの紐付けを解除しますか？")) return;
+    updateWristbandMutation.mutate({ id: wbId, status: "revoked", userId: "" });
   };
 
   const handleScannerScan = (userId: string, wristbandId: string | null) => {
     const code = wristbandId || userId;
-    if (scannerTarget === "search") {
-      setLostSearchCode(code);
-      lookupWristbandMutation.mutate(code);
-    } else {
-      setNewWristbandId(code);
+    if (scannerTarget === "lookup") {
+      setLookupCode(code);
+      lookupMutation.mutate(code);
+    } else if (scannerTarget === "reissue") {
+      setReissueWristbandId(code);
+    } else if (scannerTarget === "search") {
+      setSearchInput(code);
+      setSearchQuery(code);
     }
   };
 
-  const handleUpdateWbStatus = (wbId: string, status: any) => {
-    updateWbMutation.mutate({ id: wbId, status });
+  const handleSearchSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setSearchQuery(searchInput.trim());
   };
 
-  const handleUnlinkWb = (wbId: string) => {
-    if (!window.confirm("このリストバンドの紐付けを解除しますか？")) return;
-    updateWbMutation.mutate({ id: wbId, status: "revoked", userId: "" });
+  const handleResetSearch = () => {
+    setSearchInput("");
+    setSearchQuery("");
+  };
+
+  const getVisitorLink = (userId: string) => {
+    const visitorBase = import.meta.env.VITE_VISITOR_URL || window.location.origin.replace("3000", "3001");
+    return `${visitorBase}/w/${userId}`;
+  };
+
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text);
+    toast.success("クリップボードにコピーしました");
   };
 
   return (
     <div className="space-y-6 font-mono text-foreground">
-      <div className="flex justify-between items-center border-b-thick border-border pb-3">
-        <h2 className="text-sm font-bold uppercase tracking-wider flex items-center gap-2">
-          <Lock className="h-4 w-4" />
-          リストバンド紛失のロック・再発行処理
-        </h2>
+      {/* 画面ヘッダー部 */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b-thick border-border pb-4">
+        <div>
+          <h2 className="text-sm font-bold uppercase tracking-wider flex items-center gap-2">
+            <IdCard className="h-4 w-4" />
+            来場者・リストバンド管理
+          </h2>
+          <p className="text-[10px] text-muted-foreground mt-1">
+            来場者アカウント情報の変更、紛失リストバンドのロック・再発行、スマホデジタルIDの発行などを一括管理します。
+          </p>
+        </div>
+        <div className="flex gap-2 shrink-0">
+          <Button
+            onClick={() => {
+              setLookupCode("");
+              setIsScanModalOpen(true);
+            }}
+            variant="outline"
+            className="border-thick border-border h-9 text-xs font-bold rounded-none shadow-none px-3"
+          >
+            <Camera className="h-4 w-4 mr-1.5" />
+            コード照会 / QRスキャン
+          </Button>
+          <Button
+            onClick={() => {
+              setIssuedUser(null);
+              setIsIssueModalOpen(true);
+            }}
+            className="border-thick border-primary bg-primary text-primary-foreground hover:bg-background hover:text-foreground h-9 text-xs font-bold rounded-none shadow-none px-3"
+          >
+            <Plus className="h-4 w-4 mr-1" />
+            スマホ年来場者発行
+          </Button>
+        </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {/* 照会カード */}
-        <Card className="rounded-none bg-background shadow-none">
-          <CardHeader className="p-4 pb-2 border-b-thin border-border bg-muted/20">
-            <CardTitle className="text-xs uppercase font-bold">[登録情報スキャン・照会]</CardTitle>
-            <CardDescription className="text-[10px]">紛失したリストバンドID、または来場者ユーザーIDを完全一致で照会します。</CardDescription>
-          </CardHeader>
-          <CardContent className="p-4 pt-4">
+      {/* 検索バー */}
+      <Card className="rounded-none bg-background shadow-none border-thick border-border">
+        <CardContent className="p-4">
+          <form onSubmit={handleSearchSubmit} className="flex gap-2">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="ニックネーム、呼出ID（数字のみ）、または誕生日（YYYY-MM-DD）で検索..."
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
+                className="pl-9 border-thick border-border rounded-none focus-visible:ring-0 h-10 text-xs bg-background font-mono w-full"
+              />
+            </div>
+            <Button
+              type="submit"
+              disabled={isLoading}
+              className="border-thick border-primary bg-primary text-primary-foreground hover:bg-background hover:text-foreground h-10 text-xs font-bold rounded-none shadow-none px-5"
+            >
+              検索
+            </Button>
+            {(searchQuery || searchInput) && (
+              <Button
+                type="button"
+                onClick={handleResetSearch}
+                variant="outline"
+                className="border-thick border-border h-10 text-xs font-bold rounded-none shadow-none px-3"
+              >
+                クリア
+              </Button>
+            )}
+            <Button
+              type="button"
+              onClick={() => refetch()}
+              variant="outline"
+              disabled={isLoading}
+              className="border-thick border-border h-10 px-3 rounded-none"
+            >
+              <RefreshCw className={`h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />
+            </Button>
+          </form>
+        </CardContent>
+      </Card>
+
+      {/* 来場者一覧テーブル */}
+      <Card className="rounded-none bg-background shadow-none border-thick border-border">
+        <CardHeader className="p-4 pb-2 border-b-thin border-border bg-muted/20 flex flex-row items-center justify-between">
+          <div>
+            <CardTitle className="text-xs uppercase font-bold">[登録来場者一覧]</CardTitle>
+            <CardDescription className="text-[10px]">
+              {searchQuery ? `検索条件「${searchQuery}」の検索結果` : "最近登録された来場者（最大50件）"}
+            </CardDescription>
+          </div>
+          <Badge variant="default" className="border-thick border-border font-bold text-[10px] rounded-none">
+            {visitors.length} 件
+          </Badge>
+        </CardHeader>
+        <CardContent className="p-0">
+          <div className="overflow-x-auto">
+            {isLoading ? (
+              <div className="p-8 text-center text-xs text-muted-foreground flex items-center justify-center gap-2">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                データを読み込み中...
+              </div>
+            ) : visitors.length === 0 ? (
+              <div className="p-8 text-center text-xs text-muted-foreground">
+                該当する来場者が見つかりません。
+              </div>
+            ) : (
+              <table className="w-full text-xs text-left border-collapse">
+                <thead>
+                  <tr className="border-b-thin border-border bg-muted/10 font-bold font-mono">
+                    <th className="p-3">呼出ID</th>
+                    <th className="p-3">ニックネーム</th>
+                    <th className="p-3">誕生日</th>
+                    <th className="p-3">アカウント状態</th>
+                    <th className="p-3">紐付くバンドID</th>
+                    <th className="p-3">バンド状態</th>
+                    <th className="p-3 text-right">操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {visitors.map((res: any) => (
+                    <tr key={res.user.id} className="border-b-thin border-border hover:bg-muted/5 font-mono">
+                      <td className="p-3 font-bold">#{res.user.displayId}</td>
+                      <td className="p-3">{res.user.nickname || <span className="text-muted-foreground text-[10px]">未登録</span>}</td>
+                      <td className="p-3">{res.user.birthday || <span className="text-muted-foreground text-[10px]">未登録</span>}</td>
+                      <td className="p-3">
+                        <Badge
+                          variant="default"
+                          className={`rounded-none text-[8px] font-mono border-thick uppercase ${
+                            res.user.status === "available"
+                              ? "bg-success/10 text-success border-success"
+                              : "bg-error/10 text-error border-error"
+                          }`}
+                        >
+                          {res.user.status === "available" ? "利用可能" : "BAN"}
+                        </Badge>
+                      </td>
+                      <td className="p-3 font-mono text-[11px] select-all">{res.wristband?.id || <span className="text-muted-foreground text-[10px]">なし</span>}</td>
+                      <td className="p-3">
+                        {res.wristband ? (
+                          <Badge
+                            variant="default"
+                            className={`rounded-none text-[8px] font-mono border-thick border-border uppercase ${
+                              res.wristband.status === "active"
+                                ? "bg-success/10 text-success border-success"
+                                : res.wristband.status === "smartphone"
+                                ? "bg-info/10 text-info border-info"
+                                : "bg-error/10 text-error border-error"
+                            }`}
+                          >
+                            {res.wristband.status === "active"
+                              ? "有効"
+                              : res.wristband.status === "smartphone"
+                              ? "スマホ用"
+                              : res.wristband.status === "lost"
+                              ? "紛失"
+                              : res.wristband.status === "replaced"
+                              ? "再発行済"
+                              : "無効"}
+                          </Badge>
+                        ) : (
+                          <span className="text-muted-foreground text-[10px]">未紐付け</span>
+                        )}
+                      </td>
+                      <td className="p-3 text-right flex justify-end gap-1.5">
+                        {res.wristband && (res.wristband.status === "active" || res.wristband.status === "smartphone") && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handleReportLost(res.wristband.id)}
+                            className="h-7 text-[10px] rounded-none border-thick border-border bg-background hover:bg-destructive hover:text-white"
+                          >
+                            ロック
+                          </Button>
+                        )}
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => {
+                            setSelectedUser(res);
+                            setIsDetailsModalOpen(true);
+                          }}
+                          className="h-7 text-[10px] rounded-none border-thick border-border bg-background hover:bg-primary hover:text-primary-foreground"
+                        >
+                          詳細・編集
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* セルフ登録用QRの出力エリア */}
+      <Card className="rounded-none bg-background shadow-none border-thick border-border">
+        <CardHeader className="p-4 pb-2 border-b-thin border-border bg-muted/20">
+          <CardTitle className="text-xs uppercase font-bold flex items-center gap-1.5">
+            <QrCode className="h-4 w-4" />
+            [来場者向け・マイデジタルQR発行QRコード]
+          </CardTitle>
+          <CardDescription className="text-[10px]">来場者が自身のスマートフォンでスキャンし、マイデジタルQRをセルフ発行するための受付用QRです。</CardDescription>
+        </CardHeader>
+        <CardContent className="p-6 flex flex-col md:flex-row items-center gap-6">
+          <div className="border-thick border-border p-3 bg-white shrink-0">
+            <QRCodeSVG
+              value={getVisitorLink("issue-self-onboard")}
+              size={150}
+              level="M"
+            />
+          </div>
+          <div className="space-y-2 text-xs font-mono">
+            <p className="font-bold underline text-primary">セルフ登録用URL (デジタル受付):</p>
+            <p className="bg-muted p-2 select-all break-all border border-border">
+              {`${window.location.origin}/visitor/mypage?eventId=${eventId}&action=issue`}
+            </p>
+            <div className="text-[10px] text-muted-foreground leading-normal space-y-1 pt-2 font-sans">
+              <p>1. 受付にこのQRコードを掲示するか、URLを来場者に共有してください。</p>
+              <p>2. 来場者がスキャンすると、自動的に「スマホデジタルID（リストバンド代替）」が新規発行され、マイページで支払いやスタンプラリーが使えるようになります。</p>
+              <p>※ 物理リストバンドを使わない「スマホ単体イベント」では、このQRだけで受付を完全セルフ化できます。</p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* ==========================================
+          1. 照会・スキャンモーダル
+         ========================================== */}
+      <Modal
+        isOpen={isScanModalOpen}
+        title="[登録情報スキャン・照会]"
+        subtitle="リストバンド物理ID（QRコード値）またはユーザーIDから、該当の来場者を照会します。"
+        onClose={() => setIsScanModalOpen(false)}
+        maxWidth="md"
+      >
+        <div className="space-y-4">
+          <div className="space-y-2">
+            <label className="block text-[10px] uppercase font-bold text-muted-foreground">ID または QRコード値</label>
             <div className="flex gap-2">
               <Input
-                placeholder="例: wb_test_001 または usr_xxxx"
-                value={lostSearchCode}
-                onChange={(e) => setLostSearchCode(e.target.value)}
+                placeholder="例: wb_test_xxx または usr_xxxx"
+                value={lookupCode}
+                onChange={(e) => setLookupCode(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter") {
                     e.preventDefault();
-                    handleSearchLost();
+                    if (lookupCode.trim()) lookupMutation.mutate(lookupCode.trim());
                   }
                 }}
                 className="border-thick border-border rounded-none focus-visible:ring-0 h-10 text-xs bg-background font-mono flex-1"
               />
               <Button
                 onClick={() => {
-                  setScannerTarget("search");
+                  setScannerTarget("lookup");
                   setIsScannerOpen(true);
                 }}
                 variant="outline"
@@ -250,144 +476,153 @@ export function WristbandsTab({
               >
                 <Camera className="h-4 w-4" />
               </Button>
+            </div>
+          </div>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button
+              variant="outline"
+              onClick={() => setIsScanModalOpen(false)}
+              className="border-thick border-border h-10 text-xs font-bold rounded-none shadow-none px-4"
+            >
+              キャンセル
+            </Button>
+            <Button
+              onClick={() => lookupMutation.mutate(lookupCode.trim())}
+              disabled={!lookupCode.trim() || lookupMutation.isPending}
+              className="border-thick border-primary bg-primary text-primary-foreground hover:bg-background hover:text-foreground h-10 text-xs font-bold rounded-none shadow-none px-4 flex items-center gap-1"
+            >
+              {lookupMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Search className="h-3.5 w-3.5" />}
+              照会する
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* ==========================================
+          2. スマホ用来場者発行モーダル (IssueTabの統合)
+         ========================================== */}
+      <Modal
+        isOpen={isIssueModalOpen}
+        title="[スマホ用来場者QR発行]"
+        subtitle="物理リストバンドを使用しない、スマートフォン単体用の新規アカウントを即時発行します。"
+        onClose={() => setIsIssueModalOpen(false)}
+        maxWidth="md"
+      >
+        <div className="space-y-4">
+          {!issuedUser ? (
+            <div className="text-center py-6 space-y-4 bg-muted/10 border border-dashed border-border p-4">
+              <p className="text-[10px] text-muted-foreground leading-normal max-w-xs mx-auto">
+                「アカウントを発行する」ボタンを押すと、このイベント用のチェックインQRコードがその場で生成されます。
+              </p>
               <Button
-                onClick={handleSearchLost}
-                disabled={!lostSearchCode.trim() || lookupWristbandMutation.isPending}
-                className="border-thick border-primary bg-primary text-primary-foreground hover:bg-background hover:text-foreground h-10 text-xs font-bold rounded-none shadow-none px-4"
+                onClick={() => issueUserMutation.mutate()}
+                disabled={issueUserMutation.isPending}
+                className="border-thick border-primary bg-primary text-primary-foreground hover:bg-background hover:text-foreground h-11 text-xs font-black uppercase rounded-none shadow-none px-6 flex items-center gap-1.5 mx-auto"
               >
-                <Search className="h-4 w-4 mr-1" />
-                照会
+                {issueUserMutation.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Smartphone className="h-4 w-4" />
+                )}
+                アカウントを発行する
               </Button>
             </div>
-          </CardContent>
-        </Card>
-
-        {/* プロフィール検索カード */}
-        <Card className="rounded-none bg-background shadow-none">
-          <CardHeader className="p-4 pb-2 border-b-thin border-border bg-muted/20">
-            <CardTitle className="text-xs uppercase font-bold">[来場者プロフィール検索]</CardTitle>
-            <CardDescription className="text-[10px]">ニックネーム、呼出ID（#番号）、または誕生日から来場者を検索します。</CardDescription>
-          </CardHeader>
-          <CardContent className="p-4 pt-4">
-            <div className="flex gap-2">
-              <Input
-                placeholder="例: たろう / 123 / YYYY-MM-DD"
-                value={profileSearchQuery}
-                onChange={(e) => setProfileSearchQuery(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    handleSearchProfile();
-                  }
-                }}
-                className="border-thick border-border rounded-none focus-visible:ring-0 h-10 text-xs bg-background font-mono flex-1"
-              />
-              <Button
-                onClick={handleSearchProfile}
-                disabled={!profileSearchQuery.trim() || searchProfileMutation.isPending}
-                className="border-thick border-primary bg-primary text-primary-foreground hover:bg-background hover:text-foreground h-10 text-xs font-bold rounded-none shadow-none px-4"
-              >
-                <Users className="h-4 w-4 mr-1" />
-                検索
-              </Button>
+          ) : (
+            <div className="space-y-4">
+              <div className="bg-background p-4 border-thick border-border max-w-[200px] mx-auto text-center bg-white">
+                <QRCodeSVG
+                  value={getVisitorLink(issuedUser.userId)}
+                  size={150}
+                  level="M"
+                />
+              </div>
+              <div className="space-y-2 text-xs">
+                <div className="bg-muted p-2 border border-border space-y-1 font-mono text-[10px]">
+                  <p><strong>呼出ID:</strong> #{issuedUser.displayId}</p>
+                  <p><strong>ユーザーID:</strong> {issuedUser.userId}</p>
+                  <p className="break-all"><strong>チェックインURL:</strong> {getVisitorLink(issuedUser.userId)}</p>
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    onClick={() => copyToClipboard(getVisitorLink(issuedUser.userId))}
+                    variant="outline"
+                    className="flex-1 border-thick border-border h-9 text-[10px] font-bold rounded-none"
+                  >
+                    <Copy className="h-3 w-3 mr-1" /> URLをコピー
+                  </Button>
+                  <Button
+                    onClick={() => {
+                      // 発行したユーザーの詳細編集を開く
+                      lookupMutation.mutate(issuedUser.userId);
+                      setIsIssueModalOpen(false);
+                    }}
+                    className="flex-1 border-thick border-primary bg-primary text-primary-foreground hover:bg-background hover:text-foreground h-9 text-[10px] font-bold rounded-none"
+                  >
+                    詳細編集を開く <ChevronRight className="h-3 w-3 ml-0.5" />
+                  </Button>
+                </div>
+                <p className="text-[9px] text-muted-foreground text-center pt-2">
+                  ※来場者が自身のスマートフォンでこのQRコードを読み取ると、マイページが起動しオンボードが始まります。
+                </p>
+              </div>
             </div>
-          </CardContent>
-        </Card>
-      </div>
+          )}
+          <div className="flex justify-end pt-2 border-t border-border">
+            <Button
+              variant="outline"
+              onClick={() => setIsIssueModalOpen(false)}
+              className="border-thick border-border h-9 text-xs font-bold rounded-none shadow-none px-4"
+            >
+              閉じる
+            </Button>
+          </div>
+        </div>
+      </Modal>
 
-      {/* 検索結果一覧 */}
-      {searchResults.length > 0 && (
-        <Card className="rounded-none bg-background shadow-none border-thick border-border">
-          <CardHeader className="p-4 pb-2 border-b-thin border-border bg-muted/20">
-            <CardTitle className="text-xs uppercase font-bold">[検索結果一覧]</CardTitle>
-          </CardHeader>
-          <CardContent className="p-0">
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs text-left border-collapse">
-                <thead>
-                  <tr className="border-b-thin border-border bg-muted/10 font-bold">
-                    <th className="p-2">呼出ID</th>
-                    <th className="p-2">ニックネーム</th>
-                    <th className="p-2">誕生日</th>
-                    <th className="p-2">紐付くバンド</th>
-                    <th className="p-2">状態</th>
-                    <th className="p-2 text-right">操作</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {searchResults.map((res) => (
-                    <tr key={res.user.id} className="border-b-thin border-border hover:bg-muted/5">
-                      <td className="p-2">#{res.user.displayId}</td>
-                      <td className="p-2">{res.user.nickname || "-"}</td>
-                      <td className="p-2">{res.user.birthday || "-"}</td>
-                      <td className="p-2">{res.wristband?.id || "なし"}</td>
-                      <td className="p-2">
-                        {res.wristband ? (
-                          <Badge variant="default" className={`rounded-none text-[8px] font-mono border-thick border-border uppercase ${
-                            res.wristband.status === "active"
-                              ? "bg-success/10 text-success border-success"
-                              : res.wristband.status === "smartphone"
-                              ? "bg-info/10 text-info border-info"
-                              : "bg-error/10 text-error border-error"
-                          }`}>
-                            {res.wristband.status}
-                          </Badge>
-                        ) : (
-                          <span className="text-muted-foreground">未紐付け</span>
-                        )}
-                      </td>
-                      <td className="p-2 text-right">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => handleSelectUser(res)}
-                          className="h-7 text-[10px] rounded-none border-thick border-border bg-background hover:bg-primary hover:text-primary-foreground"
-                        >
-                          選択する
-                        </Button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* 来場者詳細・編集ポップアップモーダル */}
+      {/* ==========================================
+          3. 来場者・リストバンド詳細編集モーダル
+         ========================================== */}
       <Modal
         isOpen={isDetailsModalOpen}
         title="[来場者・リストバンド詳細編集]"
-        subtitle="来場者のプロフィール情報とリストバンドのステータス変更・再発行を行います。"
+        subtitle="来場者の基本プロフィール情報、および紐付く物理リストバンドの状態変更・再発行・紐付け解除を行います。"
         onClose={() => {
           setIsDetailsModalOpen(false);
-          setLookupResult(null);
+          setSelectedUser(null);
         }}
         maxWidth="xl"
       >
-        {lookupResult && (
+        {selectedUser && (
           <div className="space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              
-              {/* 左カラム: 来場者アカウント情報 */}
+              {/* 左カラム: アカウントプロフィール情報 */}
               <div className="space-y-4 border-b md:border-b-0 md:border-r border-border pb-6 md:pb-0 md:pr-6">
                 <h3 className="font-black text-xs uppercase tracking-wider text-primary border-b border-border pb-1">
-                  [アカウント情報変更]
+                  [アカウントプロフィール編集]
                 </h3>
-                
+
                 <div className="space-y-3 text-xs">
                   <div>
-                    <label className="block text-[10px] uppercase font-bold text-muted-foreground mb-1">ユーザーID (固定)</label>
-                    <Input
-                      value={lookupResult.user.id}
-                      disabled
-                      className="bg-muted border-thick border-border rounded-none h-8 text-xs font-mono select-all"
-                    />
+                    <label className="block text-[10px] uppercase font-bold text-muted-foreground mb-1">ユーザーID (システムID)</label>
+                    <div className="flex gap-1.5">
+                      <Input
+                        value={selectedUser.user.id}
+                        disabled
+                        className="bg-muted border-thick border-border rounded-none h-8 text-xs font-mono select-all flex-1"
+                      />
+                      <Button
+                        onClick={() => copyToClipboard(selectedUser.user.id)}
+                        variant="outline"
+                        size="sm"
+                        className="border-thick border-border h-8 px-2 rounded-none"
+                      >
+                        <Copy className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
                   </div>
-                  
+
                   <div>
-                    <label className="block text-[10px] uppercase font-bold text-muted-foreground mb-1">表示用呼出ID (#)</label>
+                    <label className="block text-[10px] uppercase font-bold text-muted-foreground mb-1">表示用呼出ID (※重複不可)</label>
                     <Input
                       type="number"
                       value={editDisplayId}
@@ -401,7 +636,7 @@ export function WristbandsTab({
                     <Input
                       value={editNickname}
                       onChange={(e) => setEditNickname(e.target.value)}
-                      placeholder="未登録"
+                      placeholder="ニックネーム未入力"
                       className="border-thick border-border rounded-none h-8 text-xs font-mono"
                     />
                   </div>
@@ -417,14 +652,14 @@ export function WristbandsTab({
                   </div>
 
                   <div>
-                    <label className="block text-[10px] uppercase font-bold text-muted-foreground mb-1">アカウント状態</label>
+                    <label className="block text-[10px] uppercase font-bold text-muted-foreground mb-1">アカウント制限状態</label>
                     <select
                       value={editUserStatus}
                       onChange={(e) => setEditUserStatus(e.target.value)}
                       className="w-full border-thick border-border bg-background p-1.5 text-xs font-bold font-mono rounded-none"
                     >
                       <option value="available">利用可能 (Available)</option>
-                      <option value="banned">BAN中 (Banned)</option>
+                      <option value="banned">アクセス禁止 (Banned)</option>
                     </select>
                   </div>
                 </div>
@@ -436,7 +671,7 @@ export function WristbandsTab({
                       return;
                     }
                     updateProfileMutation.mutate({
-                      userId: lookupResult.user.id,
+                      userId: selectedUser.user.id,
                       nickname: editNickname.trim() || null,
                       birthday: editBirthday.trim() || null,
                       displayId: Number(editDisplayId),
@@ -444,51 +679,73 @@ export function WristbandsTab({
                     });
                   }}
                   disabled={updateProfileMutation.isPending}
-                  className="w-full border-thick border-primary bg-primary text-primary-foreground hover:bg-background hover:text-foreground h-9 text-xs font-bold rounded-none shadow-none mt-4"
+                  className="w-full border-thick border-primary bg-primary text-primary-foreground hover:bg-background hover:text-foreground h-9 text-xs font-bold rounded-none shadow-none mt-4 flex items-center justify-center gap-1"
                 >
-                  プロフィール保存
+                  {updateProfileMutation.isPending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                  プロフィール情報を保存
                 </Button>
               </div>
 
-              {/* 右カラム: リストバンド情報＆操作 */}
+              {/* 右カラム: リストバンド管理 */}
               <div className="space-y-4">
                 <h3 className="font-black text-xs uppercase tracking-wider text-primary border-b border-border pb-1">
-                  [紐付くリストバンド情報]
+                  [紐付く物理リストバンド管理]
                 </h3>
 
-                {lookupResult.wristband ? (
+                {selectedUser.wristband ? (
                   <div className="space-y-4 text-xs">
                     <div className="bg-muted/20 p-3 border border-border space-y-2 font-mono">
-                      <p>バンドID: <span className="font-bold select-all">{lookupResult.wristband.id}</span></p>
+                      <p className="flex justify-between items-center">
+                        <span>バンドID: <span className="font-bold select-all">{selectedUser.wristband.id}</span></span>
+                        <Button
+                          onClick={() => copyToClipboard(selectedUser.wristband.id)}
+                          variant="ghost"
+                          size="sm"
+                          className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground"
+                        >
+                          <Copy className="h-3 w-3" />
+                        </Button>
+                      </p>
                       <p className="flex items-center gap-2">
                         ステータス:
-                        <Badge variant="default" className={`rounded-none text-[8px] font-mono border-thick border-border uppercase ${
-                          lookupResult.wristband.status === "active"
-                            ? "bg-success/10 text-success border-success"
-                            : lookupResult.wristband.status === "smartphone"
-                            ? "bg-info/10 text-info border-info"
-                            : "bg-error/10 text-error border-error"
-                        }`}>
-                          {lookupResult.wristband.status}
+                        <Badge
+                          variant="default"
+                          className={`rounded-none text-[8px] font-mono border-thick border-border uppercase ${
+                            selectedUser.wristband.status === "active"
+                              ? "bg-success/10 text-success border-success"
+                              : selectedUser.wristband.status === "smartphone"
+                              ? "bg-info/10 text-info border-info"
+                              : "bg-error/10 text-error border-error"
+                          }`}
+                        >
+                          {selectedUser.wristband.status === "active"
+                            ? "有効 (Active)"
+                            : selectedUser.wristband.status === "smartphone"
+                            ? "スマホ専用 (Smartphone)"
+                            : selectedUser.wristband.status === "lost"
+                            ? "紛失 (Lost)"
+                            : selectedUser.wristband.status === "replaced"
+                            ? "再発行済 (Replaced)"
+                            : "無効化 (Revoked)"}
                         </Badge>
                       </p>
                       <p className="text-[10px] text-muted-foreground">
-                        登録日時: {new Date(lookupResult.wristband.assignedAt).toLocaleString("ja-JP")}
+                        割当日時: {new Date(selectedUser.wristband.assignedAt).toLocaleString("ja-JP")}
                       </p>
                     </div>
 
-                    <div className="flex flex-col gap-2">
+                    <div className="flex flex-col gap-2 border-t border-border pt-3">
                       <div className="flex items-center justify-between gap-2">
-                        <span className="font-bold text-[10px] uppercase text-muted-foreground">状態変更:</span>
+                        <span className="font-bold text-[10px] uppercase text-muted-foreground">ステータス手動変更:</span>
                         <select
-                          value={lookupResult.wristband.status}
-                          onChange={(e) => handleUpdateWbStatus(lookupResult.wristband.id, e.target.value)}
-                          disabled={updateWbMutation.isPending}
+                          value={selectedUser.wristband.status}
+                          onChange={(e) => updateWristbandMutation.mutate({ id: selectedUser.wristband.id, status: e.target.value })}
+                          disabled={updateWristbandMutation.isPending}
                           className="border-thick border-border bg-background p-1.5 text-xs font-bold font-mono rounded-none"
                         >
                           <option value="active">有効 (Active)</option>
                           <option value="smartphone">スマホ用 (Smartphone)</option>
-                          <option value="lost">紛失 (Lost)</option>
+                          <option value="lost">紛失 (Lost / ロック)</option>
                           <option value="replaced">再発行済 (Replaced)</option>
                           <option value="revoked">無効化 (Revoked)</option>
                         </select>
@@ -497,16 +754,16 @@ export function WristbandsTab({
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => handleUnlinkWb(lookupResult.wristband.id)}
-                        disabled={updateWbMutation.isPending}
-                        className="w-full rounded-none text-[10px] font-bold h-8 uppercase shadow-none border-thick border-border hover:bg-destructive hover:text-white"
+                        onClick={() => handleUnlinkWristband(selectedUser.wristband.id)}
+                        disabled={updateWristbandMutation.isPending}
+                        className="w-full rounded-none text-[10px] font-bold h-8 uppercase shadow-none border-thick border-border hover:bg-destructive hover:text-white mt-1"
                       >
                         紐付け解除 (Unlink)
                       </Button>
                     </div>
                   </div>
                 ) : (
-                  <div className="bg-muted/10 p-4 text-center border border-dashed border-border text-muted-foreground text-xs">
+                  <div className="bg-muted/10 p-4 text-center border border-dashed border-border text-muted-foreground text-xs font-mono">
                     現在、有効なリストバンドは紐付いていません
                   </div>
                 )}
@@ -516,18 +773,21 @@ export function WristbandsTab({
                   <h4 className="font-bold uppercase text-[10px] text-muted-foreground">
                     [物理リストバンドの新規紐付け・再発行]
                   </h4>
-                  <p className="text-[10px] text-muted-foreground leading-normal">
-                    新しい物理リストバンドのQR/コード値を入力して登録します（古いリストバンドは自動的に無効化されます）。
+                  <p className="text-[10px] text-muted-foreground leading-normal font-sans">
+                    新しいリストバンドのQR/コード値を入力して登録します。（古いリストバンドは自動的に無効化されロックされます）
                   </p>
                   <div className="flex gap-2">
                     <Input
-                      placeholder="新しいリストバンドIDを入力"
-                      value={newWristbandId}
-                      onChange={(e) => setNewWristbandId(e.target.value)}
+                      placeholder="新規リストバンドIDを入力"
+                      value={reissueWristbandId}
+                      onChange={(e) => setReissueWristbandId(e.target.value)}
                       onKeyDown={(e) => {
                         if (e.key === "Enter") {
                           e.preventDefault();
-                          handleReissueWb(lookupResult.user.id);
+                          if (reissueWristbandId.trim()) {
+                            const parsed = extractIdFromCode(reissueWristbandId);
+                            registerWristbandMutation.mutate({ userId: selectedUser.user.id, wristbandId: parsed });
+                          }
                         }
                       }}
                       className="border-thick border-border rounded-none focus-visible:ring-0 h-9 text-xs bg-background font-mono flex-1"
@@ -543,56 +803,33 @@ export function WristbandsTab({
                       <Camera className="h-4 w-4" />
                     </Button>
                     <Button
-                      onClick={() => handleReissueWb(lookupResult.user.id)}
-                      disabled={!newWristbandId.trim() || registerWristbandMutation.isPending}
+                      onClick={() => {
+                        const parsed = extractIdFromCode(reissueWristbandId);
+                        registerWristbandMutation.mutate({ userId: selectedUser.user.id, wristbandId: parsed });
+                      }}
+                      disabled={!reissueWristbandId.trim() || registerWristbandMutation.isPending}
                       className="border-thick border-border bg-background text-foreground hover:bg-primary hover:text-primary-foreground h-9 text-xs font-bold rounded-none shadow-none px-3"
                     >
-                      <RefreshCw className="h-3.5 w-3.5 mr-1 animate-spin-hover" />
                       登録
                     </Button>
                   </div>
                 </div>
               </div>
-
+            </div>
+            <div className="flex justify-end pt-4 border-t border-border">
+              <Button
+                onClick={() => {
+                  setIsDetailsModalOpen(false);
+                  setSelectedUser(null);
+                }}
+                className="border-thick border-border bg-background text-foreground hover:bg-primary hover:text-primary-foreground h-9 text-xs font-bold rounded-none shadow-none px-5"
+              >
+                閉じる
+              </Button>
             </div>
           </div>
         )}
       </Modal>
-
-      {/* マイデジタルQRセルフ発行用QRの出力エリア */}
-      <Card className="rounded-none bg-background shadow-none border-thick border-border">
-        <CardHeader className="p-4 pb-2 border-b-thin border-border bg-muted/20">
-          <CardTitle className="text-xs uppercase font-bold flex items-center gap-1.5">
-            <QrCode className="h-4 w-4" />
-            [来場者向け・マイデジタルQR発行QRコード]
-          </CardTitle>
-          <CardDescription className="text-[10px]">来場者が自身のスマートフォンでスキャンし、マイデジタルQRをセルフ発行するための受付用QRです。</CardDescription>
-        </CardHeader>
-        <CardContent className="p-6 flex flex-col md:flex-row items-center gap-6">
-          <div className="border-thick border-border p-3 bg-white">
-            <img
-              src={`https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(
-                `${window.location.origin}/visitor/mypage?eventId=${eventId}&action=issue`
-              )}`}
-              alt="My Digital QR Issuance QR"
-              width={180}
-              height={180}
-              className="block"
-            />
-          </div>
-          <div className="space-y-2 text-xs font-mono">
-            <p className="font-bold underline text-primary">セルフ登録URL:</p>
-            <p className="bg-muted p-2 select-all break-all border border-border">
-              {`${window.location.origin}/visitor/mypage?eventId=${eventId}&action=issue`}
-            </p>
-            <div className="text-[10px] text-muted-foreground leading-normal space-y-1 pt-2">
-              <p>1. 受付にこのQRコードを掲示するか、URLを来場者に共有してください。</p>
-              <p>2. 来場者がスキャンすると、自動的に「スマホデジタルID（リストバンド代替）」が新規発行され、マイページで支払いやスタンプラリーが使えるようになります。</p>
-              <p>※ 物理リストバンドを使わない「スマホ単体イベント」では、このQRだけで受付を完全セルフ化できます。</p>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
 
       {/* カメラQRスキャナーモーダル */}
       <QrScannerModal

@@ -20,7 +20,6 @@ import { SalesTab } from "@/components/event/SalesTab";
 import { StaffTab } from "@/components/event/StaffTab";
 import { SettingsTab } from "@/components/event/SettingsTab";
 import { WristbandsTab } from "@/components/event/WristbandsTab";
-import { IssueTab } from "@/components/event/IssueTab";
 import { ExportTab } from "@/components/event/ExportTab";
 
 export default function EventDashboard() {
@@ -198,13 +197,6 @@ export default function EventDashboard() {
           {/* TAB 5: リストバンド紛失処理 */}
           {activeTab === "wristbands" && (
             <WristbandsTab
-              eventId={eventId}
-            />
-          )}
-
-          {/* TAB 6: スマホリストバンド発行 */}
-          {activeTab === "issue" && (
-            <IssueTab
               eventId={eventId}
             />
           )}

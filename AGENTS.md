@@ -62,6 +62,7 @@
 - generated files を手編集しない。
 - 2026-07-13: サークル統計・分析画面 (`/circle/dashboard/analytics`) を追加。左メニュー (`DashboardLayout.tsx` の `circleMenuItems`) とダッシュボードトップ (`Index.tsx` の `rawItems`) の両方に含めていることを維持すること。
 - 2026-07-13: イベントおよびサークルそれぞれにデータエクスポート画面を追加した。来場者一覧エクスポート用のAPI `GET /api/festivals/:id/visitors` を追加している。各データエクスポート画面は左メニューおよびダッシュボードトップに正しく含めること。
+- 2026-07-13: リストバンド紛失処理を「来場者・リストバンド管理」へ昇格。UIをポップアップモーダルベースに刷新し、ニックネームやアカウント制限を含む全データ編集に対応。スマホ用来場者発行機能も本画面へ統合した。
 
 ## Directory map
 - `docs`: 設計資料 (`docs/reference` は旧 FesOrder のドメイン資料)
