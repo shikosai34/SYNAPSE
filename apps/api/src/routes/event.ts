@@ -12,6 +12,7 @@ import {
   review,
   circleVisit,
   menu,
+  notification,
 } from "@fesflow/db";
 import { eq, and, inArray, isNull } from "drizzle-orm";
 import { ulid } from "ulidx";
@@ -121,6 +122,72 @@ eventRoutes.get("/:id/orders/live", async (c) => {
 
   return c.json(rows);
 });
+
+// イベント内スタッフへの一斉アナウンス (2026-07-12)
+// イベント配下の全メンバー (イベントスタッフ + 全サークルのスタッフ) に通知を作成する。
+// スタッフは既存の通知センター(ヘッダーのベル)で受け取る。event_manager(member:write) 権限。
+eventRoutes.post(
+  "/:id/announce",
+  zBody(
+    z.object({
+      title: z.string().min(1, "タイトルは必須です").max(120),
+      message: z.string().min(1, "本文は必須です").max(2000),
+    })
+  ),
+  async (c) => {
+    const db = c.get("db");
+    const eventId = c.req.param("id");
+    if (!(await hasPermission(c, null, "member:write", eventId))) {
+      apiError("FORBIDDEN", "このイベントでアナウンスする権限がありません");
+    }
+    const input = c.req.valid("json");
+
+    const events = await db.select().from(event).where(eq(event.id, eventId));
+    if (events.length === 0) apiError("NOT_FOUND", "イベントが見つかりません");
+    const eventName = events[0]!.eventName;
+
+    // 配下サークル
+    const circles = await db
+      .select({ id: circle.id })
+      .from(circle)
+      .where(and(eq(circle.eventId, eventId), isNull(circle.deletedAt)));
+    const circleIds = circles.map((c2) => c2.id);
+
+    // イベント直属 + 配下サークルの有効メンバーを集める (drizzle の or を避け2クエリ統合)。
+    const eventMembers = await db
+      .select({ userEmail: membership.userEmail })
+      .from(membership)
+      .where(and(eq(membership.eventId, eventId), eq(membership.isActive, true)));
+    const circleMembers = circleIds.length
+      ? await db
+          .select({ userEmail: membership.userEmail })
+          .from(membership)
+          .where(and(inArray(membership.circleId, circleIds), eq(membership.isActive, true)))
+      : [];
+
+    const emails = new Set<string>();
+    for (const m of [...eventMembers, ...circleMembers]) {
+      if (m.userEmail) emails.add(m.userEmail.toLowerCase());
+    }
+
+    let sent = 0;
+    for (const email of emails) {
+      await db.insert(notification).values({
+        id: ulid(),
+        userEmail: email,
+        title: input.title,
+        message: input.message,
+        type: "announcement",
+        status: "unread",
+        eventName,
+        createdAt: new Date(),
+      });
+      sent += 1;
+    }
+
+    return c.json({ sent });
+  }
+);
 
 // イベント横断の在庫/売り切れ一覧 (2026-07-12)
 // 全サークルのメニューを在庫状況付きで返す。フロントが売り切れ/在庫僅少を強調表示する。

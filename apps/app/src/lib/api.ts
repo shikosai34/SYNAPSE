@@ -86,6 +86,9 @@ export const eventApi = {
   liveOrders: (id: string) => fetchApi<LiveOrder[]>(`/api/festivals/${id}/orders/live`),
   // 在庫/売り切れ一覧 (全サークル横断)。event_manager (stock:read) 権限が必要。
   inventory: (id: string) => fetchApi<InventoryItem[]>(`/api/festivals/${id}/inventory`),
+  // イベント内スタッフへの一斉アナウンス。event_manager (member:write) 権限が必要。
+  announce: (id: string, data: { title: string; message: string }) =>
+    fetchApi<{ sent: number }>(`/api/festivals/${id}/announce`, { method: "POST", body: data }),
   create: (data: CreateEventInput) =>
     fetchApi<{ id: string }>("/api/festivals", { method: "POST", body: data }),
   updateTheme: (id: string, data: EventTheme) =>
