@@ -91,7 +91,8 @@ async function nextDisplayId(db: DB, eventId: string): Promise<number> {
 }
 
 // コード (リストバンドID、ユーザーID) によるユーザー照会
-wristbandRoutes.get("/lookup/:code", async (c) => {
+// 2026-07-13: URLエンコードされたスラッシュを含むコードに対応するため、正規表現でスラッシュを含む全文字列をキャッチできるようにする
+wristbandRoutes.get("/lookup/:code{.++}", async (c) => {
   const db = c.get("db");
   let code = c.req.param("code");
 
@@ -99,6 +100,12 @@ wristbandRoutes.get("/lookup/:code", async (c) => {
   const urlMatch = code.match(/\/w\/([a-zA-Z0-9_\-]+)/);
   if (urlMatch && urlMatch[1]) {
     code = urlMatch[1];
+  }
+
+  // 2026-07-13: 店頭スキャン等でチェックインURL (例: https://.../circle/checkin?wb=sp_usr_xxx) が入ってきた場合に対応
+  const wbMatch = code.match(/[\?&]wb=([a-zA-Z0-9_\-]+)/);
+  if (wbMatch && wbMatch[1]) {
+    code = wbMatch[1];
   }
 
   // 2026-07-05: 開発用の固定管理者/テストバンド (wb_admin*/wb_test*) の自動シードを撤去。
