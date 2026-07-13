@@ -14,5 +14,10 @@ export function extractIdFromCode(code: string): string {
 	if (match && match[1]) {
 		return match[1];
 	}
+	// 2026-07-13: 店頭スキャン等でチェックインURL (例: https://.../circle/checkin?wb=sp_usr_xxx) が入ってきた場合に対応
+	const wbMatch = trimmed.match(/[\?&]wb=([a-zA-Z0-9_\-]+)/);
+	if (wbMatch && wbMatch[1]) {
+		return wbMatch[1];
+	}
 	return trimmed;
 }
