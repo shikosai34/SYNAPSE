@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { event, circle, eventUser, menu, preOrder, preOrderItem, order, membership, wristband } from "@fesflow/db";
+import { event, circle, eventUser, menu, membership, wristband } from "@fesflow/db";
 import { postJson, request, testDb, uid } from "./helpers";
-import { and, eq } from "drizzle-orm";
 
 // テスト対象と同等のID抽出ロジック (app/src/lib/utils.ts に実装されているもの)
 function extractIdFromCode(code: string): string {
@@ -77,7 +76,7 @@ async function seedTestData() {
 describe("事前オーダー機能", () => {
 	it("事前オーダーの作成、取得、確定の一連のライフサイクルが正しく機能する", async () => {
 		const db = testDb();
-		const { eventId, circleId, menuId, userId } = await seedTestData();
+		const { circleId, menuId, userId } = await seedTestData();
 		const { cookie, email } = await signUpAndGetCookie();
 
 		// スタッフのメンバーシップを追加 (claim 権限 order:write を持たせるため)

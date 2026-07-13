@@ -2,7 +2,7 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { CircleAuthGuard } from "@/hooks/useCircleAuth";
-import { menuApi, toppingApi, orderApi, circleApi, eventApi, wristbandApi, parseCircleSettings, parseEventPaymentMethods, type MenuWithToppings, type Topping } from "@/lib/api";
+import { menuApi, toppingApi, orderApi, circleApi, eventApi, wristbandApi, preOrderApi, parseCircleSettings, parseEventPaymentMethods, type MenuWithToppings, type Topping } from "@/lib/api";
 import { extractIdFromCode, cn } from "@/lib/utils";
 import { undoableAction } from "@/lib/toast-undo";
 import { ModSandbox } from "@/components/ModSandbox";
@@ -373,6 +373,7 @@ function RegisterPageContent() {
   const [isCartPanelOpen, setIsCartPanelOpen] = useState(false);
   const [scannedCode, setScannedCode] = useState("");
   const [activeCustomer, setActiveCustomer] = useState<{ userId: string; wristbandId: string | null } | null>(null);
+  const [activePreOrderId, setActivePreOrderId] = useState<string | null>(null);
 
   useEffect(() => {
     const storedCircleId = localStorage.getItem("circleId");
@@ -432,7 +433,7 @@ function RegisterPageContent() {
       const parsedCode = extractIdFromCode(code);
       return await wristbandApi.lookup(parsedCode);
     },
-    onSuccess: (data) => {
+    onSuccess: async (data) => {
       if (data.user) {
         setActiveCustomer({
           userId: data.user.id,
@@ -440,6 +441,42 @@ function RegisterPageContent() {
         });
         toast.success(`顧客を特定しました: ${data.wristband?.id || data.user.id}`);
         setScannedCode("");
+
+        // 2026-07-13: 顧客特定時に該当サークルの pending な事前オーダーがあれば自動でカートにロードする
+        try {
+          const preOrders = await preOrderApi.getByCode(data.user.id, circleId);
+          const pendingOrders = preOrders.filter(
+            (po) => po.status === "pending" && po.circleId === circleId
+          );
+          if (pendingOrders.length > 0) {
+            const po = pendingOrders[0]!;
+            setActivePreOrderId(po.id);
+            setCart(
+              po.items.map((item) => ({
+                lineId: crypto.randomUUID(),
+                menuId: item.menuId,
+                menuName: item.menu?.name || "不明なメニュー",
+                menuPrice: item.menu?.price || 0,
+                quantity: item.quantity,
+                toppings: [],
+              }))
+            );
+            toast.success("事前オーダーの内容をカートにロードしました！", {
+              style: {
+                border: "3px solid var(--border)",
+                borderRadius: "var(--radius)",
+                background: "var(--primary)",
+                color: "var(--primary-foreground)",
+                fontWeight: "bold",
+              },
+            });
+          } else {
+            setActivePreOrderId(null);
+          }
+        } catch (err) {
+          console.error("Failed to load pre-order items:", err);
+          setActivePreOrderId(null);
+        }
       } else {
         toast.error("ユーザーが見つかりませんでした");
       }
@@ -462,12 +499,39 @@ function RegisterPageContent() {
       setCart([]);
       setPeopleCount(1);
       setActiveCustomer(null); // 会計完了後に顧客情報をクリア
+      setActivePreOrderId(null);
       setIsCartPanelOpen(false);
       // 支払い方法は次の会計で選び直す (単一方法は effect で再セットされる)
       setPaymentMethod("");
     },
     onError: (error: any) => {
       toast.error(error.message || "注文に失敗しました");
+    },
+  });
+
+  const claimOrder = useMutation({
+    mutationFn: async (preOrderId: string) => {
+      return preOrderApi.claim(preOrderId);
+    },
+    onSuccess: (data) => {
+      toast.success(`注文完了！ 注文番号: ${data.orderNumber}`, {
+        style: {
+          border: "3px solid var(--border)",
+          borderRadius: "var(--radius)",
+          background: "var(--primary)",
+          color: "var(--primary-foreground)",
+          fontWeight: "bold",
+        },
+      });
+      setCart([]);
+      setPeopleCount(1);
+      setActiveCustomer(null);
+      setActivePreOrderId(null);
+      setIsCartPanelOpen(false);
+      setPaymentMethod("");
+    },
+    onError: (error: any) => {
+      toast.error(error.message || "注文確定に失敗しました");
     },
   });
 
@@ -495,6 +559,7 @@ function RegisterPageContent() {
 
   // カードで選んだトッピング付きで1行追加。トッピング構成まで同一なら数量+1、違えば別行。
   const addLine = (menu: MenuWithToppings, chosen: CartTopping[]) => {
+    setActivePreOrderId(null);
     setCart((prev) => {
       const key = lineKey(menu.id, chosen.map((t) => t.toppingId));
       const existing = prev.find((l) => lineKey(l.menuId, l.toppings.map((t) => t.toppingId)) === key);
@@ -515,9 +580,13 @@ function RegisterPageContent() {
     });
   };
 
-  const removeLine = (lineId: string) => setCart((prev) => prev.filter((l) => l.lineId !== lineId));
+  const removeLine = (lineId: string) => {
+    setActivePreOrderId(null);
+    setCart((prev) => prev.filter((l) => l.lineId !== lineId));
+  };
 
   const updateQuantity = (lineId: string, delta: number) => {
+    setActivePreOrderId(null);
     setCart((prev) =>
       prev
         .map((l) => (l.lineId === lineId ? { ...l, quantity: Math.max(0, l.quantity + delta) } : l))
@@ -526,6 +595,7 @@ function RegisterPageContent() {
   };
 
   const toggleTopping = (lineId: string, topping: Topping) => {
+    setActivePreOrderId(null);
     setCart((prev) =>
       prev.map((line) => {
         if (line.lineId !== lineId) return line;
@@ -547,6 +617,12 @@ function RegisterPageContent() {
     if (cart.length === 0) { toast.error("カートが空です"); return; }
     if (!activeCustomer) { toast.error("顧客が特定されていません。リストバンド/QRをスキャンしてください"); return; }
     if (effectivePayments.length > 1 && !paymentMethod) { toast.error("支払い方法を選択してください"); return; }
+
+    if (activePreOrderId) {
+      await claimOrder.mutateAsync(activePreOrderId);
+      return;
+    }
+
     await createOrder.mutateAsync({
       circleId,
       userId: activeCustomer.userId,
@@ -561,7 +637,10 @@ function RegisterPageContent() {
     const prev = cart;
     undoableAction({
       message: "カートをクリアしました",
-      optimistic: () => setCart([]),
+      optimistic: () => {
+        setCart([]);
+        setActivePreOrderId(null);
+      },
       commit: () => {}, // クライアントのみ (サーバ反映なし)
       rollback: () => setCart(prev),
     });
@@ -701,7 +780,10 @@ function RegisterPageContent() {
                 </div>
                 <Button
                   variant="destructive"
-                  onClick={() => setActiveCustomer(null)}
+                  onClick={() => {
+                    setActiveCustomer(null);
+                    setActivePreOrderId(null);
+                  }}
                   className="h-9 border-thick border-border font-mono text-xs rounded-none shrink-0"
                 >
                   クリア
