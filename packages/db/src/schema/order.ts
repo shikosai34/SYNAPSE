@@ -147,3 +147,29 @@ export const preOrderItem = sqliteTable(
     index("pre_order_item_preOrderId_idx").on(table.preOrderId),
   ]
 );
+
+// 事前オーダーアイテム-トッピングの中間テーブル (2026-07-13)
+// 来場者モバイルオーダーでもトッピングを選べるようにするため、orderItemTopping と
+// 対になる形で事前オーダー側にもトッピングを保持する。claim 時にここのスナップショットを
+// そのまま orderItemTopping へ引き継ぐことで、レジ確定後の注文にトッピングが反映される。
+export const preOrderItemTopping = sqliteTable(
+  "pre_order_item_topping",
+  {
+    id: text("id").primaryKey().$defaultFn(() => ulid()),
+    preOrderItemId: text("pre_order_item_id")
+      .notNull()
+      .references(() => preOrderItem.id, { onDelete: "cascade" }),
+    toppingId: text("topping_id")
+      .notNull()
+      .references(() => topping.id),
+    toppingName: text("topping_name").notNull(), // スナップショット
+    toppingPrice: integer("topping_price").notNull(), // スナップショット
+    createdAt: integer("created_at", { mode: "timestamp_ms" })
+      .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+      .notNull(),
+  },
+  (table) => [
+    index("pre_order_item_topping_preOrderItemId_idx").on(table.preOrderItemId),
+    index("pre_order_item_topping_toppingId_idx").on(table.toppingId),
+  ]
+);

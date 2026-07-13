@@ -96,12 +96,16 @@ export function CirclesTab({
     }
   };
 
+  const uniqueCircles = circles
+    ? Array.from(new Map(circles.map(c => [c.id, c])).values())
+    : undefined;
+
   return (
     <div className="space-y-6 font-mono text-foreground">
       <div className="flex justify-between items-center border-b-thick border-border pb-3">
         <h2 className="text-sm font-bold uppercase tracking-wider flex items-center gap-2">
           <Building2 className="h-4 w-4" />
-          サークル一覧 ({circles?.length || 0})
+          サークル一覧 ({uniqueCircles?.length || 0})
         </h2>
         <Button
           onClick={handleOpenAdd}
@@ -120,9 +124,9 @@ export function CirclesTab({
         </div>
       ) : circlesError ? (
         <ErrorState error={error} onRetry={onRetry} />
-      ) : circles && circles.length > 0 ? (
+      ) : uniqueCircles && uniqueCircles.length > 0 ? (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {circles.map((cir) => (
+          {uniqueCircles.map((cir) => (
             <Card
               key={cir.id}
               className="border-thick border-border rounded-none bg-background flex flex-col justify-between shadow-none hover:border-neutral-800 transition-all p-3"

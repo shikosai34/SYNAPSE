@@ -480,7 +480,12 @@ function RegisterPageContent() {
               menuName: item.menu?.name || "不明なメニュー",
               menuPrice: item.menu?.price || 0,
               quantity: item.quantity,
-              toppings: [],
+              // 2026-07-13: 事前オーダーで選択されたトッピングをスナップショットから復元する
+              toppings: (item.toppings || []).map((t) => ({
+                toppingId: t.id,
+                toppingName: t.name,
+                toppingPrice: t.price,
+              })),
             }))
           );
           toast.success("事前オーダーの内容をカートにロードしました！", {

@@ -950,12 +950,21 @@ export const visitorApi = {
 
 
 // PreOrder API
+// 事前オーダーアイテムに紐づくトッピング(スナップショット) (2026-07-13)
+export interface PreOrderItemTopping {
+  id: string;
+  name: string;
+  price: number;
+}
+
 export interface PreOrderItemDetail {
   id: string;
   preOrderId: string;
   menuId: string;
   quantity: number;
   menu?: Menu;
+  // getByCode がスナップショットから復元して返す。トッピング未指定なら空配列。
+  toppings?: PreOrderItemTopping[];
 }
 
 export interface PreOrderWithDetails {
@@ -974,6 +983,8 @@ export interface CreatePreOrderInput {
   items: Array<{
     menuId: string;
     quantity: number;
+    // 2026-07-13: 来場者モバイルオーダーのトッピング対応。省略時はトッピング無し。
+    toppingIds?: string[];
   }>;
 }
 

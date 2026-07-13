@@ -3,8 +3,9 @@ import { useEffect, useState, Suspense } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { ModSandbox } from "@/components/ModSandbox";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { eventApi, circleApi, menuApi, preOrderApi, orderApi } from "@/lib/api";
+import { eventApi, circleApi, menuApi, preOrderApi, orderApi, type MenuWithToppings, type Topping } from "@/lib/api";
 import { useVisitor } from "@/hooks/useVisitor";
+import { cn } from "@/lib/utils";
 import {
   Card,
   CardContent,
@@ -23,11 +24,159 @@ import { toast } from "sonner";
 import { EventTheme } from "@/components/EventTheme";
 import { ShoppingCart, Plus, Minus, CheckCircle, UtensilsCrossed } from "lucide-react";
 
-interface CartItem {
+// 2026-07-13: 来場者モバイルオーダーもトッピング対応にするため、レジ (Register.tsx) と同じく
+// カートを「行 (line)」単位で持つ。同じメニューでもトッピング構成が違えば別行になる。
+interface CartTopping {
+  toppingId: string;
+  toppingName: string;
+  toppingPrice: number;
+}
+interface CartLine {
+  lineId: string;
   menuId: string;
   menuName: string;
   menuPrice: number;
   quantity: number;
+  toppings: CartTopping[];
+}
+
+// メニュー + トッピング構成の同一性キー。トッピング順序に依存しないよう sort する。
+const lineKey = (menuId: string, toppingIds: string[]) =>
+  `${menuId}::${[...toppingIds].sort().join(",")}`;
+
+const lineSubtotal = (line: CartLine) =>
+  (line.menuPrice + line.toppings.reduce((s, t) => s + t.toppingPrice, 0)) * line.quantity;
+
+// メニューカード。カート追加前にトッピングを選択できるようローカル選択状態を持つ。
+// Register.tsx の MenuCard と同じ思想 (追加後は既定トッピングへリセット)。
+function VisitorMenuCard({
+  menu,
+  onAdd,
+}: {
+  menu: MenuWithToppings;
+  onAdd: (menu: MenuWithToppings, toppings: CartTopping[]) => void;
+}) {
+  // 既定トッピング: menu.defaultToppingIds のうち、このメニューに紐づく売切れでないもの。
+  const defaultIds = () => {
+    let ids: string[] = [];
+    try {
+      ids = menu.defaultToppingIds ? JSON.parse(menu.defaultToppingIds) : [];
+    } catch {
+      ids = [];
+    }
+    return new Set(
+      (menu.toppings ?? []).filter((t) => ids.includes(t.id) && !t.soldOut).map((t) => t.id)
+    );
+  };
+
+  const [selected, setSelected] = useState<Set<string>>(defaultIds);
+
+  // メニュー(既定トッピング)が変わったら選択状態を作り直す
+  useEffect(() => {
+    setSelected(defaultIds());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [menu.id, menu.defaultToppingIds]);
+
+  const toggle = (id: string) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+
+  const availableToppings = menu.toppings ?? [];
+  const selectedExtra = availableToppings
+    .filter((t) => selected.has(t.id))
+    .reduce((s, t) => s + t.price, 0);
+
+  const handleAdd = () => {
+    const chosen: CartTopping[] = availableToppings
+      .filter((t) => selected.has(t.id))
+      .map((t) => ({ toppingId: t.id, toppingName: t.name, toppingPrice: t.price }));
+    onAdd(menu, chosen);
+    setSelected(defaultIds()); // 次の1品のために既定へ戻す
+  };
+
+  return (
+    <Card className={menu.soldOut ? "opacity-60" : ""}>
+      <CardHeader>
+        <div className="relative h-48 w-full overflow-hidden border-b-thick border-border">
+          {menu.imagePath ? (
+            <img
+              src={menu.imagePath}
+              alt={menu.name}
+              className="absolute inset-0 h-full w-full object-cover"
+            />
+          ) : (
+            <div className="flex h-full w-full items-center justify-center bg-muted">
+              <span className="font-mono text-[14px] uppercase tracking-[1px]">No Image</span>
+            </div>
+          )}
+          {menu.soldOut && (
+            <div className="absolute inset-0 bg-foreground/85 flex items-center justify-center">
+              <span className="text-background text-[24px] font-headline uppercase tracking-[2px]">
+                売り切れ
+              </span>
+            </div>
+          )}
+        </div>
+      </CardHeader>
+      <CardContent>
+        <CardTitle className="mb-sp-2">{menu.name}</CardTitle>
+        <p className="text-[24px] font-headline mb-sp-2">¥{menu.price.toLocaleString()}</p>
+        {menu.description && (
+          <CardDescription className="mb-sp-2">{menu.description}</CardDescription>
+        )}
+
+        {/* カート追加前のトッピング選択 (このメニューに紐づくトッピングのみ) */}
+        {availableToppings.length > 0 && (
+          <div className="space-y-1.5 mt-sp-2">
+            <p className="text-[10px] font-mono font-bold uppercase tracking-wider text-muted-foreground">
+              トッピング (追加前に選択)
+            </p>
+            <div className="flex flex-wrap gap-1">
+              {availableToppings.map((t) => {
+                const on = selected.has(t.id);
+                return (
+                  <button
+                    key={t.id}
+                    type="button"
+                    disabled={t.soldOut || menu.soldOut}
+                    onClick={() => toggle(t.id)}
+                    className={cn(
+                      "flex items-center gap-1 border-thin px-1.5 py-0.5 text-[11px] sm:text-xs font-bold rounded-none transition-all disabled:opacity-40 disabled:cursor-not-allowed",
+                      on
+                        ? "border-primary bg-primary text-primary-foreground"
+                        : "border-border bg-background hover:bg-muted"
+                    )}
+                  >
+                    {t.imagePath && (
+                      <img src={t.imagePath} alt="" className="h-4 w-4 object-cover border-thin border-current shrink-0" />
+                    )}
+                    <span className="truncate max-w-[90px]">{t.name}</span>
+                    <span className={on ? "opacity-80" : "text-muted-foreground"}>
+                      {t.price >= 0 ? `+¥${t.price}` : `-¥${Math.abs(t.price)}`}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </CardContent>
+
+      <CardFooter className="border-t-thick border-border pt-4">
+        <Button
+          onClick={handleAdd}
+          disabled={menu.soldOut}
+          className="w-full h-12 border-thick border-border bg-primary font-mono text-base font-bold uppercase text-primary-foreground rounded-none hover:bg-background hover:text-foreground transition-colors"
+        >
+          <ShoppingCart className="mr-2 h-5 w-5" />
+          カートに追加{selectedExtra !== 0 && ` (¥${(menu.price + selectedExtra).toLocaleString()})`}
+        </Button>
+      </CardFooter>
+    </Card>
+  );
 }
 
 function MenuPageContent() {
@@ -42,7 +191,7 @@ function MenuPageContent() {
   const [selectedCircleId, setSelectedCircleId] = useState<string | null>(
     circleIdParam
   );
-  const [cart, setCart] = useState<CartItem[]>([]);
+  const [cart, setCart] = useState<CartLine[]>([]);
 
 
 
@@ -106,9 +255,10 @@ function MenuPageContent() {
       return await preOrderApi.create({
         userId,
         circleId: selectedCircleId,
-        items: cart.map((item) => ({
-          menuId: item.menuId,
-          quantity: item.quantity,
+        items: cart.map((line) => ({
+          menuId: line.menuId,
+          quantity: line.quantity,
+          toppingIds: line.toppings.map((t) => t.toppingId),
         })),
       });
     },
@@ -132,9 +282,10 @@ function MenuPageContent() {
         circleId: selectedCircleId,
         userId, // 2026-07-04: リストバンド/QR必須化対応
         peopleCount: 1,
-        items: cart.map((item) => ({
-          menuId: item.menuId,
-          quantity: item.quantity,
+        items: cart.map((line) => ({
+          menuId: line.menuId,
+          quantity: line.quantity,
+          toppingIds: line.toppings.map((t) => t.toppingId),
         })),
       });
     },
@@ -168,31 +319,85 @@ function MenuPageContent() {
 
 
 
-  const addToCart = (menuId: string, menuName: string, menuPrice: number) => {
-    const existing = cart.find((i) => i.menuId === menuId);
-    if (existing) {
-      setCart(
-        cart.map((i) =>
-          i.menuId === menuId ? { ...i, quantity: i.quantity + 1 } : i
-        )
-      );
-    } else {
-      setCart([...cart, { menuId, menuName, menuPrice, quantity: 1 }]);
-    }
+  // カードで選んだトッピング付きで1行追加。トッピング構成まで同一なら数量+1、違えば別行。
+  const addLine = (menu: MenuWithToppings, chosen: CartTopping[]) => {
+    setCart((prev) => {
+      const key = lineKey(menu.id, chosen.map((t) => t.toppingId));
+      const existing = prev.find((l) => lineKey(l.menuId, l.toppings.map((t) => t.toppingId)) === key);
+      if (existing) {
+        return prev.map((l) => (l.lineId === existing.lineId ? { ...l, quantity: l.quantity + 1 } : l));
+      }
+      return [
+        ...prev,
+        {
+          lineId: crypto.randomUUID(),
+          menuId: menu.id,
+          menuName: menu.name,
+          menuPrice: menu.price,
+          quantity: 1,
+          toppings: chosen,
+        },
+      ];
+    });
   };
 
-  const updateQuantity = (menuId: string, delta: number) => {
-    setCart(
-      cart
-        .map((i) =>
-          i.menuId === menuId ? { ...i, quantity: Math.max(0, i.quantity + delta) } : i
-        )
-        .filter((i) => i.quantity > 0)
+  const updateLineQuantity = (lineId: string, delta: number) => {
+    setCart((prev) =>
+      prev
+        .map((l) => (l.lineId === lineId ? { ...l, quantity: Math.max(0, l.quantity + delta) } : l))
+        .filter((l) => l.quantity > 0)
     );
   };
 
-  const getTotalCount = () => cart.reduce((sum, i) => sum + i.quantity, 0);
-  const getTotalPrice = () => cart.reduce((sum, i) => sum + i.menuPrice * i.quantity, 0);
+  // カート内でのトッピング変更 (タップでトグル)。lineKey が変わるので別構成の既存行があれば統合する。
+  const toggleLineTopping = (lineId: string, topping: Topping) => {
+    setCart((prev) =>
+      prev.map((line) => {
+        if (line.lineId !== lineId) return line;
+        const has = line.toppings.some((t) => t.toppingId === topping.id);
+        return {
+          ...line,
+          toppings: has
+            ? line.toppings.filter((t) => t.toppingId !== topping.id)
+            : [...line.toppings, { toppingId: topping.id, toppingName: topping.name, toppingPrice: topping.price }],
+        };
+      })
+    );
+  };
+
+  // ── 外部モッド互換 (menuId ベース) ────────────────────────────────
+  // 既存モッドは addToCart(menuId,...) / updateQuantity(menuId, delta) を呼ぶため、
+  // トッピング無し行に対して従来通り menuId 単位で操作するラッパーを維持する。
+  const addToCart = (menuId: string, menuName: string, menuPrice: number) => {
+    setCart((prev) => {
+      const existing = prev.find((l) => l.menuId === menuId && l.toppings.length === 0);
+      if (existing) {
+        return prev.map((l) => (l.lineId === existing.lineId ? { ...l, quantity: l.quantity + 1 } : l));
+      }
+      return [
+        ...prev,
+        { lineId: crypto.randomUUID(), menuId, menuName, menuPrice, quantity: 1, toppings: [] },
+      ];
+    });
+  };
+
+  const updateQuantity = (menuId: string, delta: number) => {
+    setCart((prev) =>
+      prev
+        .map((l) =>
+          l.menuId === menuId && l.toppings.length === 0
+            ? { ...l, quantity: Math.max(0, l.quantity + delta) }
+            : l
+        )
+        .filter((l) => l.quantity > 0)
+    );
+  };
+
+  const getTotalCount = () => cart.reduce((sum, l) => sum + l.quantity, 0);
+  const getTotalPrice = () => cart.reduce((sum, l) => sum + lineSubtotal(l), 0);
+
+  // カート内トッピング編集用に menuId → メニュー(許可トッピング付き)を引けるようにする
+  const menuMap = new Map((menus ?? []).map((m) => [m.id, m]));
 
   // 有効な外部モッドの一覧取得
   const getActiveMods = () => {
@@ -363,83 +568,9 @@ function MenuPageContent() {
         </h2>
         {menus && menus.length > 0 ? (
           <div className="grid gap-sp-3 sm:grid-cols-2 lg:grid-cols-3">
-            {menus.map((menu) => {
-              const cartItem = cart.find((i) => i.menuId === menu.id);
-              const qty = cartItem ? cartItem.quantity : 0;
-
-              return (
-                <Card key={menu.id} className={menu.soldOut ? "opacity-60" : ""}>
-                  <CardHeader>
-                    <div className="relative h-48 w-full overflow-hidden border-b-thick border-border">
-                      {menu.imagePath ? (
-                        <img
-                          src={menu.imagePath}
-                          alt={menu.name}
-                          className="absolute inset-0 h-full w-full object-cover"
-                        />
-                      ) : (
-                        <div className="flex h-full w-full items-center justify-center bg-muted">
-                          <span className="font-mono text-[14px] uppercase tracking-[1px]">
-                            No Image
-                          </span>
-                        </div>
-                      )}
-                      {menu.soldOut && (
-                        <div className="absolute inset-0 bg-foreground/85 flex items-center justify-center">
-                          <span className="text-background text-[24px] font-headline uppercase tracking-[2px]">
-                            売り切れ
-                          </span>
-                        </div>
-                      )}
-                    </div>
-                  </CardHeader>
-                  <CardContent>
-                    <CardTitle className="mb-sp-2">{menu.name}</CardTitle>
-                    <p className="text-[24px] font-headline mb-sp-2">
-                      ¥{menu.price.toLocaleString()}
-                    </p>
-                    {menu.description && (
-                      <CardDescription className="mb-sp-2">
-                        {menu.description}
-                      </CardDescription>
-                    )}
-                  </CardContent>
-
-                  <CardFooter className="border-t-thick border-border pt-4">
-                    {qty > 0 ? (
-                      <div className="flex items-center justify-between w-full bg-muted border-thick border-border p-1">
-                        <Button
-                          type="button"
-                          onClick={() => updateQuantity(menu.id, -1)}
-                          className="h-10 w-10 border-thick border-border bg-background text-foreground rounded-none hover:bg-primary hover:text-primary-foreground transition-all"
-                        >
-                          <Minus className="h-4 w-4" />
-                        </Button>
-                        <span className="font-mono font-bold text-lg px-4">
-                          {qty}
-                        </span>
-                        <Button
-                          type="button"
-                          onClick={() => updateQuantity(menu.id, 1)}
-                          className="h-10 w-10 border-thick border-border bg-background text-foreground rounded-none hover:bg-primary hover:text-primary-foreground transition-all"
-                        >
-                          <Plus className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    ) : (
-                      <Button
-                        onClick={() => addToCart(menu.id, menu.name, menu.price)}
-                        disabled={menu.soldOut}
-                        className="w-full h-12 border-thick border-border bg-primary font-mono text-base font-bold uppercase text-primary-foreground rounded-none hover:bg-background hover:text-foreground transition-colors"
-                      >
-                        <ShoppingCart className="mr-2 h-5 w-5" />
-                        カートに追加
-                      </Button>
-                    )}
-                  </CardFooter>
-                </Card>
-              );
-            })}
+            {menus.map((menu) => (
+              <VisitorMenuCard key={menu.id} menu={menu} onAdd={addLine} />
+            ))}
           </div>
         ) : (
           <EmptyState icon={ShoppingCart} message="メニューがまだ登録されていません" />
@@ -481,32 +612,69 @@ function MenuPageContent() {
         title="[カートの中身を確認]"
         maxWidth="lg"
       >
-        <div className="space-y-3 max-h-[40vh] overflow-y-auto pr-1">
-          {cart.map((item) => (
-            <div key={item.menuId} className="flex justify-between items-center border-b border-border/10 pb-2 gap-4">
-              <div className="space-y-1">
-                <p className="font-bold text-sm text-foreground">{item.menuName}</p>
-                <p className="text-xs text-muted-foreground">単価: ¥{item.menuPrice.toLocaleString()}</p>
+        <div className="space-y-3 max-h-[45vh] overflow-y-auto pr-1">
+          {cart.map((line) => {
+            const allowed = menuMap.get(line.menuId)?.toppings ?? [];
+            return (
+              <div key={line.lineId} className="border-b border-border/10 pb-3 space-y-2">
+                <div className="flex justify-between items-start gap-4">
+                  <div className="space-y-1 min-w-0">
+                    <p className="font-bold text-sm text-foreground truncate">{line.menuName}</p>
+                    <p className="text-xs text-muted-foreground">単価: ¥{line.menuPrice.toLocaleString()}</p>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <Button
+                      type="button"
+                      onClick={() => updateLineQuantity(line.lineId, -1)}
+                      className="h-8 w-8 border-thick border-border bg-background text-foreground rounded-none hover:bg-primary hover:text-primary-foreground p-0"
+                    >
+                      <Minus className="h-3 w-3" />
+                    </Button>
+                    <span className="font-bold text-sm w-6 text-center">{line.quantity}</span>
+                    <Button
+                      type="button"
+                      onClick={() => updateLineQuantity(line.lineId, 1)}
+                      className="h-8 w-8 border-thick border-border bg-background text-foreground rounded-none hover:bg-primary hover:text-primary-foreground p-0"
+                    >
+                      <Plus className="h-3 w-3" />
+                    </Button>
+                  </div>
+                </div>
+
+                {/* トッピング調整 (カート内でもタップでトグル。このメニューに紐づくトッピングのみ) */}
+                {allowed.length > 0 && (
+                  <div className="flex flex-wrap gap-1">
+                    {allowed.map((topping) => {
+                      const on = line.toppings.some((t) => t.toppingId === topping.id);
+                      return (
+                        <button
+                          key={topping.id}
+                          type="button"
+                          disabled={topping.soldOut}
+                          onClick={() => toggleLineTopping(line.lineId, topping)}
+                          className={cn(
+                            "flex items-center gap-1 border-thin px-1.5 py-0.5 text-[11px] font-bold rounded-none transition-all disabled:opacity-40 disabled:cursor-not-allowed",
+                            on
+                              ? "border-primary bg-primary text-primary-foreground"
+                              : "border-border bg-background hover:bg-muted"
+                          )}
+                        >
+                          <span className="truncate max-w-[90px]">{topping.name}</span>
+                          <span className={on ? "opacity-80" : "text-muted-foreground"}>
+                            {topping.price >= 0 ? `+¥${topping.price}` : `-¥${Math.abs(topping.price)}`}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+
+                <div className="flex justify-end">
+                  <p className="text-xs font-bold text-foreground">小計: ¥{lineSubtotal(line).toLocaleString()}</p>
+                </div>
               </div>
-              <div className="flex items-center gap-2 shrink-0">
-                <Button
-                  type="button"
-                  onClick={() => updateQuantity(item.menuId, -1)}
-                  className="h-8 w-8 border-thick border-border bg-background text-foreground rounded-none hover:bg-primary hover:text-primary-foreground p-0"
-                >
-                  <Minus className="h-3 w-3" />
-                </Button>
-                <span className="font-bold text-sm w-6 text-center">{item.quantity}</span>
-                <Button
-                  type="button"
-                  onClick={() => updateQuantity(item.menuId, 1)}
-                  className="h-8 w-8 border-thick border-border bg-background text-foreground rounded-none hover:bg-primary hover:text-primary-foreground p-0"
-                >
-                  <Plus className="h-3 w-3" />
-                </Button>
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
 
         <div className="border-t-thick border-border pt-3 space-y-2">
