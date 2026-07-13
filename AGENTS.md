@@ -60,6 +60,7 @@
 - DBスキーマを勝手に破壊的変更しない。
 - 認証・課金・権限周りを推測で変えない。
 - generated files を手編集しない。
+- 2026-07-13: サークル統計・分析画面 (`/circle/dashboard/analytics`) を追加。左メニュー (`DashboardLayout.tsx` の `circleMenuItems`) とダッシュボードトップ (`Index.tsx` の `rawItems`) の両方に含めていることを維持すること。
 
 ## Directory map
 - `docs`: 設計資料 (`docs/reference` は旧 FesOrder のドメイン資料)

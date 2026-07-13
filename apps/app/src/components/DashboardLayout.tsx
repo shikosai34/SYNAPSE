@@ -87,6 +87,7 @@ export default function DashboardLayout({
     { title: "ダッシュボード", href: "/circle/dashboard", icon: LayoutDashboard },
     { title: "メニュー管理", href: "/circle/dashboard/menu", icon: UtensilsCrossed },
     { title: "売上管理", href: "/circle/dashboard/sales", icon: TrendingUp },
+    { title: "統計・分析", href: "/circle/dashboard/analytics", icon: BarChart3 },
     { title: "サークル設定", href: "/circle/dashboard/circle", icon: Settings },
     { title: "メンバー管理", href: "/circle/dashboard/members", icon: Users },
     { title: "モバイルオーダーQR", href: "/circle/dashboard/qr", icon: QrCode },
