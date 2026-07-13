@@ -315,7 +315,8 @@ function BackyardPageContent() {
         isOpen={!!pendingCancel}
         title="[注文のキャンセル]"
         description={`注文 #${pendingCancel?.orderNumber ?? ""} をキャンセルしますか？この操作は元に戻せません。`}
-        confirmLabel="キャンセルする"
+        confirmLabel="注文を取り消す"
+        cancelLabel="戻る"
         onConfirm={handleCancel}
         onCancel={() => setPendingCancel(null)}
       />

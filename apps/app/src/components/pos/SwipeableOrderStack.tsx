@@ -181,7 +181,7 @@ function SwipeableCard({
         </div>
       )}
 
-      <div className="relative z-10 bg-background pointer-events-none">
+      <div className="relative z-10 bg-background">
         <CardHeader className="pb-3 border-b-thin border-border">
           <div className="flex justify-between items-start">
             <div>
@@ -233,10 +233,11 @@ function SwipeableCard({
             <span className="flex items-center"><XCircle className="w-4 h-4 mr-1"/>左へ: キャンセル</span>
             <span className="flex items-center">右へ: 完成<CheckCircle className="w-4 h-4 ml-1"/></span>
           </div>
-          <div className="flex gap-2 w-full pointer-events-auto">
+          <div className="flex gap-2 w-full">
             <Button
               variant="outline"
               className="flex-1 h-14 border-thick border-destructive text-destructive rounded-none font-mono uppercase font-bold"
+              onPointerDown={(e) => e.stopPropagation()}
               onClick={(e) => {
                 e.stopPropagation();
                 onSwipeLeft();
@@ -247,6 +248,7 @@ function SwipeableCard({
             <Button
               variant="default"
               className="flex-1 h-14 border-thick border-border rounded-none font-mono uppercase font-bold bg-green-600 hover:bg-green-700 text-white"
+              onPointerDown={(e) => e.stopPropagation()}
               onClick={(e) => {
                 e.stopPropagation();
                 onSwipeRight();
