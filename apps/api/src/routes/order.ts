@@ -12,9 +12,10 @@ import {
   userStamp,
   circle,
   eventUser,
+  wristband,
   type DB,
 } from "@fesflow/db";
-import { eq, and, desc, sql, inArray, gte } from "drizzle-orm";
+import { eq, and, or, desc, sql, inArray, gte } from "drizzle-orm";
 import { ulid } from "ulidx";
 import { hasPermission } from "../utils/auth";
 import type { AppEnv } from "../types";
@@ -133,6 +134,108 @@ orderRoutes.get("/", async (c) => {
   }));
 
   return c.json(ordersWithItems);
+});
+
+// 来場者本人の注文履歴 (レジを通った注文) を取得
+// 2026-07-13: 来場者アプリの注文履歴画面から、自分がレジを通した過去注文を参照するため新設。
+// - userId 解決は pre-orders/user/:code と同一 (リストバンドID or eventUser.id をベアラーとして受ける)。
+//   来場者導線を壊さないため hasPermission による認可は課さない (QR/リストバンドの保持自体が
+//   実質的な認証で、応答も本人の注文に限定される)。
+// - ただし order には cashierId / paymentMethod 等のレジ内部情報が含まれるため、
+//   来場者へは注文本人が必要とする項目のみを明示的に返し、内部情報は最小化する。
+// - まだレジを通していない事前注文 (pending) は /api/pre-orders/user/:code 側で取得する。
+orderRoutes.get("/user/:code", async (c) => {
+  const db = c.get("db");
+  const code = c.req.param("code");
+
+  // 1. userId の特定 (pre_order.ts の /user/:code と同一ロジック)
+  let targetUserId: string | null = null;
+  const wbs = await db
+    .select()
+    .from(wristband)
+    .where(
+      and(
+        eq(wristband.id, code),
+        or(eq(wristband.status, "active"), eq(wristband.status, "smartphone"))
+      )
+    );
+  if (wbs.length > 0) {
+    targetUserId = wbs[0]!.userId;
+  } else {
+    const users = await db.select().from(eventUser).where(eq(eventUser.id, code));
+    if (users.length > 0) {
+      targetUserId = users[0]!.id;
+    }
+  }
+
+  if (!targetUserId) {
+    return c.json([]);
+  }
+
+  // 2. 当該ユーザーの注文を新しい順に取得
+  const orders = await db
+    .select()
+    .from(order)
+    .where(eq(order.userId, targetUserId))
+    .orderBy(desc(order.createdAt));
+
+  if (orders.length === 0) {
+    return c.json([]);
+  }
+
+  // 3. アイテム / トッピング(スナップショット) / サークル名を紐付け
+  const orderIds = orders.map((o) => o.id);
+  const items = await db
+    .select()
+    .from(orderItem)
+    .where(inArray(orderItem.orderId, orderIds));
+
+  const itemIds = items.map((i) => i.id);
+  const itemToppings =
+    itemIds.length > 0
+      ? await db
+          .select()
+          .from(orderItemTopping)
+          .where(inArray(orderItemTopping.orderItemId, itemIds))
+      : [];
+
+  const circleIds = [...new Set(orders.map((o) => o.circleId))];
+  const circles =
+    circleIds.length > 0
+      ? await db.select().from(circle).where(inArray(circle.id, circleIds))
+      : [];
+
+  // cashierId / paymentMethod / updatedAt 等の内部情報は含めず、本人向けの項目のみ返す。
+  const result = orders.map((o) => ({
+    id: o.id,
+    orderNumber: o.orderNumber,
+    status: o.status,
+    totalPrice: o.totalPrice,
+    peopleCount: o.peopleCount,
+    circleId: o.circleId,
+    circleName: circles.find((ci) => ci.id === o.circleId)?.name ?? null,
+    createdAt: o.createdAt,
+    completedAt: o.completedAt,
+    estimatedTime: o.estimatedTime,
+    items: items
+      .filter((i) => i.orderId === o.id)
+      .map((i) => ({
+        id: i.id,
+        menuId: i.menuId,
+        menuName: i.menuName,
+        menuPrice: i.menuPrice,
+        quantity: i.quantity,
+        toppings: itemToppings
+          .filter((it) => it.orderItemId === i.id)
+          .map((it) => ({
+            id: it.toppingId,
+            name: it.toppingName,
+            price: it.toppingPrice,
+          })),
+      })),
+  }));
+
+  return c.json(result);
 });
 
 // 注文取得
