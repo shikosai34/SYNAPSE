@@ -352,11 +352,12 @@ export const accountApi = {
 export const notificationApi = {
   list: () => fetchApi<any[]>("/api/memberships/notifications/list"),
   read: (id: string) => fetchApi<{ success: boolean }>(`/api/memberships/notifications/${id}/read`, { method: "POST" }),
+  // circle_host 招待の承認時は kind/token/eventId を返す (メンバーシップは作らずサークル作成へ誘導)。
   respond: (id: string, data: { action: "accept" | "decline"; userName?: string }) =>
-    fetchApi<{ success: boolean }>(`/api/memberships/notifications/${id}/respond`, {
-      method: "POST",
-      body: data,
-    }),
+    fetchApi<{ success: boolean; kind?: string; token?: string; eventId?: string }>(
+      `/api/memberships/notifications/${id}/respond`,
+      { method: "POST", body: data }
+    ),
 };
 
 // 画像アップロード

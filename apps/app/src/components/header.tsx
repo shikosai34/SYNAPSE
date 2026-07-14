@@ -114,10 +114,16 @@ export default function Header() {
     mutationFn: async ({ notifId, action }: { notifId: string; action: "accept" | "decline" }) => {
       return await notificationApi.respond(notifId, { action });
     },
-    onSuccess: (_, variables) => {
+    onSuccess: (data, variables) => {
       queryClient.invalidateQueries({ queryKey: ["notifications"] });
       queryClient.invalidateQueries({ queryKey: ["mySpaces"] });
       if (variables.action === "accept") {
+        // circle_host はサークル作成が必要 → その場で作成フローへ誘導する (P1-3)。
+        if (data?.kind === "circle_host" && data.token) {
+          toast.success("出店招待を受け付けました。サークルを作成してください。");
+          navigate(`/onboarding?inviteToken=${encodeURIComponent(data.token)}`);
+          return;
+        }
         toast.success("招待を承認しました。スペース一覧から切り替えられます。");
       } else {
         toast.success("招待を辞退しました");

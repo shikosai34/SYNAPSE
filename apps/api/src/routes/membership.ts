@@ -956,6 +956,20 @@ membershipRoutes.post(
         apiError("FORBIDDEN", "この招待は別のメールアドレス宛です");
       }
 
+      // 2026-07-14 (P1-3): circle_host 招待はメンバーシップを作らず、サークル作成へ誘導する。
+      // ここで通常のメンバーシップ作成に進むと circleId 無しの「宙ぶらりん circle_manager」が
+      // 生成され、サークルは1つも作られないという不整合が起きていた (accept 側 invite/accept は
+      // 既に同様のガードで circle_host を除外済みで、通知承認側だけ抜けていた)。
+      // 通知は既読にせず、クライアントをサークル作成フロー (/onboarding?inviteToken=...) へ送る。
+      if (inviteKind(foundToken) === "circle_host") {
+        return c.json({
+          success: true,
+          kind: "circle_host",
+          token: foundToken.token,
+          eventId: foundToken.eventId,
+        });
+      }
+
       // 使用上限チェック（事前チェック。確定は下の条件付きUPDATEで行う）
       if (foundToken.maxUses !== null && foundToken.usedCount >= foundToken.maxUses) {
         apiError("BAD_REQUEST", "招待の上限に達しています");
