@@ -1038,10 +1038,11 @@ export const preOrderApi = {
         circleId ? `?circleId=${circleId}` : ""
       }`
     ).catch(() => []),
-  claim: (id: string, cashierId?: string) =>
+  // 支払い方法 (2026-07-14): レジで選択された方法を受取確定にも渡す (未指定だとDBがNULLになるため)。
+  claim: (id: string, cashierId?: string, paymentMethod?: string) =>
     fetchApi<{ success: boolean; orderId: string; orderNumber: string }>(
       `/api/pre-orders/${id}/claim`,
-      { method: "POST", body: { cashierId } }
+      { method: "POST", body: { cashierId, paymentMethod } }
     ),
 };
 
