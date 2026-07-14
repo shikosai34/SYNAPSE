@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { Button } from "./ui/button";
 import { toast } from "sonner";
-import { Menu, X, ChevronDown, User, Bell, Shield, Calendar, Building2 } from "lucide-react";
+import { Menu, X, ChevronDown, User, Bell, Shield, Calendar, Building2, Plus } from "lucide-react";
 import AccountModal from "./account-modal";
 import { PRODUCT_NAME } from "@fesflow/config";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -550,6 +550,20 @@ export default function Header() {
                         </div>
                       )}
                     </div>
+
+                    {/* 招待コードで参加 / スペースを追加 (2026-07-14 P0)。
+                        ログイン済みユーザーが招待コードを入力できる唯一の導線。
+                        ?join=1 で StaffOnboarding の選択画面を出し、所属があっても弾かれないようにする。 */}
+                    <button
+                      onClick={() => {
+                        setSpacePopoverOpen(false);
+                        navigate("/onboarding?join=1");
+                      }}
+                      className="mt-3 w-full flex items-center justify-center gap-1.5 border-thick border-border p-2 text-[11px] font-black uppercase tracking-wider hover:bg-primary hover:text-primary-foreground transition-all cursor-pointer rounded-none"
+                    >
+                      <Plus className="h-3.5 w-3.5" />
+                      招待コードで参加 / スペースを追加
+                    </button>
                   </div>
                   </>
                 )}

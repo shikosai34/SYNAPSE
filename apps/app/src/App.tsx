@@ -121,6 +121,8 @@ export default function App() {
 
 					{/* スタッフ用オンボーディング (所属ゼロの新規アカウントがサークルをセルフ作成) */}
 					<Route path="/onboarding" element={<StaffOnboarding />} />
+					{/* 招待コード単体のディープリンク (/join?code=XXXX)。口頭/チャットで配るコードから直接着地できる (2026-07-14 P0) */}
+					<Route path="/join" element={<StaffOnboarding />} />
 
 					<Route
 						path="/sys/dashboard"
