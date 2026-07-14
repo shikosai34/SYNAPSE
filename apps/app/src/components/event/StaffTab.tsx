@@ -7,8 +7,9 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { ErrorState } from "@/components/ui/ErrorState";
-import { Users, UserPlus, Trash2 } from "lucide-react";
+import { Users, UserPlus, Copy } from "lucide-react";
 import { toast } from "sonner";
+import { QRCodeSVG } from "qrcode.react";
 
 // モーダル
 import { EventStaffFormModal } from "./EventStaffFormModal";
@@ -99,6 +100,12 @@ export function StaffTab({
     setIsDeactivateConfirmOpen(true);
   };
 
+  // ワンクリックコピー (2026-07-14 P2-6)。配布導線を楽にする。
+  const copy = (text: string, label: string) => {
+    navigator.clipboard.writeText(text);
+    toast.success(`${label}をコピーしました`);
+  };
+
   return (
     <div className="space-y-6 font-mono text-foreground">
       <div className="flex justify-between items-center border-b-thick border-border pb-3">
@@ -142,18 +149,34 @@ export function StaffTab({
                 hoursLeft >= 24 ? `残り約${Math.floor(hoursLeft / 24)}日` : `残り約${hoursLeft}時間`;
               const expiringSoon = hoursLeft < 24;
               return (
-                <div key={inv.id} className="flex flex-col sm:flex-row justify-between items-start sm:items-center p-2.5 text-[10px] font-mono bg-muted/30">
-                  <div className="space-y-0.5">
-                    <p className="font-bold text-foreground">{purposeLabel}（{inv.usedCount}/{inv.maxUses ?? "∞"} 使用）</p>
-                    {inv.code && (
-                      <p className="text-foreground text-[11px] select-all">招待コード: <span className="font-bold tracking-wider">{inv.code}</span></p>
-                    )}
-                    <p className="text-muted-foreground text-[8px] break-all select-all">リンク: {inviteUrl}</p>
-                    <p className={`text-[8px] ${expiringSoon ? "text-destructive font-bold" : "text-muted-foreground"}`}>
-                      有効期限: {new Date(inv.expiresAt).toLocaleString("ja-JP")}（{remainLabel}）
-                    </p>
+                <div key={inv.id} className="flex flex-col sm:flex-row justify-between items-start gap-3 p-2.5 text-[10px] font-mono bg-muted/30">
+                  <div className="flex gap-3 min-w-0">
+                    {/* 配布用QR (リンクをエンコード)。掲示・スクショで共有しやすくする (P2-6) */}
+                    <div className="border-thick border-border p-1 bg-white shrink-0 hidden sm:block">
+                      <QRCodeSVG value={inviteUrl} size={72} level="M" />
+                    </div>
+                    <div className="space-y-0.5 min-w-0">
+                      <p className="font-bold text-foreground">{purposeLabel}（{inv.usedCount}/{inv.maxUses ?? "∞"} 使用）</p>
+                      {inv.code && (
+                        <p className="text-foreground text-[11px] flex items-center gap-1">
+                          招待コード: <span className="font-bold tracking-wider select-all">{inv.code}</span>
+                          <button onClick={() => copy(inv.code, "招待コード")} className="text-muted-foreground hover:text-foreground" aria-label="招待コードをコピー">
+                            <Copy className="h-3 w-3" />
+                          </button>
+                        </p>
+                      )}
+                      <p className="text-muted-foreground text-[8px] break-all flex items-center gap-1">
+                        <span className="select-all min-w-0 break-all">リンク: {inviteUrl}</span>
+                        <button onClick={() => copy(inviteUrl, "招待リンク")} className="text-muted-foreground hover:text-foreground shrink-0" aria-label="招待リンクをコピー">
+                          <Copy className="h-3 w-3" />
+                        </button>
+                      </p>
+                      <p className={`text-[8px] ${expiringSoon ? "text-destructive font-bold" : "text-muted-foreground"}`}>
+                        有効期限: {new Date(inv.expiresAt).toLocaleString("ja-JP")}（{remainLabel}）
+                      </p>
+                    </div>
                   </div>
-                  <div className="flex gap-1 mt-2 sm:mt-0 shrink-0">
+                  <div className="flex gap-1 shrink-0">
                     <Button
                       variant="outline"
                       size="sm"
