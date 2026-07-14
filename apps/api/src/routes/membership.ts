@@ -634,11 +634,15 @@ membershipRoutes.get("/invite/lookup", async (c) => {
     .from(inviteToken)
     .where(token ? eq(inviteToken.token, token) : eq(inviteToken.code, code!));
 
+  // 2026-07-14 (P2-8): 「無効または期限切れ」で全部まとめず、原因ごとに分けて返す。
   const found = rows[0];
-  if (!found || new Date(found.expiresAt) <= new Date()) {
-    apiError("NOT_FOUND", "無効または期限切れの招待です");
+  if (!found) {
+    apiError("NOT_FOUND", "招待が見つかりません。コード / リンクをご確認ください。");
   }
   const t = found!;
+  if (new Date(t.expiresAt) <= new Date()) {
+    apiError("BAD_REQUEST", "招待の有効期限が切れています。主催者に再発行を依頼してください。");
+  }
 
   const overLimit = t.maxUses !== null && t.usedCount >= t.maxUses;
 
@@ -698,28 +702,30 @@ membershipRoutes.post(
     const session = c.get("session")!;
     const userEmail = session.user.email.toLowerCase();
 
-    // トークンを検索 (token 優先、無ければ code)
+    // トークンを検索 (token 優先、無ければ code)。
+    // 2026-07-14 (P2-8): 期限切れと未存在を別メッセージにするため、expiresAt 条件は付けず後段で判定する。
     const tokens = await db
       .select()
       .from(inviteToken)
       .where(
-        and(
-          input.token
-            ? eq(inviteToken.token, input.token)
-            : eq(inviteToken.code, input.code!),
-          gt(inviteToken.expiresAt, new Date())
-        )
+        input.token
+          ? eq(inviteToken.token, input.token)
+          : eq(inviteToken.code, input.code!)
       );
 
     if (tokens.length === 0) {
-      apiError("BAD_REQUEST", "無効または期限切れの招待トークンです");
+      apiError("NOT_FOUND", "招待が見つかりません。コード / リンクをご確認ください。");
     }
 
     const foundToken = tokens[0]!;
 
+    if (new Date(foundToken.expiresAt) <= new Date()) {
+      apiError("BAD_REQUEST", "招待の有効期限が切れています。主催者に再発行を依頼してください。");
+    }
+
     // targetEmail が指定されたトークンは、そのメール宛のセッションでしか使えない
     if (foundToken.targetEmail && foundToken.targetEmail.toLowerCase() !== userEmail) {
-      apiError("FORBIDDEN", "この招待は別のメールアドレス宛です");
+      apiError("FORBIDDEN", "この招待は別のメールアドレス宛です。招待を受け取ったメールでログインしてください。");
     }
 
     // circle_host 招待はメンバーシップを作らず、サークル作成へ誘導する
