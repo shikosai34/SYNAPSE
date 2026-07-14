@@ -519,6 +519,61 @@ wristbandRoutes.post(
   }
 );
 
+// 既存の未紐付けユーザーにスマホ用デジタルリストバンド(sp_)を発行する (2026-07-14)
+// 物理リストバンドを持たない/紛失した来場者に対し、本部側からスマホ単体で使えるIDを
+// 明示的に付与するための操作。lookup が !hasPhysicalWristband 時に自動発行する処理を、
+// スタッフが任意のユーザーへ能動的に実行できるようにした (未紐付けのままでは決済/スタンプが
+// 使えないため、その場でスマホIDを立ち上げられる導線が必要だった)。
+wristbandRoutes.post(
+  "/issue-smartphone",
+  zBody(z.object({ userId: z.string().min(1) })),
+  async (c) => {
+    const db = c.get("db");
+    const { userId } = c.req.valid("json");
+
+    const users = await db.select().from(eventUser).where(eq(eventUser.id, userId));
+    if (users.length === 0) {
+      apiError("NOT_FOUND", "ユーザーが見つかりません");
+    }
+
+    // 権限チェック (スタッフ member:write 権限が必要)。ユーザーの所属イベントで判定する。
+    const allowed = await hasPermission(c, null, "member:write", users[0]!.eventId);
+    if (!allowed) {
+      apiError("FORBIDDEN", "この操作にはスタッフ権限が必要です");
+    }
+
+    // 二重発行を避けるため、既存のアクティブ/スマホバンドは先に無効化する。
+    await db
+      .update(wristband)
+      .set({ status: "replaced", deactivatedAt: new Date() })
+      .where(
+        and(
+          eq(wristband.userId, userId),
+          or(eq(wristband.status, "active"), eq(wristband.status, "smartphone"))
+        )
+      );
+
+    // スマホ用IDは userId から決定的に導出する (sp_ プレフィックス)。既存レコードがあれば再有効化。
+    const spId = `sp_${userId}`;
+    const existing = await db.select().from(wristband).where(eq(wristband.id, spId));
+    if (existing.length === 0) {
+      await db.insert(wristband).values({
+        id: spId,
+        userId,
+        status: "smartphone",
+        assignedAt: new Date(),
+      });
+    } else {
+      await db
+        .update(wristband)
+        .set({ status: "smartphone", userId, assignedAt: new Date(), deactivatedAt: null })
+        .where(eq(wristband.id, spId));
+    }
+
+    return c.json({ success: true, wristbandId: spId });
+  }
+);
+
 // イベント管理から来場者IDを発行する (2026-07-04)
 // リストバンドを使わない来場者や、事前に来場者枠を用意する場合に、イベント管理者が
 // 新しい eventUser を1件発行する。任意で物理リストバンドコードも同時に紐付ける。

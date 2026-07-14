@@ -940,6 +940,12 @@ export const wristbandApi = {
       method: "POST",
       body: { userId, wristbandId },
     }),
+  // 既存の未紐付けユーザーにスマホ用デジタルID(sp_)を発行する (2026-07-14)
+  issueSmartphone: (userId: string) =>
+    fetchApi<{ success: boolean; wristbandId: string }>("/api/wristbands/issue-smartphone", {
+      method: "POST",
+      body: { userId },
+    }),
   reportLost: (wristbandId: string) =>
     fetchApi<{ success: boolean }>(
       `/api/wristbands/${encodeURIComponent(wristbandId)}/report-lost`,
