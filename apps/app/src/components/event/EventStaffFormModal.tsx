@@ -22,7 +22,8 @@ interface EventStaffFormModalProps {
 //   出店代表者がこのコード/リンクでサークルを新規作成し circle_manager になる。
 //   複数サークルに配るため email 任意・maxUses 複数可。
 type InvitePurpose = "event_manager" | "circle_host";
-type InviteForm = { email: string; purpose: InvitePurpose; maxUses: number };
+// expiresInDays: 招待の有効期限(日)。既定7日 (出店募集は数日〜1週間かかるため。サーバ上限は168h=7日) (2026-07-14 P1-4)。
+type InviteForm = { email: string; purpose: InvitePurpose; maxUses: number; expiresInDays: number };
 
 export function EventStaffFormModal({ eventId, isOpen, onClose }: EventStaffFormModalProps) {
   // 招待は常に新規発行のみ (編集モードなし) なので entity は渡さない。
@@ -31,7 +32,7 @@ export function EventStaffFormModal({ eventId, isOpen, onClose }: EventStaffForm
     handleOverlayClose, handleSaveAndClose, handleDiscardAndClose,
   } = useEntityForm<InviteForm, never>({
     isOpen,
-    emptyForm: { email: "", purpose: "circle_host", maxUses: 1 },
+    emptyForm: { email: "", purpose: "circle_host", maxUses: 1, expiresInDays: 7 },
     onClose,
     toastId: "event-staff-invite",
     invalidateKeys: [["invites", eventId]],
@@ -43,6 +44,8 @@ export function EventStaffFormModal({ eventId, isOpen, onClose }: EventStaffForm
         // circle_host は不特定多数に配れるよう email 任意 + maxUses 複数可。
         targetEmail: data.email.trim() ? data.email.toLowerCase() : undefined,
         maxUses: data.purpose === "circle_host" ? Math.max(1, data.maxUses) : 1,
+        // 有効期限 (日→時間)。1〜7日にクランプ (サーバ側も max 168h)。
+        expiresInHours: Math.min(7, Math.max(1, data.expiresInDays)) * 24,
         createdBy: "event_admin",
       }),
     validate: (data) =>
@@ -95,6 +98,17 @@ export function EventStaffFormModal({ eventId, isOpen, onClose }: EventStaffForm
             placeholder="1"
           />
         )}
+
+        <FormSelect
+          id="inviteExpiry"
+          label="有効期限"
+          value={String(form.expiresInDays)}
+          onChange={(e) => setForm({ ...form, expiresInDays: Number(e.target.value) })}
+        >
+          <option value="1">1日</option>
+          <option value="3">3日</option>
+          <option value="7">7日</option>
+        </FormSelect>
 
         <FormSubmitButton
           onClick={handleSaveAndClose}

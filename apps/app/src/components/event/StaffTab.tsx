@@ -45,6 +45,18 @@ export function StaffTab({
   const [isDeactivateConfirmOpen, setIsDeactivateConfirmOpen] = useState(false);
   const [memberToDeactivate, setMemberToDeactivate] = useState<any | null>(null);
 
+  // 招待の有効期限を7日延長 (2026-07-14 P1-4)
+  const extendInviteMutation = useMutation({
+    mutationFn: (id: string) => membershipApi.extendInvite(id, 168),
+    onSuccess: () => {
+      toast.success("有効期限を7日間延長しました");
+      queryClient.invalidateQueries({ queryKey: ["invites", eventId] });
+    },
+    onError: (err: any) => {
+      toast.error(err.message || "延長に失敗しました");
+    },
+  });
+
   // 招待トークン削除
   const deleteInviteMutation = useMutation({
     mutationFn: (id: string) => membershipApi.deleteInvite(id),
@@ -123,6 +135,12 @@ export function StaffTab({
                   : kind === "event"
                     ? "イベント共同管理者"
                     : "サークルスタッフ";
+              // 有効期限の残り時間表示 (2026-07-14 P1-4)。24h未満は時間、以上は日で概算。
+              const msLeft = new Date(inv.expiresAt).getTime() - Date.now();
+              const hoursLeft = Math.max(0, Math.floor(msLeft / 3_600_000));
+              const remainLabel =
+                hoursLeft >= 24 ? `残り約${Math.floor(hoursLeft / 24)}日` : `残り約${hoursLeft}時間`;
+              const expiringSoon = hoursLeft < 24;
               return (
                 <div key={inv.id} className="flex flex-col sm:flex-row justify-between items-start sm:items-center p-2.5 text-[10px] font-mono bg-muted/30">
                   <div className="space-y-0.5">
@@ -131,15 +149,29 @@ export function StaffTab({
                       <p className="text-foreground text-[11px] select-all">招待コード: <span className="font-bold tracking-wider">{inv.code}</span></p>
                     )}
                     <p className="text-muted-foreground text-[8px] break-all select-all">リンク: {inviteUrl}</p>
+                    <p className={`text-[8px] ${expiringSoon ? "text-destructive font-bold" : "text-muted-foreground"}`}>
+                      有効期限: {new Date(inv.expiresAt).toLocaleString("ja-JP")}（{remainLabel}）
+                    </p>
                   </div>
-                  <Button
-                    variant="destructive"
-                    size="sm"
-                    onClick={() => handleOpenDeleteInvite(inv)}
-                    className="h-7 text-[8px] font-bold uppercase rounded-none px-2 shadow-none border border-transparent mt-2 sm:mt-0 shrink-0"
-                  >
-                    取消
-                  </Button>
+                  <div className="flex gap-1 mt-2 sm:mt-0 shrink-0">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => extendInviteMutation.mutate(inv.id)}
+                      disabled={extendInviteMutation.isPending}
+                      className="h-7 text-[8px] font-bold uppercase rounded-none px-2 shadow-none border-thick border-border"
+                    >
+                      7日延長
+                    </Button>
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      onClick={() => handleOpenDeleteInvite(inv)}
+                      className="h-7 text-[8px] font-bold uppercase rounded-none px-2 shadow-none border border-transparent"
+                    >
+                      取消
+                    </Button>
+                  </div>
                 </div>
               );
             })}

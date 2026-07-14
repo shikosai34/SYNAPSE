@@ -312,6 +312,12 @@ export const membershipApi = {
       : "";
     return fetchApi<InviteToken[]>(`/api/memberships/invite/list?${params}`);
   },
+  // 招待の有効期限を「今から N 時間後」に延長する (2026-07-14 P1-4)。
+  extendInvite: (id: string, expiresInHours: number) =>
+    fetchApi<{ success: boolean; expiresAt: string }>(`/api/memberships/invite/${id}/extend`, {
+      method: "PATCH",
+      body: { expiresInHours },
+    }),
   deleteInvite: (id: string) =>
     fetchApi<{ success: boolean }>(`/api/memberships/invite/${id}`, {
       method: "DELETE",

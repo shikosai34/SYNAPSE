@@ -848,6 +848,32 @@ membershipRoutes.get("/invite/list", async (c) => {
   return c.json(sanitized);
 });
 
+// 招待の有効期限を延長する (2026-07-14 P1-4)。
+// 既定24hだと出店募集期間より短く、リンク/コードが黙って失効していたため、
+// 有効な招待の期限を「今から N 時間後」に付け替えられるようにする (再発行せず延命)。
+membershipRoutes.patch(
+  "/invite/:id/extend",
+  zBody(z.object({ expiresInHours: z.number().min(1).max(168).default(168) })),
+  async (c) => {
+    const db = c.get("db");
+    const id = c.req.param("id");
+    const { expiresInHours } = c.req.valid("json");
+
+    const tokens = await db.select().from(inviteToken).where(eq(inviteToken.id, id));
+    if (tokens.length === 0) apiError("NOT_FOUND", "トークンが見つかりません");
+    const t = tokens[0]!;
+
+    const err = await checkMemberWritePermission(c, t.circleId, "viewer", undefined, t.eventId);
+    if (err) apiError(err.code, err.error, { status: err.status });
+
+    const expiresAt = new Date();
+    expiresAt.setHours(expiresAt.getHours() + expiresInHours);
+    await db.update(inviteToken).set({ expiresAt }).where(eq(inviteToken.id, id));
+
+    return c.json({ success: true, expiresAt });
+  }
+);
+
 // 招待トークン削除
 membershipRoutes.delete("/invite/:id", async (c) => {
   const db = c.get("db");
