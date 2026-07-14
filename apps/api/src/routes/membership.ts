@@ -832,6 +832,17 @@ membershipRoutes.get("/invite/list", async (c) => {
   // 期限切れのトークンを除外
   const activeTokens = tokens.filter((t) => new Date(t.expiresAt) > new Date());
 
+  // 使用内訳 (2026-07-14 P2-5): 各招待から作成されたサークルを引き当てる。
+  // 「0/10 使用」の内訳(どのサークルが作られたか)を一覧で辿れるようにする。
+  const activeIds = activeTokens.map((t) => t.id);
+  const consumers =
+    activeIds.length > 0
+      ? await db
+          .select({ id: circle.id, name: circle.name, createdAt: circle.createdAt, inviteId: circle.createdFromInviteId })
+          .from(circle)
+          .where(and(inArray(circle.createdFromInviteId, activeIds), isNull(circle.deletedAt)))
+      : [];
+
   // 生トークンの値をレスポンスから除外し、一覧に必要な項目のみ返す
   const sanitized = activeTokens.map((t) => ({
     id: t.id,
@@ -849,6 +860,10 @@ membershipRoutes.get("/invite/list", async (c) => {
     targetEmail: t.targetEmail,
     createdBy: t.createdBy,
     createdAt: t.createdAt,
+    // この招待から作成されたサークル一覧 (使用内訳)。
+    consumedBy: consumers
+      .filter((cc) => cc.inviteId === t.id)
+      .map((cc) => ({ id: cc.id, name: cc.name, createdAt: cc.createdAt })),
   }));
 
   return c.json(sanitized);

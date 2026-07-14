@@ -174,6 +174,17 @@ export function StaffTab({
                       <p className={`text-[8px] ${expiringSoon ? "text-destructive font-bold" : "text-muted-foreground"}`}>
                         有効期限: {new Date(inv.expiresAt).toLocaleString("ja-JP")}（{remainLabel}）
                       </p>
+                      {/* 使用内訳: この招待から作られたサークル (P2-5) */}
+                      {inv.consumedBy && inv.consumedBy.length > 0 && (
+                        <div className="pt-1 mt-1 border-t border-border/30">
+                          <p className="text-[8px] text-muted-foreground font-bold">作成されたサークル:</p>
+                          <ul className="text-[9px] text-foreground list-disc list-inside">
+                            {inv.consumedBy.map((cc: { id: string; name: string }) => (
+                              <li key={cc.id} className="truncate">{cc.name}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
                     </div>
                   </div>
                   <div className="flex gap-1 shrink-0">

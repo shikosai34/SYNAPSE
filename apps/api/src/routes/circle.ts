@@ -333,6 +333,8 @@ circleRoutes.post(
       eventId: input.eventId,
       name: input.name,
       description: input.description,
+      // 招待経由なら、どの circle_host 招待から作られたかを記録する (2026-07-14 P2-5 使用内訳)。
+      createdFromInviteId: hostInvite?.id ?? null,
     });
 
     // 2026-07-06 (M5): D1 はトランザクション非対応のため、membership insert が

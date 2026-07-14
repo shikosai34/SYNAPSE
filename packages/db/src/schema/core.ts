@@ -194,6 +194,10 @@ export const circle = sqliteTable(
     settings: text("settings").default("{}").notNull(),
     // スタンプラリー用 TOTP シークレット(base32)。null=このサークルのOTPスタンプ無効 (2026-07-04)
     stampSecret: text("stamp_secret"),
+    // このサークルがどの circle_host 招待から作成されたか (2026-07-14 P2-5)。
+    // 招待の「使用内訳(どのサークルが作られたか)」を辿るためのポインタ。
+    // null = 招待経由でない (event_manager が直接作成 等)。招待は削除されうるので FK は張らない。
+    createdFromInviteId: text("created_from_invite_id"),
     // 論理削除 (2026-07-04): 物理削除せず deletedAt に時刻を入れて非表示化する
     deletedAt: integer("deleted_at", { mode: "timestamp_ms" }),
     createdAt: integer("created_at", { mode: "timestamp_ms" })

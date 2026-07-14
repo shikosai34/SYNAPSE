@@ -749,6 +749,8 @@ export interface InviteToken {
   maxUses: number | null;
   usedCount: number;
   targetEmail?: string | null;
+  // この招待から作成されたサークル一覧 (使用内訳。P2-5)
+  consumedBy?: { id: string; name: string; createdAt: string }[];
 }
 
 // Input Types
