@@ -108,6 +108,15 @@ export const eventApi = {
   // イベント内スタッフへの一斉アナウンス。event_manager (member:write) 権限が必要。
   announce: (id: string, data: { title: string; message: string }) =>
     fetchApi<{ sent: number }>(`/api/festivals/${id}/announce`, { method: "POST", body: data }),
+  // 過去に送信した一斉アナウンスの履歴 (2026-07-16)。event_manager (member:read) 権限。
+  announcements: (id: string) =>
+    fetchApi<EventAnnouncement[]>(`/api/festivals/${id}/announcements`),
+  // 履歴からの削除。配信済みの notification (受信者側) は取り消されない
+  // (履歴ログの削除であり配信取り消しではない設計。詳細は API 側コメント参照)。
+  deleteAnnouncement: (id: string, announcementId: string) =>
+    fetchApi<{ success: boolean }>(`/api/festivals/${id}/announcements/${announcementId}`, {
+      method: "DELETE",
+    }),
   create: (data: CreateEventInput) =>
     fetchApi<{ id: string }>("/api/festivals", { method: "POST", body: data }),
   updateTheme: (id: string, data: EventTheme) =>
@@ -460,6 +469,17 @@ export interface EventContract {
   paidTotal: number;
   outstanding: number;
   payments: { id: string; amount: number; method: string; paidAt: string; note: string | null }[];
+}
+
+// 一斉アナウンス送信履歴 (2026-07-16)。GET /api/festivals/:id/announcements。
+export interface EventAnnouncement {
+  id: string;
+  eventId: string;
+  title: string;
+  message: string;
+  senderEmail: string;
+  recipientCount: number;
+  createdAt: string;
 }
 
 // event.paymentMethods (JSON文字列) を配列にパースする。既定は ["現金"]。

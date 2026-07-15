@@ -246,6 +246,38 @@ export const circle = sqliteTable(
   (table) => [index("circle_eventId_idx").on(table.eventId)]
 );
 
+// イベント一斉アナウンス送信履歴 (2026-07-16)。
+// 「送るだけで過去分が見られない」という要望への対応。
+// 設計判断: 配信先ごとの通知(system.ts の notification)から復元する案もあったが、
+//   - notification は受信者ごとに1行(userEmail単位)で作られ、既読/未読が個別に変化するため
+//     「1回の送信」をグルーピングするキーが無い(タイトル・本文・作成時刻の一致で推測するのは
+//     同時刻に似た内容を送った場合に誤って合算されうるほど脆い)。
+//   - 将来 notification 側に保持期間クリーンアップ(古い既読分の削除)を入れると、
+//     復元元のデータごと履歴が消えてしまう。
+//   そのため「いつ・誰が・何件に送ったか」を独立して保持する専用テーブルを新設する。
+// 削除は履歴ログの削除のみを意味し、配信済みの notification(受信者側)は取り消さない
+// (受信者ごとに独立した記録のため、送信取り消しの概念を持たせない設計とした)。
+export const eventAnnouncement = sqliteTable(
+  "event_announcement",
+  {
+    id: text("id").primaryKey().$defaultFn(() => ulid()),
+    eventId: text("event_id")
+      .notNull()
+      .references(() => event.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    message: text("message").notNull(),
+    senderEmail: text("sender_email").notNull(), // 送信した event_manager 等のメール
+    recipientCount: integer("recipient_count").notNull().default(0), // 送信時点で通知を作成した件数
+    createdAt: integer("created_at", { mode: "timestamp_ms" })
+      .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+      .notNull(),
+  },
+  (table) => [
+    index("event_announcement_eventId_idx").on(table.eventId),
+    index("event_announcement_createdAt_idx").on(table.createdAt),
+  ]
+);
+
 // スタッフ名簿テーブル
 // 2026-07-14: シフト機能(shift_start/shift_end + 出退勤)を廃止。スタッフの稼働時間追跡は
 // 使われていなかったため撤去し、単純な名簿(名前の一覧)として残す。

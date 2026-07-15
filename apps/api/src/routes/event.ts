@@ -15,6 +15,7 @@ import {
   notification,
   userStamp,
   contractPayment,
+  eventAnnouncement,
 } from "@fesflow/db";
 import { eq, and, inArray, isNull, desc } from "drizzle-orm";
 import { ulid } from "ulidx";
@@ -325,6 +326,11 @@ eventRoutes.post(
     }
     const input = c.req.valid("json");
 
+    // 2026-07-16: 履歴テーブル(event_announcement)に senderEmail を残すためセッションを取得。
+    // hasPermission が既にセッション存在を前提にしているのでここでは非nullとして扱える。
+    const session = await getSession(c);
+    const senderEmail = session!.user.email.toLowerCase();
+
     const events = await db.select().from(event).where(eq(event.id, eventId));
     if (events.length === 0) apiError("NOT_FOUND", "イベントが見つかりません");
     const eventName = events[0]!.eventName;
@@ -368,9 +374,57 @@ eventRoutes.post(
       sent += 1;
     }
 
+    // 送信履歴を記録する (2026-07-16)。理由は eventAnnouncement テーブル定義のコメントを参照。
+    await db.insert(eventAnnouncement).values({
+      id: ulid(),
+      eventId,
+      title: input.title,
+      message: input.message,
+      senderEmail,
+      recipientCount: sent,
+      createdAt: new Date(),
+    });
+
     return c.json({ sent });
   }
 );
+
+// 一斉アナウンスの送信履歴一覧 (2026-07-16)。過去に送ったアナウンスを新しい順に返す。
+// event_manager (member:read) 権限。
+eventRoutes.get("/:id/announcements", async (c) => {
+  const db = c.get("db");
+  const eventId = c.req.param("id");
+  if (!(await hasPermission(c, null, "member:read", eventId))) {
+    apiError("FORBIDDEN", "このイベントのアナウンス履歴を見る権限がありません");
+  }
+
+  const rows = await db
+    .select()
+    .from(eventAnnouncement)
+    .where(eq(eventAnnouncement.eventId, eventId))
+    .orderBy(desc(eventAnnouncement.createdAt));
+
+  return c.json(rows);
+});
+
+// 一斉アナウンス履歴の削除 (2026-07-16)。
+// 注意: これは履歴ログの削除であり、既に配信済みの notification (受信者ごとの通知) は
+// 取り消さない。受信者は自身の通知センターに残ったまま既読/未読を管理できる
+// (event_announcement テーブル定義のコメントに設計理由を記載)。event_manager (member:write) 権限。
+eventRoutes.delete("/:id/announcements/:announcementId", async (c) => {
+  const db = c.get("db");
+  const eventId = c.req.param("id");
+  const announcementId = c.req.param("announcementId");
+  if (!(await hasPermission(c, null, "member:write", eventId))) {
+    apiError("FORBIDDEN", "このイベントのアナウンス履歴を削除する権限がありません");
+  }
+
+  await db
+    .delete(eventAnnouncement)
+    .where(and(eq(eventAnnouncement.id, announcementId), eq(eventAnnouncement.eventId, eventId)));
+
+  return c.json({ success: true });
+});
 
 // イベント横断の在庫/売り切れ一覧 (2026-07-12)
 // 全サークルのメニューを在庫状況付きで返す。フロントが売り切れ/在庫僅少を強調表示する。

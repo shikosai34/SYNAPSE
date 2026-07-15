@@ -109,6 +109,17 @@ export default function Header() {
     enabled: isAuthenticated && isAccountSuperAdmin,
   });
 
+  // 通知を既読にするミューテーション (2026-07-16)。
+  // invite 型は承認/辞退の応答時に respond エンドポイント側で既読化されるため専用ボタンは出さない。
+  // それ以外(announcement 等)は応答アクションが無いため、ここで明示的に既読化する導線が必要だった。
+  const readMutation = useMutation({
+    mutationFn: (id: string) => notificationApi.read(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["notifications"] });
+    },
+    onError: (e: any) => toast.error(e?.message || "既読にできませんでした"),
+  });
+
   // 招待回答ミューテーション
   const respondMutation = useMutation({
     mutationFn: async ({ notifId, action }: { notifId: string; action: "accept" | "decline" }) => {
@@ -389,9 +400,18 @@ export default function Header() {
                   className="p-1.5 sm:p-2 border-thick border-border bg-background hover:bg-muted select-none cursor-pointer flex items-center justify-center relative h-8 w-8 sm:h-9 sm:w-9 rounded-none"
                 >
                   <Bell className="h-4 w-4" />
+                  {/* 未読バッジ (2026-07-16): 個人宛通知(notification)は unread/read を持つため件数を出す。
+                      システムお知らせ(announcements)は全ユーザー公開で既読状態を持たないため、
+                      それしか無い場合は件数の代わりに "!" のみ表示する。 */}
                   {((notifications && notifications.length > 0) ||
                     (announcements && announcements.length > 0)) && (
-                    <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-destructive rounded-none" />
+                    <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 flex items-center justify-center bg-destructive text-destructive-foreground text-[9px] font-black leading-none rounded-none border border-background">
+                      {notifications && notifications.length > 0
+                        ? notifications.length > 99
+                          ? "99+"
+                          : notifications.length
+                        : "!"}
+                    </span>
                   )}
                 </button>
 
@@ -453,7 +473,7 @@ export default function Header() {
                               </span>
                             </div>
                             <p className="text-[11px] leading-[1.4] text-foreground/80">{notif.message}</p>
-                            {notif.type === "invite" && (
+                            {notif.type === "invite" ? (
                               <div className="flex gap-2 pt-1.5">
                                 <Button
                                   size="sm"
@@ -472,6 +492,18 @@ export default function Header() {
                                 >
                                   辞退
                                 </Button>
+                              </div>
+                            ) : (
+                              // invite 以外(announcement 等)は応答アクションが無いため、
+                              // 既読にする専用ボタンを出す (2026-07-16 既読機能)
+                              <div className="flex justify-end pt-1">
+                                <button
+                                  onClick={() => readMutation.mutate(notif.id)}
+                                  disabled={readMutation.isPending}
+                                  className="text-[10px] underline hover:text-primary cursor-pointer disabled:opacity-50"
+                                >
+                                  既読にする
+                                </button>
                               </div>
                             )}
                           </div>
