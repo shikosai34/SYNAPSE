@@ -282,6 +282,10 @@ export const membershipApi = {
     fetchApi<{ success: boolean }>(`/api/memberships/${id}/deactivate`, {
       method: "PATCH",
     }),
+  reactivate: (id: string) =>
+    fetchApi<{ success: boolean }>(`/api/memberships/${id}/reactivate`, {
+      method: "PATCH",
+    }),
   delete: (id: string) =>
     fetchApi<{ success: boolean }>(`/api/memberships/${id}`, {
       method: "DELETE",

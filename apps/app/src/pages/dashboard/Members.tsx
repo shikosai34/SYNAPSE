@@ -38,6 +38,8 @@ import {
   Shield,
   Trash2,
   Users,
+  Ban,
+  RotateCcw,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -169,6 +171,17 @@ function MembersContent() {
       toast.success("ロールを変更しました");
     },
     onError: (e: any) => toast.error(e?.message || "ロールの変更に失敗しました"),
+  });
+
+  // アカウント停止 / 復帰 (2026-07-15)。isActive は権限判定で強制されるため、停止で即アクセス無効。
+  const setActiveMutation = useMutation({
+    mutationFn: (input: { id: string; active: boolean }) =>
+      input.active ? membershipApi.reactivate(input.id) : membershipApi.deactivate(input.id),
+    onSuccess: (_d, input) => {
+      refetchMembers();
+      toast.success(input.active ? "アカウントを復帰しました" : "アカウントを停止しました");
+    },
+    onError: (e: any) => toast.error(e?.message || "更新に失敗しました"),
   });
 
   // 期限切れ招待の再発行 / 延長 (バックエンドは実装済みだがUI導線が無かった) (2026-07-15)
@@ -584,8 +597,31 @@ function MembersContent() {
                       )}
                     </PermissionGuard>
                     {!member.isActive && (
-                      <Badge variant="warning">非アクティブ</Badge>
+                      <Badge variant="warning">停止中</Badge>
                     )}
+                    {/* アカウント停止/復帰 (2026-07-15)。停止すると権限が即無効化される。
+                        最後のアクティブ管理者は停止不可 (ロックアウト防止)。 */}
+                    <PermissionGuard permission="member:write">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        disabled={setActiveMutation.isPending || (member.isActive && isLastManager(member))}
+                        title={
+                          member.isActive
+                            ? isLastManager(member)
+                              ? "最後の管理者は停止できません"
+                              : "このアカウントを停止する"
+                            : "このアカウントを復帰する"
+                        }
+                        onClick={() => setActiveMutation.mutate({ id: member.id, active: !member.isActive })}
+                      >
+                        {member.isActive ? (
+                          <Ban className="h-4 w-4 text-warning" />
+                        ) : (
+                          <RotateCcw className="h-4 w-4 text-success" />
+                        )}
+                      </Button>
+                    </PermissionGuard>
                     <PermissionGuard permission="member:delete">
                       <Button
                         size="sm"

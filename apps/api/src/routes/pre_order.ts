@@ -101,6 +101,11 @@ preOrderRoutes.post(
       if (eventRows[0]!.billingStatus === "suspended") {
         apiError("BAD_REQUEST", "このイベントは現在停止中のため注文を受け付けていません");
       }
+      // 開催期間(endDate)を過ぎたら事前オーダーも締め切る。
+      const eventEnd = eventRows[0]!.endDate;
+      if (eventEnd && eventEnd.getTime() < Date.now()) {
+        apiError("BAD_REQUEST", "このイベントは開催期間を終了しているため注文を受け付けていません");
+      }
 
       const existingUser = await db
         .select()

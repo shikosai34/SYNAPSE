@@ -377,6 +377,11 @@ orderRoutes.post(
       if (eventRows[0]!.billingStatus === "suspended") {
         apiError("BAD_REQUEST", "このイベントは現在停止中のため注文を受け付けていません");
       }
+      // 開催期間(endDate)を過ぎたら新規注文を締め切る。endDate 未設定なら期間無制限として通す。
+      const eventEnd = eventRows[0]!.endDate;
+      if (eventEnd && eventEnd.getTime() < Date.now()) {
+        apiError("BAD_REQUEST", "このイベントは開催期間を終了しているため注文を受け付けていません");
+      }
 
       // サークル設定から注文モードを解決する。
       //   "pending"    : 未着手で受付 (既定・従来挙動、厨房が調理開始→完成)
