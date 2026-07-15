@@ -402,13 +402,14 @@ function MembersContent() {
           />
           <FormField
             id="expires"
-            label="有効期限（時間）"
+            label="有効期限（時間、最大168時間/7日間）"
             type="number"
-            max={720}
+            max={168}
             value={inviteSettings.expiresInHours}
             onChange={(e) => {
               const n = parseInt(e.target.value);
-              setInviteSettings({ ...inviteSettings, expiresInHours: Number.isNaN(n) ? 0 : Math.max(0, n) });
+              // 2026-07-15: API上限(168時間=7日間)に適合させるため、入力値を 168 以下にクランプする
+              setInviteSettings({ ...inviteSettings, expiresInHours: Number.isNaN(n) ? 0 : Math.max(0, Math.min(168, n)) });
             }}
           />
           <FormField
