@@ -57,11 +57,15 @@ const ORDER_FLOW_OPTIONS: {
 ];
 
 function CircleSettingsContent() {
-  const { role, membershipId, isEventAdmin } = useAuth();
+  // 2026-07-16: circleId/circleName を useState+useEffect(mount時一度きり) で
+  // localStorage から固定読みしていたため、同一パス上でスペース切り替え後も
+  // 古いサークルの設定画面のまま表示され続けていた。useAuth() (authChange 購読)
+  // に統一し、切り替え直後に circle クエリのキーが更新されて再取得されるようにする。
+  const { role, membershipId, isEventAdmin, circleId: authCircleId, circleName: authCircleName } = useAuth();
+  const circleId = authCircleId ?? "";
+  const circleName = authCircleName ?? "サークルダッシュボード";
   const queryClient = useQueryClient();
 
-  const [circleId, setCircleId] = useState<string>("");
-  const [circleName, setCircleName] = useState<string>("サークルダッシュボード");
   const [form, setForm] = useState({ name: "", description: "" });
   // 2026-07-16: 「基本情報」セクションの未保存判定用に、直近保存済みの値を保持する。
   const [formSnapshot, setFormSnapshot] = useState({ name: "", description: "" });
@@ -86,18 +90,6 @@ function CircleSettingsContent() {
   const [pendingTransfer, setPendingTransfer] = useState<{ id: string; name: string } | null>(
     null
   );
-
-  useEffect(() => {
-    const storedCircleId = localStorage.getItem("circleId");
-    if (storedCircleId) setCircleId(storedCircleId);
-    const authStored = localStorage.getItem("circleAuth");
-    if (authStored) {
-      try {
-        const authInfo = JSON.parse(authStored);
-        if (authInfo.circleName) setCircleName(authInfo.circleName);
-      } catch (_) {}
-    }
-  }, []);
 
   const {
     data: circle,

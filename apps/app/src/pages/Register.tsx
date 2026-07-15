@@ -1,7 +1,7 @@
 
 import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { CircleAuthGuard, getAuthInfo } from "@/hooks/useCircleAuth";
+import { CircleAuthGuard, getAuthInfo, useAuth } from "@/hooks/useCircleAuth";
 import { menuApi, toppingApi, orderApi, circleApi, eventApi, wristbandApi, preOrderApi, parseCircleSettings, parseEventPaymentMethods, type MenuWithToppings, type Topping } from "@/lib/api";
 import { extractIdFromCode, cn } from "@/lib/utils";
 import { undoableAction } from "@/lib/toast-undo";
@@ -377,7 +377,11 @@ function CartBody({
 }
 
 function RegisterPageContent() {
-  const [circleId, setCircleId] = useState<string>("");
+  // 2026-07-16: circleId を useState+useEffect(mount時一度きり) で固定していると、
+  // 同一パス上でスペース切り替え後も古いサークルのレジ画面のまま表示され続ける。
+  // useAuth() (authChange 購読) に統一する。
+  const { circleId: authCircleId } = useAuth();
+  const circleId = authCircleId ?? "";
   const [cart, setCart] = useState<CartLine[]>([]);
   const [peopleCount, setPeopleCount] = useState(1);
   const [isQrModalOpen, setIsQrModalOpen] = useState(false);
@@ -386,11 +390,6 @@ function RegisterPageContent() {
   const [scannedCode, setScannedCode] = useState("");
   const [activeCustomer, setActiveCustomer] = useState<{ userId: string; wristbandId: string | null } | null>(null);
   const [activePreOrderId, setActivePreOrderId] = useState<string | null>(null);
-
-  useEffect(() => {
-    const storedCircleId = localStorage.getItem("circleId");
-    if (storedCircleId) setCircleId(storedCircleId);
-  }, []);
 
   const { data: circle } = useQuery({
     queryKey: ["circle", circleId],

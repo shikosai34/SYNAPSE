@@ -1,8 +1,9 @@
-import { ReactNode, useState, useEffect } from "react";
+import { ReactNode, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import { circleApi, eventApi, parseCircleSettings } from "@/lib/api";
+import { useAuth } from "@/hooks/useCircleAuth";
 import {
   LayoutDashboard,
   UtensilsCrossed,
@@ -80,13 +81,14 @@ export default function DashboardLayout({
 }: DashboardLayoutProps) {
   const location = useLocation();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const [circleId, setCircleId] = useState<string>("");
-
-  useEffect(() => {
-    if (type !== "circle") return;
-    const stored = localStorage.getItem("circleId");
-    if (stored) setCircleId(stored);
-  }, [type]);
+  // 2026-07-16: 従来は useState + useEffect(依存配列 []) で mount 時に一度だけ
+  // localStorage の circleId を読んでいたため、同一パス上でヘッダーからスペースを
+  // 切り替えても(再マウントされないので)ここが古いサークルIDのまま固定され、
+  // 拡張機能のON/OFF出し分け(在庫/スタッフ)が切り替え前のサークルの設定で
+  // 表示され続ける不具合があった。useAuth() は authChange イベント購読で常に
+  // 最新の circleId を返すため、これに乗り換えて再マウント不要で反映されるようにする。
+  const { circleId: authCircleId } = useAuth();
+  const circleId = type === "circle" ? (authCircleId ?? "") : "";
 
   // 拡張機能(在庫/スタッフ)のON/OFF判定のためサークル設定を取得
   const { data: circle } = useQuery({

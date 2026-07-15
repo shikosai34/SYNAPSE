@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { CircleAuthGuard } from "@/hooks/useCircleAuth";
+import { CircleAuthGuard, useAuth } from "@/hooks/useCircleAuth";
 import { orderApi } from "@/lib/api";
 import DashboardLayout from "@/components/DashboardLayout";
 import {
@@ -28,28 +28,17 @@ const formatDayLabel = (key: string) => {
 };
 
 function SalesManagementContent() {
-  const [circleId, setCircleId] = useState<string>("");
-  const [circleName, setCircleName] = useState<string>("サークルダッシュボード");
+  // 2026-07-16: circleId/circleName を useState+useEffect(mount時一度きり) で
+  // localStorage から固定読みしていたため、同一パス上でスペース切り替えをしても
+  // 古いサークルの売上のまま表示され続けていた。useAuth() に統一し、
+  // authChange イベントで即時反映されるようにする。
+  const { circleId: authCircleId, circleName: authCircleName } = useAuth();
+  const circleId = authCircleId ?? "";
+  const circleName = authCircleName ?? "サークルダッシュボード";
   // 表示対象の日付 (日にちごとに切り替えながら見られるようにする)
   const [selectedDate, setSelectedDate] = useState<string>("");
   // グラフ拡大モーダル用状態
   const [isChartExpanded, setIsChartExpanded] = useState(false);
-
-  useEffect(() => {
-    const storedCircleId = localStorage.getItem("circleId");
-    if (storedCircleId) {
-      setCircleId(storedCircleId);
-    }
-    const authStored = localStorage.getItem("circleAuth");
-    if (authStored) {
-      try {
-        const authInfo = JSON.parse(authStored);
-        if (authInfo.circleName) {
-          setCircleName(authInfo.circleName);
-        }
-      } catch (_) {}
-    }
-  }, []);
 
   const {
     data: orders,

@@ -1,4 +1,3 @@
-import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   CircleAuthGuard,
@@ -20,13 +19,11 @@ import { Badge } from "@/components/ui/badge";
 import DashboardLayout from "@/components/DashboardLayout";
 
 function DashboardContent() {
-  const { role, roleName, userName, circleName } = useAuth();
-
-  const [circleId, setCircleId] = useState<string>("");
-  useEffect(() => {
-    const stored = localStorage.getItem("circleId");
-    if (stored) setCircleId(stored);
-  }, []);
+  // 2026-07-16: circleId は独自の useState+useEffect(mount時一度きり) をやめ、
+  // authChange 購読で常に最新値を返す useAuth() に統一。同一パス上でのスペース
+  // 切り替え時に古い circleId が残らないようにする。
+  const { role, roleName, userName, circleName, circleId: authCircleId } = useAuth();
+  const circleId = authCircleId ?? "";
   const { data: circle } = useQuery({
     queryKey: ["circle", circleId],
     queryFn: () => circleApi.get(circleId),

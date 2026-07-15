@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { circleApi, type CircleAnalytics } from "@/lib/api";
 import { CircleAuthGuard, useAuth } from "@/hooks/useCircleAuth";
@@ -104,16 +104,12 @@ function Bars({
 }
 
 function CircleAnalyticsContent() {
-  const { circleName } = useAuth();
-  const [circleId, setCircleId] = useState<string>("");
+  // 2026-07-16: circleId を useState+useEffect(mount時一度きり) で固定していると、
+  // 同一パス上でスペース切り替え後も古いサークルの統計のまま表示され続ける。
+  // useAuth() (authChange 購読) に統一する。
+  const { circleName, circleId: authCircleId } = useAuth();
+  const circleId = authCircleId ?? "";
   const [live, setLive] = useState(false);
-
-  useEffect(() => {
-    const storedCircleId = localStorage.getItem("circleId");
-    if (storedCircleId) {
-      setCircleId(storedCircleId);
-    }
-  }, []);
 
   const { data, isLoading, isError, error, refetch, isFetching } = useQuery({
     queryKey: ["circle-analytics", circleId],

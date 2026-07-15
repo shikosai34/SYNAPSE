@@ -1,7 +1,7 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { CircleAuthGuard } from "@/hooks/useCircleAuth";
+import { CircleAuthGuard, useAuth } from "@/hooks/useCircleAuth";
 import { menuApi, toppingApi, circleApi, parseCircleSettings } from "@/lib/api";
 import DashboardLayout from "@/components/DashboardLayout";
 import {
@@ -24,9 +24,14 @@ import { ToppingFormModal } from "@/components/menu/ToppingFormModal";
 import { ToppingMappingModal } from "@/components/menu/ToppingMappingModal";
 
 function MenuManagementContent() {
-  const [circleId, setCircleId] = useState<string>("");
-  const [circleName, setCircleName] = useState<string>("サークルダッシュボード");
-  
+  // 2026-07-16: circleId/circleName を useState+useEffect(mount時一度きり) で
+  // localStorage から固定読みしていたため、同一パス上でスペース切り替え後も
+  // 古いサークルのメニュー管理画面のまま表示され続けていた。useAuth() (authChange
+  // 購読) に統一する。
+  const { circleId: authCircleId, circleName: authCircleName } = useAuth();
+  const circleId = authCircleId ?? "";
+  const circleName = authCircleName ?? "サークルダッシュボード";
+
   // モーダル開閉用ステート
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [selectedMenu, setSelectedMenu] = useState<any | null>(null);
@@ -37,22 +42,6 @@ function MenuManagementContent() {
   const [isMappingOpen, setIsMappingOpen] = useState(false);
 
   const queryClient = useQueryClient();
-
-  useEffect(() => {
-    const storedCircleId = localStorage.getItem("circleId");
-    if (storedCircleId) {
-      setCircleId(storedCircleId);
-    }
-    const authStored = localStorage.getItem("circleAuth");
-    if (authStored) {
-      try {
-        const authInfo = JSON.parse(authStored);
-        if (authInfo.circleName) {
-          setCircleName(authInfo.circleName);
-        }
-      } catch (_) {}
-    }
-  }, []);
 
   const {
     data: menus,
