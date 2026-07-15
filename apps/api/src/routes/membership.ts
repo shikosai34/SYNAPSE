@@ -829,22 +829,28 @@ membershipRoutes.get("/invite/list", async (c) => {
 
   const tokens = await query;
 
-  // 期限切れのトークンを除外
-  const activeTokens = tokens.filter((t) => new Date(t.expiresAt) > new Date());
+  // 2026-07-14 (P1-4 強化): 有効な招待に加え、直近14日以内に失効したものも返す
+  // (再発行/延長の導線を出すため)。それより古い失効トークンは一覧から落とす。
+  const now = Date.now();
+  const RECENT_EXPIRED_MS = 14 * 24 * 3600 * 1000;
+  const shown = tokens.filter((t) => {
+    const exp = new Date(t.expiresAt).getTime();
+    return exp > now || now - exp < RECENT_EXPIRED_MS;
+  });
 
   // 使用内訳 (2026-07-14 P2-5): 各招待から作成されたサークルを引き当てる。
   // 「0/10 使用」の内訳(どのサークルが作られたか)を一覧で辿れるようにする。
-  const activeIds = activeTokens.map((t) => t.id);
+  const shownIds = shown.map((t) => t.id);
   const consumers =
-    activeIds.length > 0
+    shownIds.length > 0
       ? await db
           .select({ id: circle.id, name: circle.name, createdAt: circle.createdAt, inviteId: circle.createdFromInviteId })
           .from(circle)
-          .where(and(inArray(circle.createdFromInviteId, activeIds), isNull(circle.deletedAt)))
+          .where(and(inArray(circle.createdFromInviteId, shownIds), isNull(circle.deletedAt)))
       : [];
 
   // 生トークンの値をレスポンスから除外し、一覧に必要な項目のみ返す
-  const sanitized = activeTokens.map((t) => ({
+  const sanitized = shown.map((t) => ({
     id: t.id,
     circleId: t.circleId,
     eventId: t.eventId,
@@ -860,6 +866,8 @@ membershipRoutes.get("/invite/list", async (c) => {
     targetEmail: t.targetEmail,
     createdBy: t.createdBy,
     createdAt: t.createdAt,
+    // 失効フラグ (2026-07-14 P1-4): UI で「期限切れ・再発行」導線を出すため。
+    expired: new Date(t.expiresAt).getTime() <= now,
     // この招待から作成されたサークル一覧 (使用内訳)。
     consumedBy: consumers
       .filter((cc) => cc.inviteId === t.id)
@@ -894,6 +902,45 @@ membershipRoutes.patch(
     return c.json({ success: true, expiresAt });
   }
 );
+
+// 招待の再発行 (2026-07-14 P1-4 強化)。
+// 期限切れの招待から、新しい token/code・7日有効期限で作り直す。設定(role/所属/maxUses/
+// targetEmail)は引き継ぐ。古いリンク/コードを無効化したい(漏洩時等)ケースにも使えるよう、
+// 延長(同じコードのまま延命)とは別に「新しいコードを発行する」導線として用意する。
+// 元トークンは削除せず残す(使用内訳の履歴を保持。失効後14日で一覧から自然に落ちる)。
+membershipRoutes.post("/invite/:id/regenerate", async (c) => {
+  const db = c.get("db");
+  const id = c.req.param("id");
+
+  const rows = await db.select().from(inviteToken).where(eq(inviteToken.id, id));
+  if (rows.length === 0) apiError("NOT_FOUND", "トークンが見つかりません");
+  const src = rows[0]!;
+
+  const err = await checkMemberWritePermission(c, src.circleId, "viewer", undefined, src.eventId);
+  if (err) apiError(err.code, err.error, { status: err.status });
+
+  const newId = ulid();
+  const token = nanoid(32);
+  const code = genInviteCode();
+  const expiresAt = new Date();
+  expiresAt.setHours(expiresAt.getHours() + 168); // 7日
+
+  await db.insert(inviteToken).values({
+    id: newId,
+    token,
+    code,
+    circleId: src.circleId,
+    eventId: src.eventId,
+    role: src.role,
+    maxUses: src.maxUses,
+    usedCount: 0,
+    expiresAt,
+    createdBy: src.createdBy,
+    targetEmail: src.targetEmail,
+  });
+
+  return c.json({ id: newId, token, code, expiresAt }, 201);
+});
 
 // 招待トークン削除
 membershipRoutes.delete("/invite/:id", async (c) => {

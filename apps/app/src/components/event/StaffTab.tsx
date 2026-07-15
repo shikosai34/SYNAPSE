@@ -58,6 +58,18 @@ export function StaffTab({
     },
   });
 
+  // 期限切れ招待の再発行 (新しいコード・7日期限で作り直す) (2026-07-14 P1-4 強化)
+  const regenerateInviteMutation = useMutation({
+    mutationFn: (id: string) => membershipApi.regenerateInvite(id),
+    onSuccess: () => {
+      toast.success("新しい招待コードを発行しました");
+      queryClient.invalidateQueries({ queryKey: ["invites", eventId] });
+    },
+    onError: (err: any) => {
+      toast.error(err.message || "再発行に失敗しました");
+    },
+  });
+
   // 招待トークン削除
   const deleteInviteMutation = useMutation({
     mutationFn: (id: string) => membershipApi.deleteInvite(id),
@@ -126,7 +138,7 @@ export function StaffTab({
       {invites && invites.length > 0 && (
         <Card className=" rounded-none bg-background shadow-none">
           <CardHeader className="p-4 pb-2 border-b-thin border-border bg-muted/20">
-            <CardTitle className="text-xs uppercase font-bold">[アクティブな招待リンク一覧]</CardTitle>
+            <CardTitle className="text-xs uppercase font-bold">[招待リンク一覧]</CardTitle>
           </CardHeader>
           <CardContent className="p-4 space-y-2">
             {invites.map((inv) => {
@@ -148,15 +160,21 @@ export function StaffTab({
               const remainLabel =
                 hoursLeft >= 24 ? `残り約${Math.floor(hoursLeft / 24)}日` : `残り約${hoursLeft}時間`;
               const expiringSoon = hoursLeft < 24;
+              const isExpired = !!inv.expired;
               return (
-                <div key={inv.id} className="flex flex-col sm:flex-row justify-between items-start gap-3 p-2.5 text-[10px] font-mono bg-muted/30">
+                <div key={inv.id} className={`flex flex-col sm:flex-row justify-between items-start gap-3 p-2.5 text-[10px] font-mono ${isExpired ? "bg-destructive/5 opacity-80" : "bg-muted/30"}`}>
                   <div className="flex gap-3 min-w-0">
-                    {/* 配布用QR (リンクをエンコード)。掲示・スクショで共有しやすくする (P2-6) */}
-                    <div className="border-thick border-border p-1 bg-white shrink-0 hidden sm:block">
+                    {/* 配布用QR (リンクをエンコード)。掲示・スクショで共有しやすくする (P2-6)。失効時は薄く表示 */}
+                    <div className={`border-thick border-border p-1 bg-white shrink-0 hidden sm:block ${isExpired ? "opacity-40" : ""}`}>
                       <QRCodeSVG value={inviteUrl} size={72} level="M" />
                     </div>
                     <div className="space-y-0.5 min-w-0">
-                      <p className="font-bold text-foreground">{purposeLabel}（{inv.usedCount}/{inv.maxUses ?? "∞"} 使用）</p>
+                      <p className="font-bold text-foreground flex items-center gap-1.5">
+                        {purposeLabel}（{inv.usedCount}/{inv.maxUses ?? "∞"} 使用）
+                        {isExpired && (
+                          <Badge variant="default" className="rounded-none text-[8px] font-mono border-thick border-destructive bg-destructive/10 text-destructive uppercase">期限切れ</Badge>
+                        )}
+                      </p>
                       {inv.code && (
                         <p className="text-foreground text-[11px] flex items-center gap-1">
                           招待コード: <span className="font-bold tracking-wider select-all">{inv.code}</span>
@@ -188,15 +206,28 @@ export function StaffTab({
                     </div>
                   </div>
                   <div className="flex gap-1 shrink-0">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => extendInviteMutation.mutate(inv.id)}
-                      disabled={extendInviteMutation.isPending}
-                      className="h-7 text-[8px] font-bold uppercase rounded-none px-2 shadow-none border-thick border-border"
-                    >
-                      7日延長
-                    </Button>
+                    {isExpired ? (
+                      // 失効時は「再発行」(新コード) を主導線にする。延長(同コード延命)も残す。
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => regenerateInviteMutation.mutate(inv.id)}
+                        disabled={regenerateInviteMutation.isPending}
+                        className="h-7 text-[8px] font-bold uppercase rounded-none px-2 shadow-none border-thick border-primary bg-primary text-primary-foreground hover:bg-background hover:text-foreground"
+                      >
+                        再発行
+                      </Button>
+                    ) : (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => extendInviteMutation.mutate(inv.id)}
+                        disabled={extendInviteMutation.isPending}
+                        className="h-7 text-[8px] font-bold uppercase rounded-none px-2 shadow-none border-thick border-border"
+                      >
+                        7日延長
+                      </Button>
+                    )}
                     <Button
                       variant="destructive"
                       size="sm"

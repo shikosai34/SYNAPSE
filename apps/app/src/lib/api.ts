@@ -318,6 +318,12 @@ export const membershipApi = {
       method: "PATCH",
       body: { expiresInHours },
     }),
+  // 期限切れの招待を新しい token/code で再発行する (2026-07-14 P1-4 強化)。
+  regenerateInvite: (id: string) =>
+    fetchApi<{ id: string; token: string; code: string; expiresAt: string }>(
+      `/api/memberships/invite/${id}/regenerate`,
+      { method: "POST" }
+    ),
   deleteInvite: (id: string) =>
     fetchApi<{ success: boolean }>(`/api/memberships/invite/${id}`, {
       method: "DELETE",
@@ -749,6 +755,8 @@ export interface InviteToken {
   maxUses: number | null;
   usedCount: number;
   targetEmail?: string | null;
+  // 失効フラグ (P1-4 強化)。直近14日以内に失効した招待は一覧に残り、再発行/延長できる。
+  expired?: boolean;
   // この招待から作成されたサークル一覧 (使用内訳。P2-5)
   consumedBy?: { id: string; name: string; createdAt: string }[];
 }
