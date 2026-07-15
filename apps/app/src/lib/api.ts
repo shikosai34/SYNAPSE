@@ -813,6 +813,7 @@ export interface CreateMenuInput {
   stockQuantity?: number;
   stock?: number;
   isAvailable?: boolean;
+  soldOut?: boolean;
   toppingIds?: string[];
   defaultToppingIds?: string[];
 }
@@ -826,6 +827,7 @@ export interface UpdateMenuInput {
   stockQuantity?: number | null;
   stock?: number | null;
   isAvailable?: boolean;
+  soldOut?: boolean;
   toppingIds?: string[];
   defaultToppingIds?: string[];
 }

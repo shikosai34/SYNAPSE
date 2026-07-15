@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { menuApi, toppingApi, type Menu } from "@/lib/api";
+import { menuApi, toppingApi, circleApi, parseCircleSettings, type Menu } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { ImageUpload } from "@/components/image-upload";
 import { Modal } from "@/components/ui/Modal";
@@ -25,7 +25,8 @@ type MenuForm = {
   price: number;
   imagePath: string;
   description: string;
-  stockQuantity: number;
+  // 売り切れフラグ (2026-07-14)。在庫数はメニュー管理では扱わず、売切かどうかだけを持つ。
+  soldOut: boolean;
   defaultToppingIds: string[];
 };
 
@@ -47,19 +48,27 @@ export function MenuFormModal({ circleId, isOpen, onClose, menu }: MenuFormModal
     enabled: isOpen && !!circleId,
   });
 
+  // 在庫管理拡張がONのサークルでは、売切はメニュー管理から変更できない (在庫で自動制御) 。
+  const { data: circleData } = useQuery({
+    queryKey: ["circle", circleId],
+    queryFn: () => circleApi.get(circleId),
+    enabled: isOpen && !!circleId,
+  });
+  const stockManaged = parseCircleSettings(circleData?.settings).extensions.stock;
+
   const {
     form, setForm, isEdit, isConfirmOpen, setIsConfirmOpen, isCreating, saveStatus,
     triggerAutoSave, saveNow, handleOverlayClose, handleSaveAndClose, handleDiscardAndClose,
   } = useEntityForm<MenuForm, Menu>({
     isOpen,
     entity: menu,
-    emptyForm: { name: "", price: 0, imagePath: "", description: "", stockQuantity: 0, defaultToppingIds: [] },
+    emptyForm: { name: "", price: 0, imagePath: "", description: "", soldOut: false, defaultToppingIds: [] },
     toForm: (m) => ({
       name: m.name,
       price: m.price,
       imagePath: m.imagePath || "",
       description: m.description || "",
-      stockQuantity: m.stockQuantity ?? 0,
+      soldOut: m.soldOut ?? false,
       defaultToppingIds: parseDefaultToppingIds(m.defaultToppingIds),
     }),
     onClose,
@@ -72,7 +81,8 @@ export function MenuFormModal({ circleId, isOpen, onClose, menu }: MenuFormModal
         price: data.price,
         imagePath: data.imagePath || undefined,
         description: data.description || undefined,
-        stockQuantity: data.stockQuantity,
+        // 在庫数はメニュー管理では設定しない (在庫管理拡張で扱う)。売切のみ渡す。
+        soldOut: data.soldOut,
         defaultToppingIds: data.defaultToppingIds,
       }),
     update: (m, data) =>
@@ -81,7 +91,7 @@ export function MenuFormModal({ circleId, isOpen, onClose, menu }: MenuFormModal
         price: data.price,
         imagePath: data.imagePath || undefined,
         description: data.description || undefined,
-        stockQuantity: data.stockQuantity,
+        soldOut: data.soldOut,
         defaultToppingIds: data.defaultToppingIds,
       }),
     validate: (data) => (!data.name ? "メニュー名を入力してください" : null),
@@ -149,17 +159,36 @@ export function MenuFormModal({ circleId, isOpen, onClose, menu }: MenuFormModal
           placeholder="商品の説明"
         />
 
-        <FormField
-          id="stockQuantity"
-          label="在庫数"
-          type="number"
-          value={form.stockQuantity}
-          onChange={(e) => {
-            const n = Number(e.target.value);
-            setForm({ ...form, stockQuantity: Number.isNaN(n) ? 0 : n });
-          }}
-          onBlur={triggerAutoSave}
-        />
+        {/* 売り切れ設定 (2026-07-14)。在庫管理拡張ONのサークルでは在庫で自動制御されるため変更不可。 */}
+        <div className="space-y-1.5">
+          <Label className="text-xs font-bold uppercase">販売状態</Label>
+          {stockManaged ? (
+            <div className="border-thick border-border bg-muted/30 p-3 text-xs font-mono text-muted-foreground">
+              このサークルは<strong className="text-foreground">在庫管理</strong>がONのため、売り切れは在庫数から自動判定されます。
+              売切の切り替えは「在庫管理」から行ってください。
+              <div className="mt-1.5 font-bold text-foreground">
+                現在: {form.soldOut ? "🔴 売り切れ" : "🟢 販売中"}
+              </div>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => {
+                const next = { ...form, soldOut: !form.soldOut };
+                setForm(next);
+                if (isEdit) saveNow(next);
+              }}
+              className={cn(
+                "w-full border-thick rounded-none px-3 py-2.5 text-sm font-bold uppercase tracking-wider transition-all flex items-center justify-center gap-2",
+                form.soldOut
+                  ? "border-destructive bg-destructive/10 text-destructive"
+                  : "border-success bg-success/10 text-success",
+              )}
+            >
+              {form.soldOut ? "🔴 売り切れ (タップで販売中に戻す)" : "🟢 販売中 (タップで売り切れにする)"}
+            </button>
+          )}
+        </div>
 
         {/* 既定トッピング: レジで追加時に自動で入るトッピング */}
         {toppings && toppings.length > 0 && (
