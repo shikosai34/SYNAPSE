@@ -161,6 +161,50 @@ function MembersContent() {
     },
   });
 
+  // メンバーのロール変更 (バックエンドの PATCH /:id/role を利用。従来UIには導線が無かった) (2026-07-15)
+  const updateRoleMutation = useMutation({
+    mutationFn: (input: { id: string; role: Role }) => membershipApi.updateRole(input.id, input.role),
+    onSuccess: () => {
+      refetchMembers();
+      toast.success("ロールを変更しました");
+    },
+    onError: (e: any) => toast.error(e?.message || "ロールの変更に失敗しました"),
+  });
+
+  // 期限切れ招待の再発行 / 延長 (バックエンドは実装済みだがUI導線が無かった) (2026-07-15)
+  const regenerateInviteMutation = useMutation({
+    mutationFn: (id: string) => membershipApi.regenerateInvite(id),
+    onSuccess: (data) => {
+      refetchTokens();
+      if (data?.token) {
+        const link = `${window.location.origin}/circle/invite/${data.token}`;
+        navigator.clipboard?.writeText(link).catch(() => {});
+        toast.success("招待リンクを再発行し、クリップボードにコピーしました");
+      } else {
+        toast.success("招待リンクを再発行しました");
+      }
+    },
+    onError: (e: any) => toast.error(e?.message || "再発行に失敗しました"),
+  });
+
+  const extendInviteMutation = useMutation({
+    mutationFn: (id: string) => membershipApi.extendInvite(id, 24),
+    onSuccess: () => {
+      refetchTokens();
+      toast.success("有効期限を24時間延長しました");
+    },
+    onError: (e: any) => toast.error(e?.message || "延長に失敗しました"),
+  });
+
+  // 最後の管理者を降格/除名してロックアウトするのを防ぐためのガード (クライアント側の安全網)。
+  // 本来はバックエンドでも担保すべき (残管理者数の検証) だが、まずUI側で誤操作を止める。
+  const activeManagerCount =
+    members?.filter((m) => m.role === ROLES.CIRCLE_MANAGER && m.isActive).length ?? 0;
+  const isLastManager = (m: any) => m.role === ROLES.CIRCLE_MANAGER && activeManagerCount <= 1;
+
+  // ロールを変更できる対象か (サークルレベルのロールのみ。イベント/システムロールは読み取り専用表示)。
+  const MANAGEABLE_ROLES: Role[] = [ROLES.CIRCLE_MANAGER, ROLES.CIRCLE_STAFF];
+
   // 除名 / 招待リンク削除は確認ダイアログの代わりに undo 付きトーストで実行する
   const handleRemoveMember = (member: any) =>
     undoableDelete({
@@ -386,35 +430,71 @@ function MembersContent() {
             <ErrorState error={inviteTokensErrorObj} onRetry={() => refetchTokens()} />
           ) : inviteTokens && inviteTokens.length > 0 ? (
             <div className="space-y-3">
-              {inviteTokens.map((token) => (
+              {inviteTokens.map((token) => {
+                const expired = new Date(token.expiresAt).getTime() < Date.now();
+                const usedUp = token.maxUses != null && token.usedCount >= token.maxUses;
+                return (
                 <div
                   key={token.id}
-                  className="flex items-center justify-between p-3 border-thick border-border"
+                  className={`flex flex-wrap items-center justify-between gap-2 p-3 border-thick ${expired || usedUp ? "border-border bg-muted/40" : "border-border"}`}
                 >
-                  <div className="flex items-center gap-3">
+                  <div className="flex flex-wrap items-center gap-2 sm:gap-3">
                     <Badge variant={getRoleBadgeVariant(token.role)}>
                       {ROLE_NAMES[token.role as RoleType] || token.role}
                     </Badge>
+                    {expired ? (
+                      <Badge variant="error">期限切れ</Badge>
+                    ) : usedUp ? (
+                      <Badge variant="warning">上限到達</Badge>
+                    ) : null}
                     <span className="text-sm text-muted-foreground">
                       使用: {token.usedCount}/{token.maxUses || "∞"}
                     </span>
                     <span className="text-sm text-muted-foreground">
                       期限:{" "}
-                      {new Date(token.expiresAt).toLocaleDateString("ja-JP")}
+                      {new Date(token.expiresAt).toLocaleString("ja-JP", { dateStyle: "short", timeStyle: "short" })}
                     </span>
                   </div>
                   <div className="flex gap-2">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => copyInviteLink(token.token)}
-                    >
-                      {copiedToken === token.token ? (
-                        <Check className="h-4 w-4" />
+                    {/* 有効なリンクはコピー、期限切れ/上限到達は再発行で復旧できるようにする (2026-07-15) */}
+                    {!expired && !usedUp && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => copyInviteLink(token.token)}
+                        title="リンクをコピー"
+                      >
+                        {copiedToken === token.token ? (
+                          <Check className="h-4 w-4" />
+                        ) : (
+                          <Copy className="h-4 w-4" />
+                        )}
+                      </Button>
+                    )}
+                    <PermissionGuard permission="member:write">
+                      {expired ? (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => regenerateInviteMutation.mutate(token.id)}
+                          disabled={regenerateInviteMutation.isPending}
+                          className="text-[11px] font-bold"
+                        >
+                          再発行
+                        </Button>
                       ) : (
-                        <Copy className="h-4 w-4" />
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => extendInviteMutation.mutate(token.id)}
+                          disabled={extendInviteMutation.isPending}
+                          className="text-[11px] font-bold"
+                          title="有効期限を24時間延長"
+                        >
+                          +24h
+                        </Button>
                       )}
-                    </Button>
+                    </PermissionGuard>
                     <PermissionGuard permission="member:delete">
                       <Button
                         size="sm"
@@ -426,7 +506,8 @@ function MembersContent() {
                     </PermissionGuard>
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
           ) : (
             <EmptyState
@@ -470,9 +551,38 @@ function MembersContent() {
                     </div>
                   </div>
                   <div className="flex items-center gap-3">
-                    <Badge variant={getRoleBadgeVariant(member.role)}>
-                      {ROLE_NAMES[member.role as RoleType] || member.role}
-                    </Badge>
+                    {/* ロール変更 (2026-07-15)。サークルロールのメンバーはインラインで昇格/降格できる。
+                        イベント/システムロールは読み取り専用バッジのまま。最後の管理者は降格不可。 */}
+                    <PermissionGuard
+                      permission="member:write"
+                      fallback={
+                        <Badge variant={getRoleBadgeVariant(member.role)}>
+                          {ROLE_NAMES[member.role as RoleType] || member.role}
+                        </Badge>
+                      }
+                    >
+                      {MANAGEABLE_ROLES.includes(member.role as Role) ? (
+                        <select
+                          value={member.role}
+                          disabled={updateRoleMutation.isPending || isLastManager(member)}
+                          title={isLastManager(member) ? "最後の管理者のロールは変更できません" : undefined}
+                          onChange={(e) =>
+                            updateRoleMutation.mutate({ id: member.id, role: e.target.value as Role })
+                          }
+                          className="h-8 border-thick border-border rounded-none bg-background px-2 text-[11px] font-bold uppercase font-mono disabled:opacity-50"
+                        >
+                          {MANAGEABLE_ROLES.map((r) => (
+                            <option key={r} value={r}>
+                              {ROLE_NAMES[r as RoleType]}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <Badge variant={getRoleBadgeVariant(member.role)}>
+                          {ROLE_NAMES[member.role as RoleType] || member.role}
+                        </Badge>
+                      )}
+                    </PermissionGuard>
                     {!member.isActive && (
                       <Badge variant="warning">非アクティブ</Badge>
                     )}
@@ -480,6 +590,8 @@ function MembersContent() {
                       <Button
                         size="sm"
                         variant="ghost"
+                        disabled={isLastManager(member)}
+                        title={isLastManager(member) ? "最後の管理者は除名できません" : undefined}
                         onClick={() => handleRemoveMember(member)}
                       >
                         <Trash2 className="h-4 w-4 text-destructive" />
