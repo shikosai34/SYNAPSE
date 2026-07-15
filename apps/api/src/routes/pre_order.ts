@@ -101,7 +101,15 @@ preOrderRoutes.post(
       if (eventRows[0]!.billingStatus === "suspended") {
         apiError("BAD_REQUEST", "このイベントは現在停止中のため注文を受け付けていません");
       }
-      // 開催期間(endDate)を過ぎたら事前オーダーも締め切る。
+      // 開催ライフサイクル状態が live 以外なら事前オーダーも受け付けない。
+      const lifecycle = eventRows[0]!.lifecycleStatus;
+      if (lifecycle === "upcoming") {
+        apiError("BAD_REQUEST", "このイベントはまだ開催前のため注文を受け付けていません");
+      }
+      if (lifecycle === "ended" || lifecycle === "archived") {
+        apiError("BAD_REQUEST", "このイベントは終了しているため注文を受け付けていません");
+      }
+      // 期間(endDate)超過は自動締切のセーフティネット。
       const eventEnd = eventRows[0]!.endDate;
       if (eventEnd && eventEnd.getTime() < Date.now()) {
         apiError("BAD_REQUEST", "このイベントは開催期間を終了しているため注文を受け付けていません");

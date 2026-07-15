@@ -90,6 +90,9 @@ export const eventApi = {
   // 抽選機能の有効化トグル (event_manager event:write 権限)。
   setLotteryEnabled: (id: string, enabled: boolean) =>
     fetchApi<{ success: boolean }>(`/api/festivals/${id}/lottery-enabled`, { method: "PUT", body: { enabled } }),
+  // 開催ライフサイクル状態の変更 (event_manager event:write 権限)。
+  setLifecycleStatus: (id: string, status: EventLifecycleStatus) =>
+    fetchApi<{ success: boolean }>(`/api/festivals/${id}/lifecycle-status`, { method: "PUT", body: { status } }),
   // 支払い方法の設定 (event_manager event:write 権限)。
   setPaymentMethods: (id: string, paymentMethods: string[]) =>
     fetchApi<{ success: boolean; paymentMethods: string[] }>(`/api/festivals/${id}/payment-methods`, {
@@ -431,9 +434,13 @@ export interface Event extends EventTheme {
   paymentMethods?: string;
   // 抽選機能(イベント単位)の有効化フラグ (2026-07-12)。
   lotteryEnabled?: boolean;
+  // 開催ライフサイクル状態 (2026-07-15): upcoming(開催前) / live(開催中) / ended(終了) / archived(保持)。
+  lifecycleStatus?: "upcoming" | "live" | "ended" | "archived";
   startDate: Date | null;
   endDate: Date | null;
 }
+
+export type EventLifecycleStatus = "upcoming" | "live" | "ended" | "archived";
 
 // event.paymentMethods (JSON文字列) を配列にパースする。既定は ["現金"]。
 export function parseEventPaymentMethods(raw?: string | null): string[] {

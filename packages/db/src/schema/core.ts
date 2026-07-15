@@ -113,6 +113,15 @@ export const event = sqliteTable("event", {
   startDate: integer("start_date", { mode: "timestamp_ms" }),
   endDate: integer("end_date", { mode: "timestamp_ms" }),
 
+  // 開催ライフサイクル状態 (2026-07-15)。契約(billingStatus)とは独立した「開催の進行」。
+  //   upcoming = 開催前 (準備中。注文は受け付けない)
+  //   live     = 開催中 (通常運用。注文可)
+  //   ended    = 終了 (注文締切。ダッシュボードは閲覧のみ、来場者は御礼表示へ)
+  //   archived = 保持期間 (終了後の一定期間。閲覧のみ。以降 purge 対象)
+  // 既存イベントを壊さないよう既定は live。日付(startDate/endDate)は自動遷移の判断材料だが、
+  // 主催者が明示的に切り替えられるよう「状態」を正本として持つ。
+  lifecycleStatus: text("lifecycle_status").default("live").notNull(),
+
   // ── SaaS テナント/課金 (2026-07-12) ───────────────────────────────
   // イベント=テナント(契約単位)。イベント作成はセルフサービス化され、既定は無料枠。
   // plan: 契約プラン。当面 "free" のみ実運用 (standard/pro は将来の Stripe フェーズで使用)。

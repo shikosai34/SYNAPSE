@@ -124,6 +124,25 @@ eventRoutes.get("/:id/orders/live", async (c) => {
   return c.json(rows);
 });
 
+// 開催ライフサイクル状態の変更 (2026-07-15)。event_manager(event:write)。
+// 注文可否 (live のみ可) や来場者/ダッシュボードの表示モードの正本になる。
+eventRoutes.put(
+  "/:id/lifecycle-status",
+  zBody(z.object({ status: z.enum(["upcoming", "live", "ended", "archived"]) })),
+  async (c) => {
+    const db = c.get("db");
+    const eventId = c.req.param("id");
+    if (!(await hasPermission(c, null, "event:write", eventId))) {
+      apiError("FORBIDDEN", "イベントの状態を変更する権限がありません");
+    }
+    await db
+      .update(event)
+      .set({ lifecycleStatus: c.req.valid("json").status })
+      .where(eq(event.id, eventId));
+    return c.json({ success: true });
+  }
+);
+
 // 抽選機能の有効化トグル (2026-07-12)。event_manager(event:write)。
 eventRoutes.put(
   "/:id/lottery-enabled",

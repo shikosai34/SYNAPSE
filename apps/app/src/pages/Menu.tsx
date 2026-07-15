@@ -507,6 +507,47 @@ function MenuPageContent() {
     );
   }
 
+  // イベント終了後は注文を受け付けず「ご来場ありがとうございました」の御礼画面にする (2026-07-15)。
+  // 来場者の主目的(注文)が終わっているため、メニュー閲覧の代わりに御礼と注文履歴への導線を出す。
+  if (circleEvent && (circleEvent.lifecycleStatus === "ended" || circleEvent.lifecycleStatus === "archived")) {
+    return (
+      <EventTheme theme={circleEvent} className="bg-background text-foreground">
+        <div className="max-w-xl mx-auto p-sp-3 sm:p-sp-4 text-center font-mono my-12">
+          <div className="border-heavy border-border p-sp-5 space-y-sp-4 bg-background">
+            {circleEvent.logoUrl ? (
+              <img src={circleEvent.logoUrl} alt={circleEvent.eventName} className="max-h-24 mx-auto block border-thick border-border" />
+            ) : (
+              <div className="inline-flex items-center justify-center h-14 w-14 border-thick border-border bg-primary text-primary-foreground mx-auto">
+                <UtensilsCrossed className="h-7 w-7" />
+              </div>
+            )}
+            <h1 className="text-[22px] sm:text-[30px] font-headline uppercase tracking-tight leading-[1.15] text-foreground">
+              ご来場<br />ありがとうございました
+            </h1>
+            <p className="text-[13px] sm:text-[14px] leading-[1.6] text-muted-foreground">
+              {circleEvent.eventName} は終了しました。ご利用いただきありがとうございました。
+              新しいご注文の受付は終了しています。
+            </p>
+            <div className="border-t-[3px] border-border pt-sp-4 flex flex-col gap-sp-2">
+              <Button
+                onClick={() => navigate("/visitor/orders")}
+                className="w-full h-12 border-thick border-border bg-primary text-primary-foreground font-mono font-bold uppercase hover:bg-background hover:text-foreground"
+              >
+                注文履歴を見る
+              </Button>
+              <Button
+                onClick={() => navigate("/visitor/mypage")}
+                className="w-full h-12 border-thick border-border bg-background text-foreground font-mono font-bold hover:bg-accent hover:text-accent-foreground"
+              >
+                マイページ
+              </Button>
+            </div>
+          </div>
+        </div>
+      </EventTheme>
+    );
+  }
+
   return (
     <EventTheme theme={circleEvent} className="bg-background text-foreground">
     <div className="max-w-6xl mx-auto p-sp-3 sm:p-sp-4 space-y-sp-4 sm:space-y-sp-5 pb-36">
