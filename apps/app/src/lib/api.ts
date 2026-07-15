@@ -182,6 +182,12 @@ export const toppingApi = {
       method: "PUT",
       body: data,
     }),
+  // 在庫の絶対値更新 (在庫>0 で soldOut は自動解除される)
+  updateStock: (id: string, stockQuantity: number) =>
+    fetchApi<{ success: boolean }>(`/api/toppings/${id}/stock`, {
+      method: "PUT",
+      body: { stockQuantity },
+    }),
   delete: (id: string) =>
     fetchApi<{ success: boolean }>(`/api/toppings/${id}`, { method: "DELETE" }),
 };
@@ -626,6 +632,7 @@ export interface Topping {
   description: string | null;
   imagePath: string | null;
   soldOut: boolean;
+  stockQuantity: number;
 }
 
 export interface MenuWithToppings extends Menu {
@@ -840,8 +847,8 @@ export interface CreateToppingInput {
   price: number;
   description?: string;
   imagePath?: string;
-  stock?: number;
-  isAvailable?: boolean;
+  soldOut?: boolean;
+  stockQuantity?: number;
 }
 
 export interface UpdateToppingInput {
@@ -849,8 +856,8 @@ export interface UpdateToppingInput {
   price?: number;
   description?: string | null;
   imagePath?: string | null;
-  stock?: number | null;
-  isAvailable?: boolean;
+  soldOut?: boolean;
+  stockQuantity?: number;
 }
 
 export interface CreateStaffInput {

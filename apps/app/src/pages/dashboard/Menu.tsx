@@ -96,6 +96,17 @@ function MenuManagementContent() {
     onError: (e: any) => toast.error(e?.message || "更新に失敗しました"),
   });
 
+  // トッピングの売切をワンタップで切り替える (在庫管理OFF時のみ。ON時は在庫連動) (2026-07-15)
+  const toggleToppingSoldOut = useMutation({
+    mutationFn: (topping: any) => toppingApi.update(topping.id, { soldOut: !topping.soldOut }),
+    onSuccess: (_d, topping) => {
+      toast.success(topping.soldOut ? "販売中に戻しました" : "売り切れにしました");
+      queryClient.invalidateQueries({ queryKey: ["toppings", circleId] });
+      queryClient.invalidateQueries({ queryKey: ["menus", circleId] }); // メニューの紐付け表示も更新
+    },
+    onError: (e: any) => toast.error(e?.message || "更新に失敗しました"),
+  });
+
   // メニュー削除 (確認ダイアログの代わりに undo 付きトースト)
   const handleDeleteMenu = (menu: any) =>
     undoableDelete({
@@ -258,7 +269,10 @@ function MenuManagementContent() {
                         <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-wider">紐付けトッピング:</p>
                         <div className="flex flex-wrap gap-1">
                           {menu.toppings.map((t) => (
-                            <span key={t.id} className="text-[9px] bg-muted px-1.5 py-0.5 border-thin border-border font-bold">
+                            <span key={t.id} className={`inline-flex items-center gap-1 text-[9px] px-1.5 py-0.5 border-thin border-border font-bold ${t.soldOut ? "bg-destructive/10 text-destructive line-through" : "bg-muted"}`}>
+                              {t.imagePath && (
+                                <img src={t.imagePath} alt="" className="h-3.5 w-3.5 object-cover border-thin border-current shrink-0" />
+                              )}
                               {t.name}
                             </span>
                           ))}
@@ -319,15 +333,54 @@ function MenuManagementContent() {
           ) : (
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
               {toppings.map((topping) => (
-                <Card key={topping.id} className="rounded-none bg-background shadow-none p-4 space-y-3">
+                <Card key={topping.id} className="rounded-none bg-background shadow-none p-0 overflow-hidden">
+                  {/* トッピング画像 (2026-07-15: メニュー管理にも画像を表示)。売切時は減光+オーバーレイ。 */}
+                  <div className="relative h-28 w-full overflow-hidden border-b-thick border-border">
+                    {topping.imagePath ? (
+                      <img
+                        src={topping.imagePath}
+                        alt={topping.name}
+                        className={`object-cover absolute inset-0 h-full w-full ${topping.soldOut ? "opacity-40" : ""}`}
+                      />
+                    ) : (
+                      <div className="flex h-full w-full items-center justify-center bg-muted/40">
+                        <span className="text-[9px] uppercase font-bold tracking-widest text-muted-foreground">No Image</span>
+                      </div>
+                    )}
+                    {topping.soldOut && (
+                      <div className="absolute inset-0 flex items-center justify-center bg-black/50">
+                        <span className="text-white text-sm font-headline uppercase tracking-[2px] border-thick border-white px-2 py-0.5">
+                          売り切れ
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                  <CardContent className="p-4 space-y-3">
                   <div>
                     <CardTitle className="text-xs font-bold truncate uppercase">{topping.name}</CardTitle>
                     <p className="text-[9px] text-muted-foreground font-mono mt-0.5">ID: {topping.id}</p>
                   </div>
 
-                  <p className="text-base font-black text-primary">
-                    +¥{topping.price.toLocaleString()}
-                  </p>
+                  <div className="flex justify-between items-center gap-2">
+                    <span className="text-base font-black text-primary">
+                      +¥{topping.price.toLocaleString()}
+                    </span>
+                    {/* 販売状態: 在庫管理OFFならワンタップ切替、ONなら在庫連動で読み取り専用 (2026-07-15) */}
+                    {stockManaged ? (
+                      <span className={`text-[9px] font-bold font-mono px-1.5 py-1 border-thick ${topping.soldOut ? "border-destructive text-destructive" : "border-success text-success"}`} title="在庫管理で自動制御">
+                        {topping.soldOut ? "売切" : "販売中"}<span className="text-muted-foreground">(在庫連動)</span>
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => toggleToppingSoldOut.mutate(topping)}
+                        disabled={toggleToppingSoldOut.isPending}
+                        className={`text-[9px] font-bold font-mono uppercase px-1.5 py-1 border-thick transition-all ${topping.soldOut ? "border-destructive bg-destructive/10 text-destructive hover:bg-destructive hover:text-white" : "border-success bg-success/10 text-success hover:bg-success hover:text-white"}`}
+                      >
+                        {topping.soldOut ? "🔴 売切" : "🟢 販売中"}
+                      </button>
+                    )}
+                  </div>
 
                   {topping.description && (
                     <CardDescription className="text-xs line-clamp-2 min-h-[2.5rem] leading-[1.6]">
@@ -355,6 +408,7 @@ function MenuManagementContent() {
                       削除
                     </Button>
                   </div>
+                  </CardContent>
                 </Card>
               ))}
             </div>

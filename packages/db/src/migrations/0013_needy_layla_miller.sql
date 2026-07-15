@@ -1,0 +1,1 @@
+ALTER TABLE `topping` ADD `stock_quantity` integer DEFAULT 0 NOT NULL;
