@@ -82,7 +82,6 @@ export function BehaviorTab({ eventId }: { eventId: string }) {
   // 表示は営業がある時間帯 (活動 or 受付がある範囲) に絞る
   const activeHours = b.byHour.filter((h) => h.activeUsers > 0 || h.arrivals > 0 || h.orders > 0);
   const maxActive = Math.max(1, ...b.byHour.map((h) => h.activeUsers));
-  const maxStaff = Math.max(1, ...b.byHour.map((h) => h.staffOnShift));
   const maxStay = Math.max(1, ...b.stayBuckets.map((s) => s.count));
   const maxCircleCount = Math.max(1, ...b.circleCountBuckets.map((s) => s.count));
   const maxFunnel = Math.max(1, ...b.funnel.map((f) => f.count));
@@ -136,16 +135,16 @@ export function BehaviorTab({ eventId }: { eventId: string }) {
         <StatCard label="登録スタッフ数" value={`${b.staffing.totalStaff}人`} icon={UserCheck} />
       </div>
 
-      {/* 時間帯別 混雑 × スタッフ稼働 */}
+      {/* 時間帯別 混雑度 */}
       <section className="space-y-2">
         <h3 className="font-mono text-[11px] uppercase tracking-widest text-muted-foreground">
-          時間帯別 混雑度 (活動来場者) × スタッフ稼働
+          時間帯別 混雑度 (活動来場者)
         </h3>
         {activeHours.length === 0 ? (
           <p className="font-mono text-[11px] text-muted-foreground">まだ行動データがありません。</p>
         ) : (
           <div className="border-thick border-border p-3 overflow-x-auto">
-            <div className="space-y-1.5 min-w-[520px]">
+            <div className="space-y-1.5 min-w-[420px]">
               {activeHours.map((h) => (
                 <div key={h.hour} className="flex items-center gap-2 font-mono text-[11px]">
                   <span className={`w-12 shrink-0 text-right ${h.hour === b.peakHour ? "text-accent font-bold" : "text-muted-foreground"}`}>
@@ -161,18 +160,11 @@ export function BehaviorTab({ eventId }: { eventId: string }) {
                   <span className="w-24 shrink-0 tabular-nums text-right text-muted-foreground">
                     {h.activeUsers}人 / {h.orders}注文
                   </span>
-                  {/* スタッフ稼働 (シフト設定がある場合のみ) */}
-                  <span
-                    className="w-16 shrink-0 tabular-nums text-right"
-                    title="この時間帯にシフトに入っているスタッフ数 (シフト未設定は0)"
-                  >
-                    {maxStaff > 1 || h.staffOnShift > 0 ? `👷${h.staffOnShift}` : "—"}
-                  </span>
                 </div>
               ))}
             </div>
             <p className="mt-2 text-[9px] text-muted-foreground font-sans">
-              ※混雑度=その時間帯に注文/回遊/スタンプいずれかの活動をした一意来場者数。スタッフ稼働はシフト時刻(開始/終了)を設定した場合のみ表示されます。
+              ※混雑度=その時間帯に注文/回遊/スタンプいずれかの活動をした一意来場者数。
             </p>
           </div>
         )}

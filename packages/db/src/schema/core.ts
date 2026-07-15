@@ -211,7 +211,9 @@ export const circle = sqliteTable(
   (table) => [index("circle_eventId_idx").on(table.eventId)]
 );
 
-// スタッフ/シフトテーブル
+// スタッフ名簿テーブル
+// 2026-07-14: シフト機能(shift_start/shift_end + 出退勤)を廃止。スタッフの稼働時間追跡は
+// 使われていなかったため撤去し、単純な名簿(名前の一覧)として残す。
 export const staff = sqliteTable(
   "staff",
   {
@@ -220,8 +222,6 @@ export const staff = sqliteTable(
       .notNull()
       .references(() => circle.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
-    shiftStart: integer("shift_start", { mode: "timestamp_ms" }),
-    shiftEnd: integer("shift_end", { mode: "timestamp_ms" }),
     createdAt: integer("created_at", { mode: "timestamp_ms" })
       .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
       .notNull(),

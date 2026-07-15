@@ -13,7 +13,6 @@ import {
   circleVisit,
   menu,
   notification,
-  staff,
   userStamp,
 } from "@fesflow/db";
 import { eq, and, inArray, isNull, desc } from "drizzle-orm";
@@ -558,9 +557,6 @@ eventRoutes.get("/:id/behavior", async (c) => {
   const stamps = circleIds.length
     ? await db.select().from(userStamp).where(inArray(userStamp.circleId, circleIds))
     : [];
-  const staffRows = circleIds.length
-    ? await db.select().from(staff).where(inArray(staff.circleId, circleIds))
-    : [];
   // スタッフ人数はメンバーシップ(実アカウント)で数える。circle_manager + circle_staff。
   const staffMemberships = circleIds.length
     ? await db
@@ -673,7 +669,6 @@ eventRoutes.get("/:id/behavior", async (c) => {
     orders: 0,
     revenue: 0,
     arrivals: 0,
-    staffOnShift: 0,
   }));
   for (const o of liveOrders) {
     const h = jstHour(o.createdAt.getTime());
@@ -685,13 +680,6 @@ eventRoutes.get("/:id/behavior", async (c) => {
   for (const s of stamps) hourUsers[jstHour(s.createdAt.getTime())]!.add(s.userId);
   for (const v of visitors) byHour[jstHour(v.createdAt.getTime())]!.arrivals += 1;
   for (let h = 0; h < 24; h++) byHour[h]!.activeUsers = hourUsers[h]!.size;
-  // シフトが設定されているスタッフを時間帯に展開 (shiftStart/End がある行のみ)
-  for (const st of staffRows) {
-    if (!st.shiftStart || !st.shiftEnd) continue;
-    const sh = jstHour(st.shiftStart.getTime());
-    const eh = jstHour(st.shiftEnd.getTime());
-    for (let h = sh; h <= eh && h < 24; h++) byHour[h]!.staffOnShift += 1;
-  }
   // 混雑のピーク時間帯 (activeUsers 最大)
   const peak = byHour.reduce((mx, r) => (r.activeUsers > mx.activeUsers ? r : mx), byHour[0]!);
 

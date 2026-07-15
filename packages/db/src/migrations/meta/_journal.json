@@ -85,6 +85,13 @@
       "when": 1784021956629,
       "tag": "0011_great_barracuda",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1784107138617,
+      "tag": "0012_solid_the_hunter",
+      "breakpoints": true
     }
   ]
 }

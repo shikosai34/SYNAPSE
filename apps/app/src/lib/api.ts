@@ -200,16 +200,7 @@ export const staffApi = {
     }),
   delete: (id: string) =>
     fetchApi<{ success: boolean }>(`/api/staff/${id}`, { method: "DELETE" }),
-  getCurrentShift: (circleId: string) =>
-    fetchApi<Staff[]>(`/api/staff/shift/current?circleId=${circleId}`),
-  clockIn: (id: string) =>
-    fetchApi<{ success: boolean }>(`/api/staff/${id}/clock-in`, {
-      method: "POST",
-    }),
-  clockOut: (id: string) =>
-    fetchApi<{ success: boolean }>(`/api/staff/${id}/clock-out`, {
-      method: "POST",
-    }),
+  // 2026-07-14: シフト機能(getCurrentShift/clockIn/clockOut)を撤去。
 };
 
 // Order API
@@ -493,7 +484,7 @@ export interface EventBehavior {
   };
   stayBuckets: { label: string; count: number }[];
   circleCountBuckets: { label: string; count: number }[];
-  byHour: { hour: number; activeUsers: number; orders: number; revenue: number; arrivals: number; staffOnShift: number }[];
+  byHour: { hour: number; activeUsers: number; orders: number; revenue: number; arrivals: number }[];
   peakHour: number | null;
   funnel: { stage: string; count: number }[];
   staffing: {
@@ -643,8 +634,6 @@ export interface Staff {
   id: string;
   circleId: string;
   name: string;
-  shiftStart: Date | null;
-  shiftEnd: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }

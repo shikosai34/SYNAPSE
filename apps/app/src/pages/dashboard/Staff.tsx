@@ -11,12 +11,10 @@ import DashboardLayout from "@/components/DashboardLayout";
 import {
   Card,
   CardContent,
-  CardDescription,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { ErrorState } from "@/components/ui/ErrorState";
@@ -25,11 +23,8 @@ import {
   Plus,
   Edit,
   Trash2,
-  Clock,
   User,
   Users,
-  Calendar,
-  CheckCircle,
 } from "lucide-react";
 
 // スタッフモーダルとカスタムダイアログ
@@ -72,14 +67,6 @@ function StaffManagementContent() {
     enabled: !!circleId,
   });
 
-  // 現在シフト中のスタッフ取得
-  const { data: currentShiftStaff } = useQuery({
-    queryKey: ["staff", "current-shift", circleId],
-    queryFn: () => staffApi.getCurrentShift(circleId!),
-    enabled: !!circleId,
-    refetchInterval: 60000,
-  });
-
   // スタッフ削除
   // スタッフ削除は確認ダイアログの代わりに undo 付きトースト
   const handleOpenDelete = (staff: Staff) =>
@@ -99,24 +86,6 @@ function StaffManagementContent() {
   const handleOpenEdit = (staff: Staff) => {
     setSelectedStaff(staff);
     setIsStaffModalOpen(true);
-  };
-
-  // 表示用の日時フォーマット
-  const formatDateTime = (date: string | Date | null) => {
-    if (!date) return "-";
-    return new Date(date).toLocaleString("ja-JP", {
-      month: "short",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  };
-
-  // シフト中かどうかの判定
-  const isOnShift = (staff: Staff) => {
-    if (!staff.shiftStart || !staff.shiftEnd) return false;
-    const now = new Date();
-    return new Date(staff.shiftStart) <= now && now <= new Date(staff.shiftEnd);
   };
 
   if (isLoading) {
@@ -155,37 +124,6 @@ function StaffManagementContent() {
       }
     >
       <div className="space-y-6 font-mono text-foreground">
-        {/* 現在シフト中のスタッフ */}
-        <Card className=" rounded-none bg-background shadow-none">
-          <CardHeader className="p-4 pb-2 border-b-thin border-border bg-muted/20">
-            <CardTitle className="flex items-center gap-2 text-xs uppercase font-bold">
-              <Clock className="h-4 w-4 text-success" />
-              現在シフト中
-            </CardTitle>
-            <CardDescription className="text-[10px]">現在勤務中のスタッフ一覧</CardDescription>
-          </CardHeader>
-          <CardContent className="p-4 pt-4">
-            {currentShiftStaff && currentShiftStaff.length > 0 ? (
-              <div className="flex flex-wrap gap-2">
-                {currentShiftStaff.map((staff) => (
-                  <Badge
-                    key={staff.id}
-                    variant="default"
-                    className="text-[10px] py-1 px-3 gap-1 rounded-none font-bold border-thick border-border"
-                  >
-                    <CheckCircle className="h-3 w-3" />
-                    {staff.name}
-                  </Badge>
-                ))}
-              </div>
-            ) : (
-              <p className="text-muted-foreground text-xs font-mono">
-                現在シフト中のスタッフはいません
-              </p>
-            )}
-          </CardContent>
-        </Card>
-
         {/* スタッフ一覧 */}
         <Card className=" rounded-none bg-background shadow-none">
           <CardHeader className="p-4 pb-2 border-b-thick border-border">
@@ -200,32 +138,14 @@ function StaffManagementContent() {
                 {staffList.map((staff) => (
                   <div
                     key={staff.id}
-                    className={`flex items-center justify-between p-3 text-xs font-mono ${
-                      isOnShift(staff)
-                        ? "bg-success/10 border-l-thick border-l-success"
-                        : ""
-                    }`}
+                    className="flex items-center justify-between p-3 text-xs font-mono"
                   >
                     <div className="flex items-center gap-3">
                       <div className="h-8 w-8 rounded-none bg-primary/10 flex items-center justify-center border-thick border-border">
                         <User className="h-4 w-4 text-primary" />
                       </div>
                       <div>
-                        <div className="flex items-center gap-2">
-                          <p className="font-bold text-foreground">{staff.name}</p>
-                          {isOnShift(staff) && (
-                            <Badge variant="default" className="text-[8px] font-mono rounded-none px-1.5 py-0 border-thin border-border">
-                              シフト中
-                            </Badge>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-4 text-[10px] text-muted-foreground">
-                          <span className="flex items-center gap-1">
-                            <Calendar className="h-3 w-3" />
-                            {formatDateTime(staff.shiftStart)} 〜{" "}
-                            {formatDateTime(staff.shiftEnd)}
-                          </span>
-                        </div>
+                        <p className="font-bold text-foreground">{staff.name}</p>
                       </div>
                     </div>
                     <PermissionGuard permission="staff:write">
