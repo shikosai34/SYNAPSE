@@ -225,6 +225,141 @@ describe("事前オーダー機能", () => {
 		expect(createdItemToppings[0]!.toppingPrice).toBe(100);
 	});
 
+	it("受取確定 (claim) でメニュー/トッピングの在庫が減り、0になるとsoldOutが立つ", async () => {
+		const db = testDb();
+		const eventId = uid("ev");
+		const circleId = uid("ci");
+		const menuId = uid("me");
+		const toppingId = uid("top");
+		const userId = uid("usr");
+
+		await db.insert(event).values({ id: eventId, eventName: "テスト学園祭" });
+		await db.insert(circle).values({ id: circleId, eventId, name: "テスト模擬店" });
+		// 在庫管理対象 (stockQuantity > 0) のメニュー。数量2の事前オーダーで0になりsoldOutが立つはず。
+		await db.insert(menu).values({
+			id: menuId,
+			circleId,
+			name: "在庫管理やきそば",
+			price: 500,
+			imagePath: "dummy.png",
+			soldOut: false,
+			stockQuantity: 2,
+		});
+		// 在庫管理対象のトッピング。数量2の事前オーダーで3->1に減るがsoldOutは立たないはず。
+		await db.insert(topping).values({
+			id: toppingId,
+			circleId,
+			name: "大盛り",
+			price: 100,
+			soldOut: false,
+			stockQuantity: 3,
+		});
+		await db.insert(menuTopping).values({ id: uid("mt"), menuId, toppingId });
+		await db.insert(eventUser).values({ id: userId, eventId, displayId: 1 });
+
+		const { cookie, email } = await signUpAndGetCookie();
+		const memId = uid("mem");
+		await db.insert(membership).values({
+			id: memId,
+			userEmail: email,
+			userName: "テストスタッフ",
+			circleId,
+			role: "circle_manager",
+			isActive: true,
+		});
+
+		const createRes = await postJson("/api/pre-orders", {
+			userId,
+			circleId,
+			items: [{ menuId, quantity: 2, toppingIds: [toppingId] }],
+		});
+		expect(createRes.status).toBe(201);
+		const createData = (await createRes.json()) as { id: string };
+
+		const claimRes = await request(`/api/pre-orders/${createData.id}/claim`, {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Cookie: cookie,
+				"X-Active-Membership-Id": memId,
+			},
+			body: JSON.stringify({ cashierId: "test-cashier" }),
+		});
+		expect(claimRes.status).toBe(200);
+
+		// メニュー在庫は 2 - 2 = 0 になり、soldOut が自動で立つ
+		const menuAfter = await db.select().from(menu).where(eq(menu.id, menuId));
+		expect(menuAfter[0]!.stockQuantity).toBe(0);
+		expect(menuAfter[0]!.soldOut).toBe(true);
+
+		// トッピング在庫は 3 - 2 = 1 になり、soldOut は立たない
+		const toppingAfter = await db.select().from(topping).where(eq(topping.id, toppingId));
+		expect(toppingAfter[0]!.stockQuantity).toBe(1);
+		expect(toppingAfter[0]!.soldOut).toBe(false);
+	});
+
+	it("受取確定 (claim) で在庫が不足している場合は400になり、在庫・事前オーダー状態が変化しない", async () => {
+		const db = testDb();
+		const eventId = uid("ev");
+		const circleId = uid("ci");
+		const menuId = uid("me");
+		const userId = uid("usr");
+
+		await db.insert(event).values({ id: eventId, eventName: "テスト学園祭" });
+		await db.insert(circle).values({ id: circleId, eventId, name: "テスト模擬店" });
+		// 在庫は1しかないのに数量2で事前オーダーする (作成時点では在庫チェックしない方針のため作成は通る)
+		await db.insert(menu).values({
+			id: menuId,
+			circleId,
+			name: "在庫不足やきそば",
+			price: 500,
+			imagePath: "dummy.png",
+			soldOut: false,
+			stockQuantity: 1,
+		});
+		await db.insert(eventUser).values({ id: userId, eventId, displayId: 1 });
+
+		const { cookie, email } = await signUpAndGetCookie();
+		const memId = uid("mem");
+		await db.insert(membership).values({
+			id: memId,
+			userEmail: email,
+			userName: "テストスタッフ",
+			circleId,
+			role: "circle_manager",
+			isActive: true,
+		});
+
+		const createRes = await postJson("/api/pre-orders", {
+			userId,
+			circleId,
+			items: [{ menuId, quantity: 2 }],
+		});
+		expect(createRes.status).toBe(201);
+		const createData = (await createRes.json()) as { id: string };
+
+		const claimRes = await request(`/api/pre-orders/${createData.id}/claim`, {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Cookie: cookie,
+				"X-Active-Membership-Id": memId,
+			},
+			body: JSON.stringify({ cashierId: "test-cashier" }),
+		});
+		expect(claimRes.status).toBe(400);
+
+		// 在庫は減算されず1のまま
+		const menuAfter = await db.select().from(menu).where(eq(menu.id, menuId));
+		expect(menuAfter[0]!.stockQuantity).toBe(1);
+
+		// 事前オーダーも pending のまま (正規注文は作られていない)
+		const getRes = await request(`/api/pre-orders/user/${userId}?circleId=${circleId}`);
+		const getData = (await getRes.json()) as any[];
+		expect(getData).toHaveLength(1);
+		expect(getData[0].id).toBe(createData.id);
+	});
+
 	it("ID抽出処理 (extractIdFromCode) が新旧URL形式と生のIDを正しく処理できる", () => {
 		// 生のID
 		expect(extractIdFromCode("usr_1234")).toBe("usr_1234");
