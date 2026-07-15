@@ -13,6 +13,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { Modal } from "@/components/ui/Modal";
 import { toast } from "sonner";
 import { Save, Sparkles, Plus, Trash2, Globe, Upload } from "lucide-react";
 import { ToggleSwitch } from "@/components/ui/ToggleSwitch";
@@ -181,10 +182,15 @@ export function ExtensionsManager({ circleId }: { circleId: string }) {
           <Skeleton className="h-40 w-full" />
         ) : (
           <>
-            {/* インポート */}
+            {/* インポート
+                2026-07-16: 「URLからモッドを導入」はボタン押下でページ内にフォームが
+                差し込まれ、ページ長が変わる旧UIだった (スマホで押した後に見失いやすい)。
+                プロジェクト全体方針 (入力フォームはモーダルで開く) に合わせ、
+                Modal に移した。JSONファイルのアップロードは1タップで完結する
+                ファイル選択ダイアログ委譲なので対象外 (フォームの差し込みが発生しない)。 */}
             <div className="grid gap-3 sm:grid-cols-2">
               <Button
-                onClick={() => setIsUrlImportOpen(!isUrlImportOpen)}
+                onClick={() => setIsUrlImportOpen(true)}
                 variant="outline"
                 className="h-11 border-thick border-border font-mono text-xs font-bold rounded-none uppercase flex items-center justify-center gap-1.5"
               >
@@ -204,34 +210,46 @@ export function ExtensionsManager({ circleId }: { circleId: string }) {
               </div>
             </div>
 
-            {isUrlImportOpen && (
-              <Card className="rounded-none p-4 bg-muted space-y-3">
-                <form onSubmit={handleUrlImport} className="flex flex-col sm:flex-row gap-2">
-                  <div className="flex-1">
-                    <Label htmlFor="manifestUrl" className="sr-only">マニフェストURL</Label>
-                    <Input
-                      id="manifestUrl"
-                      type="url"
-                      placeholder="https://example.com/mod/manifest.json"
-                      className="h-10 border-thick border-border bg-background rounded-none font-mono text-xs focus-visible:ring-0"
-                      value={manifestUrl}
-                      onChange={(e) => setManifestUrl(e.target.value)}
-                      required
-                    />
-                  </div>
+            <Modal
+              isOpen={isUrlImportOpen}
+              onClose={() => setIsUrlImportOpen(false)}
+              title="[URLからモッドを導入]"
+              subtitle="モッドのリポジトリで公開されている Raw 状態の manifest.json のURLを入力してください。"
+              maxWidth="md"
+            >
+              <form onSubmit={handleUrlImport} className="space-y-3">
+                <div>
+                  <Label htmlFor="manifestUrl" className="sr-only">マニフェストURL</Label>
+                  <Input
+                    id="manifestUrl"
+                    type="url"
+                    placeholder="https://example.com/mod/manifest.json"
+                    className="h-10 border-thick border-border bg-background rounded-none font-mono text-xs focus-visible:ring-0 w-full"
+                    value={manifestUrl}
+                    onChange={(e) => setManifestUrl(e.target.value)}
+                    required
+                    autoFocus
+                  />
+                </div>
+                <div className="flex justify-end gap-2 pt-2 border-t-thick border-border">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setIsUrlImportOpen(false)}
+                    className="h-10 border-thick border-border font-mono rounded-none font-bold text-xs uppercase px-4"
+                  >
+                    キャンセル
+                  </Button>
                   <Button
                     type="submit"
-                    className="h-10 border-thick border-primary bg-primary text-primary-foreground rounded-none font-mono hover:bg-background hover:text-foreground font-bold text-xs uppercase shrink-0 px-4"
+                    className="h-10 border-thick border-primary bg-primary text-primary-foreground rounded-none font-mono hover:bg-background hover:text-foreground font-bold text-xs uppercase px-4"
                   >
                     <Plus className="mr-1 h-4 w-4" />
                     導入
                   </Button>
-                </form>
-                <p className="text-[10px] text-muted-foreground">
-                  ※モッドのリポジトリで公開されている Raw 状態の `manifest.json` のURLを入力してください。
-                </p>
-              </Card>
-            )}
+                </div>
+              </form>
+            </Modal>
 
             {/* インストール済み一覧 */}
             <div className="space-y-4">
