@@ -13,6 +13,8 @@ import {
   circleVisit,
   menu,
   notification,
+  staff,
+  userStamp,
 } from "@fesflow/db";
 import { eq, and, inArray, isNull, desc } from "drizzle-orm";
 import { ulid } from "ulidx";
@@ -521,6 +523,264 @@ eventRoutes.get("/:id/analytics", async (c) => {
     menuRanking,
     ageBuckets,
     paymentBreakdown,
+  });
+});
+
+// 来場者行動・混雑・スタッフ分析 (2026-07-14)
+// 既存の /analytics は売上/メニュー中心。こちらは「一人一人の行動ログ(注文・回遊・スタンプ・
+// 受付時刻)」を横断して、時間帯混雑・滞在/回遊・購入ファネル・スタッフ配置負荷・動線といった
+// "個票があるからこそ分かる" 指標を集計する。sales:read 権限が必要。
+eventRoutes.get("/:id/behavior", async (c) => {
+  const db = c.get("db");
+  const eventId = c.req.param("id");
+
+  if (!(await hasPermission(c, null, "sales:read", eventId))) {
+    apiError("FORBIDDEN", "このイベントの分析を閲覧する権限がありません");
+  }
+
+  // 配下サークル (非削除)
+  const circles = await db
+    .select({ id: circle.id, name: circle.name })
+    .from(circle)
+    .where(and(eq(circle.eventId, eventId), isNull(circle.deletedAt)));
+  const circleIds = circles.map((c2) => c2.id);
+  const circleName = new Map(circles.map((c2) => [c2.id, c2.name]));
+
+  // 行動ログを一括取得
+  const orders = circleIds.length
+    ? await db.select().from(order).where(inArray(order.circleId, circleIds))
+    : [];
+  const liveOrders = orders.filter((o) => o.status !== "cancelled");
+  const visitors = await db.select().from(eventUser).where(eq(eventUser.eventId, eventId));
+  const visits = circleIds.length
+    ? await db.select().from(circleVisit).where(inArray(circleVisit.circleId, circleIds))
+    : [];
+  const stamps = circleIds.length
+    ? await db.select().from(userStamp).where(inArray(userStamp.circleId, circleIds))
+    : [];
+  const staffRows = circleIds.length
+    ? await db.select().from(staff).where(inArray(staff.circleId, circleIds))
+    : [];
+  // スタッフ人数はメンバーシップ(実アカウント)で数える。circle_manager + circle_staff。
+  const staffMemberships = circleIds.length
+    ? await db
+        .select({ circleId: membership.circleId, role: membership.role, email: membership.userEmail })
+        .from(membership)
+        .where(and(inArray(membership.circleId, circleIds), eq(membership.isActive, true)))
+    : [];
+
+  const jstHour = (ms: number) => new Date(ms + 9 * 3600 * 1000).getUTCHours();
+
+  // ── 1. ユーザー別ジャーニー集計 ─────────────────────────────
+  // 各来場者の「注文数・消費額・関与サークル・最初/最後の活動時刻」をまとめる。
+  type Journey = {
+    orders: number;
+    spend: number;
+    circles: Set<string>;
+    first: number; // 最初の活動(受付含む)
+    last: number; // 最後の活動
+  };
+  const journeys = new Map<string, Journey>();
+  const ensure = (uid: string, arrivalMs: number): Journey => {
+    let j = journeys.get(uid);
+    if (!j) {
+      j = { orders: 0, spend: 0, circles: new Set(), first: arrivalMs, last: arrivalMs };
+      journeys.set(uid, j);
+    }
+    return j;
+  };
+  // 受付時刻(eventUser.createdAt)を起点にする
+  for (const v of visitors) {
+    ensure(v.id, v.createdAt.getTime());
+  }
+  const touch = (uid: string | null, circleId: string | null, ms: number, isOrder: boolean, spend: number) => {
+    if (!uid) return; // userId 未設定の注文(旧データ等)は個票に紐づけられないのでスキップ
+    // 受付されていない未知IDでも活動があれば拾う(念のため)
+    const j = ensure(uid, ms);
+    if (circleId) j.circles.add(circleId);
+    if (ms < j.first) j.first = ms;
+    if (ms > j.last) j.last = ms;
+    if (isOrder) {
+      j.orders += 1;
+      j.spend += spend;
+    }
+  };
+  for (const o of liveOrders) touch(o.userId, o.circleId, o.createdAt.getTime(), true, o.totalPrice);
+  for (const v of visits) touch(v.eventUserId, v.circleId, v.createdAt.getTime(), false, 0);
+  for (const s of stamps) touch(s.userId, s.circleId, s.createdAt.getTime(), false, 0);
+
+  const jList = Array.from(journeys.values());
+  const buyers = jList.filter((j) => j.orders > 0);
+  const repeatBuyers = jList.filter((j) => j.orders >= 2);
+  const multiCircle = jList.filter((j) => j.circles.size >= 2);
+  // 滞在時間 (最後-最初) は「2つ以上の活動時刻がある」人のみ意味を持つ
+  const stays = jList.map((j) => (j.last - j.first) / 60000).filter((m) => m > 0);
+  const median = (arr: number[]): number => {
+    if (arr.length === 0) return 0;
+    const s = [...arr].sort((a, b) => a - b);
+    const mid = Math.floor(s.length / 2);
+    return s.length % 2 ? s[mid]! : (s[mid - 1]! + s[mid]!) / 2;
+  };
+  const sum = (arr: number[]) => arr.reduce((a, b) => a + b, 0);
+
+  const journey = {
+    visitors: visitors.length,
+    buyers: buyers.length,
+    buyerRate: visitors.length ? Math.round((buyers.length / visitors.length) * 100) : 0,
+    avgOrdersPerBuyer: buyers.length ? Math.round((sum(buyers.map((b) => b.orders)) / buyers.length) * 10) / 10 : 0,
+    avgSpendPerBuyer: buyers.length ? Math.round(sum(buyers.map((b) => b.spend)) / buyers.length) : 0,
+    avgCirclesPerVisitor: visitors.length ? Math.round((sum(jList.map((j) => j.circles.size)) / visitors.length) * 10) / 10 : 0,
+    repeatBuyerRate: buyers.length ? Math.round((repeatBuyers.length / buyers.length) * 100) : 0,
+    multiCircleRate: visitors.length ? Math.round((multiCircle.length / visitors.length) * 100) : 0,
+    avgStayMin: stays.length ? Math.round(sum(stays) / stays.length) : 0,
+    medianStayMin: Math.round(median(stays)),
+  };
+
+  // ── 2. 滞在時間の分布 ────────────────────────────────────
+  const stayBucketDefs = [
+    { label: "〜30分", max: 30 },
+    { label: "30〜60分", max: 60 },
+    { label: "1〜2時間", max: 120 },
+    { label: "2〜4時間", max: 240 },
+    { label: "4時間〜", max: Infinity },
+  ];
+  const stayBuckets = stayBucketDefs.map((d) => ({ label: d.label, count: 0 }));
+  for (const m of stays) {
+    const idx = stayBucketDefs.findIndex((d) => m <= d.max);
+    stayBuckets[idx]!.count += 1;
+  }
+
+  // ── 3. 回遊サークル数の分布 ──────────────────────────────
+  const circleCountBuckets = [
+    { label: "0 (未回遊)", count: 0 },
+    { label: "1サークル", count: 0 },
+    { label: "2サークル", count: 0 },
+    { label: "3サークル", count: 0 },
+    { label: "4サークル", count: 0 },
+    { label: "5+サークル", count: 0 },
+  ];
+  for (const j of jList) {
+    const n = Math.min(5, j.circles.size);
+    circleCountBuckets[n]!.count += 1;
+  }
+
+  // ── 4. 時間帯別 混雑 × スタッフ稼働 ──────────────────────
+  // activeUsers = その時間帯に何らかの活動(注文/回遊/スタンプ)をした一意来場者数。
+  const hourUsers: Array<Set<string>> = Array.from({ length: 24 }, () => new Set<string>());
+  const byHour = Array.from({ length: 24 }, (_, h) => ({
+    hour: h,
+    activeUsers: 0,
+    orders: 0,
+    revenue: 0,
+    arrivals: 0,
+    staffOnShift: 0,
+  }));
+  for (const o of liveOrders) {
+    const h = jstHour(o.createdAt.getTime());
+    byHour[h]!.orders += 1;
+    byHour[h]!.revenue += o.totalPrice;
+    if (o.userId) hourUsers[h]!.add(o.userId);
+  }
+  for (const v of visits) hourUsers[jstHour(v.createdAt.getTime())]!.add(v.eventUserId);
+  for (const s of stamps) hourUsers[jstHour(s.createdAt.getTime())]!.add(s.userId);
+  for (const v of visitors) byHour[jstHour(v.createdAt.getTime())]!.arrivals += 1;
+  for (let h = 0; h < 24; h++) byHour[h]!.activeUsers = hourUsers[h]!.size;
+  // シフトが設定されているスタッフを時間帯に展開 (shiftStart/End がある行のみ)
+  for (const st of staffRows) {
+    if (!st.shiftStart || !st.shiftEnd) continue;
+    const sh = jstHour(st.shiftStart.getTime());
+    const eh = jstHour(st.shiftEnd.getTime());
+    for (let h = sh; h <= eh && h < 24; h++) byHour[h]!.staffOnShift += 1;
+  }
+  // 混雑のピーク時間帯 (activeUsers 最大)
+  const peak = byHour.reduce((mx, r) => (r.activeUsers > mx.activeUsers ? r : mx), byHour[0]!);
+
+  // ── 5. 購入ファネル (離脱の可視化) ───────────────────────
+  const engaged = jList.filter((j) => j.circles.size > 0 || j.orders > 0).length;
+  const funnel = [
+    { stage: "来場 (受付)", count: visitors.length },
+    { stage: "回遊 (1+サークル)", count: engaged },
+    { stage: "購入 (1+注文)", count: buyers.length },
+    { stage: "リピート購入 (2+注文)", count: repeatBuyers.length },
+  ];
+
+  // ── 6. スタッフ配置 × 負荷 ───────────────────────────────
+  const staffByCircle = new Map<string, number>();
+  for (const id of circleIds) staffByCircle.set(id, 0);
+  for (const m of staffMemberships) {
+    if (m.circleId && (m.role === "circle_manager" || m.role === "circle_staff")) {
+      staffByCircle.set(m.circleId, (staffByCircle.get(m.circleId) || 0) + 1);
+    }
+  }
+  const ordersByCircle = new Map<string, { orders: number; revenue: number }>();
+  for (const id of circleIds) ordersByCircle.set(id, { orders: 0, revenue: 0 });
+  for (const o of liveOrders) {
+    const a = ordersByCircle.get(o.circleId);
+    if (a) {
+      a.orders += 1;
+      a.revenue += o.totalPrice;
+    }
+  }
+  const staffing = {
+    totalStaff: staffMemberships.filter((m) => m.role === "circle_manager" || m.role === "circle_staff").length,
+    byCircle: circleIds
+      .map((id) => {
+        const st = staffByCircle.get(id) || 0;
+        const a = ordersByCircle.get(id)!;
+        return {
+          circleId: id,
+          name: circleName.get(id) || "",
+          staff: st,
+          orders: a.orders,
+          revenue: a.revenue,
+          // 1スタッフあたり注文数。スタッフ0なら null (未配置)。混雑と人手のミスマッチ検知用。
+          ordersPerStaff: st > 0 ? Math.round((a.orders / st) * 10) / 10 : null,
+        };
+      })
+      .sort((a, b) => (b.ordersPerStaff ?? -1) - (a.ordersPerStaff ?? -1)),
+  };
+
+  // ── 7. 動線 (回遊の遷移) ─────────────────────────────────
+  // 各来場者の回遊(circleVisit)を時刻順に並べ、連続する A→B ペアを数える。
+  // 「どのサークルからどのサークルへ人が流れているか」を可視化する。
+  const visitsByUser = new Map<string, Array<{ circleId: string; ms: number }>>();
+  for (const v of visits) {
+    const arr = visitsByUser.get(v.eventUserId) || [];
+    arr.push({ circleId: v.circleId, ms: v.createdAt.getTime() });
+    visitsByUser.set(v.eventUserId, arr);
+  }
+  const transitionAgg = new Map<string, number>();
+  for (const arr of visitsByUser.values()) {
+    arr.sort((a, b) => a.ms - b.ms);
+    for (let i = 0; i + 1 < arr.length; i++) {
+      const from = arr[i]!.circleId;
+      const to = arr[i + 1]!.circleId;
+      if (from === to) continue; // 同一サークルの連続は動線として数えない
+      const key = `${from} ${to}`;
+      transitionAgg.set(key, (transitionAgg.get(key) || 0) + 1);
+    }
+  }
+  const topTransitions = Array.from(transitionAgg.entries())
+    .map(([key, count]) => {
+      const [from, to] = key.split(" ");
+      return {
+        from: circleName.get(from!) || "?",
+        to: circleName.get(to!) || "?",
+        count,
+      };
+    })
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 12);
+
+  return c.json({
+    journey,
+    stayBuckets,
+    circleCountBuckets,
+    byHour,
+    peakHour: peak.activeUsers > 0 ? peak.hour : null,
+    funnel,
+    staffing,
+    topTransitions,
   });
 });
 

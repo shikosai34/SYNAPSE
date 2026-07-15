@@ -82,6 +82,8 @@ export const eventApi = {
   get: (id: string) => fetchApi<Event>(`/api/festivals/${id}`),
   // イベント統計・分析 (2026-07-12)。event_manager (sales:read) 権限が必要。
   analytics: (id: string) => fetchApi<EventAnalytics>(`/api/festivals/${id}/analytics`),
+  // 来場者行動・混雑・スタッフ分析 (2026-07-14)
+  behavior: (id: string) => fetchApi<EventBehavior>(`/api/festivals/${id}/behavior`),
   // 日次締め (指定日 JST の売上を支払い方法別/サークル別に集計)。event_manager sales:read。
   dailyClose: (id: string, date?: string) =>
     fetchApi<DailyClose>(`/api/festivals/${id}/daily-close${date ? `?date=${date}` : ""}`),
@@ -473,6 +475,32 @@ export interface EventAnalytics {
   menuRanking: { menuName: string; quantity: number; revenue: number }[];
   ageBuckets: { label: string; count: number }[];
   paymentBreakdown: { method: string; orders: number; revenue: number }[];
+}
+
+// 来場者行動・混雑・スタッフ分析 (GET /api/festivals/:id/behavior) のレスポンス (2026-07-14)
+export interface EventBehavior {
+  journey: {
+    visitors: number;
+    buyers: number;
+    buyerRate: number;
+    avgOrdersPerBuyer: number;
+    avgSpendPerBuyer: number;
+    avgCirclesPerVisitor: number;
+    repeatBuyerRate: number;
+    multiCircleRate: number;
+    avgStayMin: number;
+    medianStayMin: number;
+  };
+  stayBuckets: { label: string; count: number }[];
+  circleCountBuckets: { label: string; count: number }[];
+  byHour: { hour: number; activeUsers: number; orders: number; revenue: number; arrivals: number; staffOnShift: number }[];
+  peakHour: number | null;
+  funnel: { stage: string; count: number }[];
+  staffing: {
+    totalStaff: number;
+    byCircle: { circleId: string; name: string; staff: number; orders: number; revenue: number; ordersPerStaff: number | null }[];
+  };
+  topTransitions: { from: string; to: string; count: number }[];
 }
 
 // サークル統計 (GET /api/circles/:id/analytics) のレスポンス (2026-07-13)

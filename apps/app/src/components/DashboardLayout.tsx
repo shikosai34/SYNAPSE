@@ -30,6 +30,7 @@ import {
   ChevronUp,
   Download,
   IdCard,
+  Activity,
 } from "lucide-react";
 
 interface MenuItem {
@@ -107,6 +108,7 @@ export default function DashboardLayout({
   // イベント管理のメニュー項目 (タブ切り替え)
   const eventMenuItems: MenuItem[] = [
     { title: "統計・分析", tab: "analytics", icon: BarChart3 },
+    { title: "来場者行動・混雑", tab: "behavior", icon: Activity },
     { title: "データエクスポート", tab: "export", icon: Download },
     { title: "注文モニタ", tab: "order-monitor", icon: MonitorCheck },
     { title: "在庫・売り切れ", tab: "inventory", icon: Boxes },
