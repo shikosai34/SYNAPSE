@@ -11,6 +11,7 @@ import {
   topping,
   userStamp,
   circle,
+  event,
   eventUser,
   wristband,
   type DB,
@@ -365,6 +366,18 @@ orderRoutes.post(
       }
       const eventId = circles[0]!.eventId;
 
+      // 2026-07-15: イベントの停止/削除を注文時にハードゲートする。
+      // 従来 billingStatus==="suspended" はサークル作成時しか見ておらず、停止済みイベントでも
+      // 注文が通ってしまう「UIと実挙動の乖離」があった。停止(suspended)・論理削除(deletedAt)の
+      // どちらでも新規注文を受け付けない。
+      const eventRows = await db.select().from(event).where(eq(event.id, eventId));
+      if (eventRows.length === 0 || eventRows[0]!.deletedAt) {
+        apiError("BAD_REQUEST", "このイベントは終了しています");
+      }
+      if (eventRows[0]!.billingStatus === "suspended") {
+        apiError("BAD_REQUEST", "このイベントは現在停止中のため注文を受け付けていません");
+      }
+
       // サークル設定から注文モードを解決する。
       //   "pending"    : 未着手で受付 (既定・従来挙動、厨房が調理開始→完成)
       //   "preparing"  : 最初から調理中として受付
@@ -395,6 +408,10 @@ orderRoutes.post(
           "FORBIDDEN",
           "リストバンドが発行されていません。受付でリストバンドの発行を受けるか、店頭でスタッフにお申し付けください。",
         );
+      } else if (existingUser[0]!.status === "banned") {
+        // 2026-07-15: BAN された来場者の注文を拒否する。従来 status:"banned" は
+        // 更新APIのenum値としてのみ存在し、どこでも検査されず「BANできない」状態だった。
+        apiError("FORBIDDEN", "このリストバンドは利用できません。受付・本部にお問い合わせください。");
       } else if (existingUser[0]!.eventId !== eventId) {
         // 2026-07-06: クロスイベント混入対策 (H-3, ベストエフォート)。
         // userId は認証を伴わないベアラー値のため、既存の userId を任意に指定して
