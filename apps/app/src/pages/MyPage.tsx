@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { ArrowLeft, QrCode, Receipt, ChevronRight } from "lucide-react";
+import { ArrowLeft, QrCode, Receipt, ChevronRight, UserCog, Pencil } from "lucide-react";
 import { toast } from "sonner";
 
 /**
@@ -196,6 +196,39 @@ export default function MyPage() {
           </CardContent>
         </Card>
       )}
+
+      {/* プロフィール表示 + 自己編集への導線 (2026-07-15)。
+          来場者が自分のニックネーム/お好きな日付を確認し、[編集]から修正できるようにする。
+          お好きな日付は本人確認用なので、伏せずに本人には見せる (公開はされない)。 */}
+      <div className="border-thick border-border bg-background p-4">
+        <div className="flex items-center justify-between gap-2 mb-3">
+          <span className="flex items-center gap-2 text-[11px] font-black uppercase tracking-widest text-muted-foreground">
+            <UserCog className="h-4 w-4" />
+            あなたの情報
+          </span>
+          <button
+            onClick={() => navigate("/visitor/onboarding?edit=1")}
+            className="flex items-center gap-1 border-[2px] border-border bg-background px-2.5 py-1 text-[11px] font-black uppercase tracking-wider hover:bg-primary hover:text-primary-foreground transition-colors"
+          >
+            <Pencil className="h-3.5 w-3.5" />
+            編集
+          </button>
+        </div>
+        <dl className="grid gap-2 text-sm">
+          <div className="flex items-baseline justify-between gap-3">
+            <dt className="text-[11px] uppercase tracking-wider text-muted-foreground shrink-0">ニックネーム</dt>
+            <dd className="font-bold text-right break-all">
+              {userStatus?.user.nickname || <span className="text-muted-foreground font-normal">未設定</span>}
+            </dd>
+          </div>
+          <div className="flex items-baseline justify-between gap-3">
+            <dt className="text-[11px] uppercase tracking-wider text-muted-foreground shrink-0">お好きな日付</dt>
+            <dd className="font-bold text-right">
+              {userStatus?.user.favoriteDate || <span className="text-muted-foreground font-normal">未設定</span>}
+            </dd>
+          </div>
+        </dl>
+      </div>
 
       {/* 注文履歴への導線 (履歴は /orders に分離) */}
       <button

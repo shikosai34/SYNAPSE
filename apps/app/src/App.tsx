@@ -1,4 +1,5 @@
-import { Routes, Route, Outlet, Navigate } from "react-router-dom";
+import { Routes, Route, Outlet, Navigate, useSearchParams } from "react-router-dom";
+import { useVisitor } from "@/hooks/useVisitor";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import Providers from "@/components/providers";
 import { DebugConsole } from "@/components/DebugConsole";
@@ -66,6 +67,29 @@ function VisitorLayout() {
 	);
 }
 
+// 来場者のオンボーディング必須ゲート (2026-07-15)。
+// デジタルQRの発行(/visitor/mypage?action=issue)は eventUser を onboarded:false で作るため、
+// 発行後にニックネーム/お好きな日付を入れずマイページ・注文履歴へ素通りできてしまっていた。
+// 入場済み(セッションあり)なのに未オンボーディングの来場者は、パーソナライズ画面に入る前に
+// オンボーディングへ強制送還する。メニュー閲覧(/visitor/events, /visitor/menu)は誰でも自由なので
+// このゲートは掛けない — マイページ/注文履歴のみを保護する。
+function VisitorOnboardingGate() {
+	const { isLoaded, isEntered, isOnboarded } = useVisitor();
+	const [searchParams] = useSearchParams();
+
+	// セッション判定は localStorage の読み込み後に確定する。読み込み前は子側のスケルトンに任せる。
+	if (!isLoaded) return <Outlet />;
+
+	// 発行アクション中は MyPage 自身が「発行 → オンボーディング遷移」を担うので素通しする
+	// (ここで先回りしてリダイレクトすると発行処理そのものが走らなくなる)。
+	if (searchParams.get("action") === "issue") return <Outlet />;
+
+	if (isEntered && !isOnboarded) {
+		return <Navigate to="/visitor/onboarding" replace />;
+	}
+	return <Outlet />;
+}
+
 // ブランディング (/) 用の素のレイアウト。VisitorHeader を出さず、メンテナンス
 // ゲートだけ共通で通す (2026-07-11 来場者パスを /visitor に集約しルートをブランド面に)。
 function BareLayout() {
@@ -98,8 +122,12 @@ export default function App() {
 
 					<Route path="/visitor" element={<VisitorHome />} />
 					<Route path="/visitor/onboarding" element={<Onboarding />} />
-					<Route path="/visitor/mypage" element={<MyPage />} />
-					<Route path="/visitor/orders" element={<Orders />} />
+
+					{/* マイページ・注文履歴はオンボーディング必須ゲートで保護する */}
+					<Route element={<VisitorOnboardingGate />}>
+						<Route path="/visitor/mypage" element={<MyPage />} />
+						<Route path="/visitor/orders" element={<Orders />} />
+					</Route>
 
 					{/* Visitor event / menu routes */}
 					<Route path="/visitor/events" element={<EventMenu />} />
