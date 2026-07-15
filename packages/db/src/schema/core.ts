@@ -146,6 +146,11 @@ export const event = sqliteTable("event", {
   // 有効化/停止の時刻 (手動有効化・銀行振込対応の監査用)。
   activatedAt: integer("activated_at", { mode: "timestamp_ms" }),
   suspendedAt: integer("suspended_at", { mode: "timestamp_ms" }),
+  // 契約管理(手動運用)の補助フィールド (2026-07-15)。銀行振込ベースの契約を管理画面で
+  // 扱えるようにするため追加。Stripe 導入までの手動運用の正本。
+  billingAmount: integer("billing_amount").default(0).notNull(), // 契約金額(円/契約期間)。0=未設定/無料。
+  nextBillingAt: integer("next_billing_at", { mode: "timestamp_ms" }), // 次回請求/更新日。
+  contractNotes: text("contract_notes"), // 運営メモ(振込確認・連絡事項など。テナントには非公開)。
 
   // テーマパック用カラム
   // テーマパック用カラム
@@ -174,6 +179,27 @@ export const event = sqliteTable("event", {
     .notNull(),
 });
 
+
+// 契約入金履歴 (2026-07-15)。銀行振込等の手動入金を1件ずつ記録し、契約管理画面で参照する。
+// Stripe 連携までの手動運用における「いつ・いくら・どの方法で入金があったか」の台帳。
+export const contractPayment = sqliteTable(
+  "contract_payment",
+  {
+    id: text("id").primaryKey().$defaultFn(() => ulid()),
+    eventId: text("event_id")
+      .notNull()
+      .references(() => event.id, { onDelete: "cascade" }),
+    amount: integer("amount").notNull(), // 入金額(円)
+    method: text("method").notNull().default("銀行振込"), // 銀行振込 / 現金 / その他
+    paidAt: integer("paid_at", { mode: "timestamp_ms" }).notNull(), // 入金日
+    note: text("note"), // 備考(振込人名義など)
+    recordedBy: text("recorded_by"), // 記録した運営のメール
+    createdAt: integer("created_at", { mode: "timestamp_ms" })
+      .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+      .notNull(),
+  },
+  (table) => [index("contract_payment_eventId_idx").on(table.eventId)]
+);
 
 // サークルテーブル
 export const circle = sqliteTable(

@@ -1197,6 +1197,13 @@ export const adminApi = {
     fetchApi<{ success: boolean }>(`/api/admin/events/${id}`, { method: "PATCH", body: data }),
   deleteEvent: (id: string) =>
     fetchApi<{ success: boolean }>(`/api/admin/events/${id}`, { method: "DELETE" }),
+  // 契約入金履歴 (2026-07-15)
+  listPayments: (eventId: string) =>
+    fetchApi<ContractPayment[]>(`/api/admin/events/${eventId}/payments`),
+  addPayment: (eventId: string, data: ContractPaymentInput) =>
+    fetchApi<{ id: string }>(`/api/admin/events/${eventId}/payments`, { method: "POST", body: data }),
+  deletePayment: (paymentId: string) =>
+    fetchApi<{ success: boolean }>(`/api/admin/payments/${paymentId}`, { method: "DELETE" }),
   // sudo (昇格) / impersonation (なりすまし) / 監査 (2026-07-12 Phase D/E)
   sudoStatus: () => fetchApi<{ elevated: boolean; expiresAt: string | null }>("/api/admin/sudo/status"),
   elevate: () => fetchApi<{ elevated: boolean; expiresAt: string }>("/api/admin/sudo/elevate", { method: "POST" }),
@@ -1292,6 +1299,12 @@ export interface AdminEvent {
   createdAt: string;
   activatedAt: string | null;
   suspendedAt: string | null;
+  // 契約管理(手動運用)フィールド (2026-07-15)
+  billingAmount: number;
+  nextBillingAt: string | null;
+  contractNotes: string | null;
+  paidTotal: number;
+  lastPaidAt: string | null;
 }
 
 export interface AdminEventPatch {
@@ -1299,4 +1312,25 @@ export interface AdminEventPatch {
   plan?: string;
   maxCircles?: number;
   billingStatus?: BillingStatus;
+  billingAmount?: number;
+  nextBillingAt?: string | null;
+  contractNotes?: string | null;
+}
+
+// 契約入金記録 (2026-07-15)
+export interface ContractPayment {
+  id: string;
+  eventId: string;
+  amount: number;
+  method: string;
+  paidAt: string;
+  note: string | null;
+  recordedBy: string | null;
+  createdAt: string;
+}
+export interface ContractPaymentInput {
+  amount: number;
+  method: string;
+  paidAt: string; // ISO
+  note?: string;
 }
