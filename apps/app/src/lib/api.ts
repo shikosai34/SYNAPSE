@@ -543,6 +543,8 @@ export interface InventoryItem {
   price: number;
   soldOut: boolean;
   stockQuantity: number;
+  // 在庫管理拡張ON=残数/僅少が意味を持つ。OFF=売切フラグのみ扱う (2026-07-14)
+  stockManaged: boolean;
 }
 
 

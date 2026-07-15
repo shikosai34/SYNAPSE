@@ -305,11 +305,23 @@ eventRoutes.get("/:id/inventory", async (c) => {
   }
 
   const circles = await db
-    .select({ id: circle.id, name: circle.name })
+    .select({ id: circle.id, name: circle.name, settings: circle.settings })
     .from(circle)
     .where(and(eq(circle.eventId, eventId), isNull(circle.deletedAt)));
   const circleIds = circles.map((c2) => c2.id);
   const circleName = new Map(circles.map((c2) => [c2.id, c2.name]));
+  // 在庫管理拡張がONのサークルだけ在庫数(残N/僅少)が意味を持つ。OFFのサークルは売切のみ扱う。
+  const stockManaged = new Map(
+    circles.map((c2) => {
+      let on = false;
+      try {
+        on = JSON.parse(c2.settings || "{}")?.extensions?.stock === true;
+      } catch {
+        /* 壊れた settings は未管理扱い */
+      }
+      return [c2.id, on];
+    })
+  );
 
   const menus = circleIds.length
     ? await db
@@ -327,7 +339,11 @@ eventRoutes.get("/:id/inventory", async (c) => {
 
   return c.json(
     menus
-      .map((m) => ({ ...m, circleName: circleName.get(m.circleId) || "" }))
+      .map((m) => ({
+        ...m,
+        circleName: circleName.get(m.circleId) || "",
+        stockManaged: stockManaged.get(m.circleId) ?? false,
+      }))
       .sort((a, b) => a.circleName.localeCompare(b.circleName) || a.name.localeCompare(b.name))
   );
 });
