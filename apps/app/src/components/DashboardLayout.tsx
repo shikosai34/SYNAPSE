@@ -2,7 +2,7 @@ import { ReactNode, useState, useEffect } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
-import { circleApi, parseCircleSettings } from "@/lib/api";
+import { circleApi, eventApi, parseCircleSettings } from "@/lib/api";
 import {
   LayoutDashboard,
   UtensilsCrossed,
@@ -31,6 +31,7 @@ import {
   Download,
   IdCard,
   Activity,
+  CreditCard,
 } from "lucide-react";
 
 interface MenuItem {
@@ -53,6 +54,9 @@ interface DashboardLayoutProps {
   actions?: ReactNode;
   // イベントの抽選機能が有効なとき「抽選」タブを出す (2026-07-12)
   lotteryEnabled?: boolean;
+  // type==="event" のとき対象イベントID。閲覧のみモードの判定に使う (2026-07-16)。
+  // circle の場合はサークルから eventId を解決するので不要。
+  eventId?: string;
 }
 
 export default function DashboardLayout({
@@ -64,6 +68,7 @@ export default function DashboardLayout({
   onTabChange,
   actions,
   lotteryEnabled,
+  eventId,
 }: DashboardLayoutProps) {
   const location = useLocation();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -82,6 +87,18 @@ export default function DashboardLayout({
     enabled: type === "circle" && !!circleId,
   });
   const circleSettings = parseCircleSettings(circle?.settings);
+
+  // 閲覧のみモード (2026-07-16)。イベントが終了/保持中なら配下の変更操作はサーバで拒否されるため、
+  // 全ダッシュボード共通のこの場所で理由を明示する (各画面に個別実装しないで済む)。
+  // event 型は親から eventId をもらい、circle 型はサークルから親イベントを解決する。
+  const resolvedEventId = type === "event" ? eventId : circle?.eventId;
+  const { data: layoutEvent } = useQuery({
+    queryKey: ["event", resolvedEventId],
+    queryFn: () => eventApi.get(resolvedEventId!),
+    enabled: !!resolvedEventId,
+  });
+  const lifecycle = layoutEvent?.lifecycleStatus;
+  const isReadOnly = lifecycle === "ended" || lifecycle === "archived";
 
   // サークル管理のメニュー項目
   // 基本機能を先頭に、拡張機能(在庫/スタッフ/モッド)は末尾へ並べる。
@@ -120,6 +137,7 @@ export default function DashboardLayout({
     ...(lotteryEnabled ? [{ title: "抽選", tab: "lottery", icon: Ticket }] : []),
     { title: "スタッフ管理", tab: "staff", icon: Users },
     { title: "イベント設定", tab: "settings", icon: Settings },
+    { title: "契約状況", tab: "contract", icon: CreditCard },
     { title: "リストバンド管理", tab: "wristbands", icon: IdCard },
   ];
 
@@ -170,6 +188,22 @@ export default function DashboardLayout({
           </div>
         )}
       </div>
+
+      {/* 閲覧のみモードの明示 (2026-07-16)。サーバ側 (hasPermission) が write/delete を
+          一律拒否するため、なぜ保存できないのかをここで伝える。 */}
+      {isReadOnly && (
+        <div className="border-thick border-warning bg-warning/10 p-3 mb-4 flex items-start gap-2">
+          <Lock className="h-4 w-4 mt-0.5 shrink-0 text-warning" />
+          <div className="min-w-0">
+            <p className="text-xs font-black uppercase tracking-wider">閲覧のみモード</p>
+            <p className="text-[11px] text-muted-foreground leading-relaxed mt-0.5">
+              このイベントは{lifecycle === "archived" ? "保持期間中" : "終了"}のため、データの変更はできません。
+              閲覧・集計・エクスポートはこれまでどおり利用できます。
+              {type === "event" && "再開する場合は「イベント設定」の開催状態を「開催中」に戻してください。"}
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* モバイルアコーディオンメニュー (md未満) */}
       <div className="md:hidden w-full border-thick border-border bg-background mb-4">

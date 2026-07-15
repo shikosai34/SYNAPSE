@@ -20,6 +20,7 @@ import { LotteryTab } from "@/components/event/LotteryTab";
 import { SalesTab } from "@/components/event/SalesTab";
 import { StaffTab } from "@/components/event/StaffTab";
 import { SettingsTab } from "@/components/event/SettingsTab";
+import { ContractTab } from "@/components/event/ContractTab";
 import { WristbandsTab } from "@/components/event/WristbandsTab";
 import { ExportTab } from "@/components/event/ExportTab";
 
@@ -125,8 +126,12 @@ export default function EventDashboard() {
         activeTab={activeTab}
         onTabChange={setActiveTab}
         lotteryEnabled={!!eventData?.lotteryEnabled}
+        eventId={eventId}
       >
         <div className="space-y-6">
+          {/* TAB: 契約状況 (オーナー向け・参照専用) */}
+          {activeTab === "contract" && <ContractTab eventId={eventId} />}
+
           {/* TAB: 統計・分析 */}
           {activeTab === "analytics" && <AnalyticsTab eventId={eventId} eventName={eventName} />}
           {activeTab === "behavior" && <BehaviorTab eventId={eventId} />}

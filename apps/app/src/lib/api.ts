@@ -93,6 +93,8 @@ export const eventApi = {
   // 開催ライフサイクル状態の変更 (event_manager event:write 権限)。
   setLifecycleStatus: (id: string, status: EventLifecycleStatus) =>
     fetchApi<{ success: boolean }>(`/api/festivals/${id}/lifecycle-status`, { method: "PUT", body: { status } }),
+  // 契約状況の照会 (オーナー向け・読み取り専用)。
+  contract: (id: string) => fetchApi<EventContract>(`/api/festivals/${id}/contract`),
   // 支払い方法の設定 (event_manager event:write 権限)。
   setPaymentMethods: (id: string, paymentMethods: string[]) =>
     fetchApi<{ success: boolean; paymentMethods: string[] }>(`/api/festivals/${id}/payment-methods`, {
@@ -441,6 +443,24 @@ export interface Event extends EventTheme {
 }
 
 export type EventLifecycleStatus = "upcoming" | "live" | "ended" | "archived";
+
+// オーナー向け契約状況 (2026-07-16)。運営メモ・入金記録者はサーバ側で除外済み。
+export interface EventContract {
+  eventId: string;
+  eventName: string;
+  plan: string;
+  billingStatus: BillingStatus;
+  billingAmount: number;
+  nextBillingAt: string | null;
+  maxCircles: number;
+  circleCount: number;
+  activatedAt: string | null;
+  suspendedAt: string | null;
+  lifecycleStatus: EventLifecycleStatus;
+  paidTotal: number;
+  outstanding: number;
+  payments: { id: string; amount: number; method: string; paidAt: string; note: string | null }[];
+}
 
 // event.paymentMethods (JSON文字列) を配列にパースする。既定は ["現金"]。
 export function parseEventPaymentMethods(raw?: string | null): string[] {

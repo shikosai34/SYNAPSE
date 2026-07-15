@@ -14,6 +14,7 @@ import {
   menu,
   notification,
   userStamp,
+  contractPayment,
 } from "@fesflow/db";
 import { eq, and, inArray, isNull, desc } from "drizzle-orm";
 import { ulid } from "ulidx";
@@ -124,6 +125,62 @@ eventRoutes.get("/:id/orders/live", async (c) => {
   return c.json(rows);
 });
 
+// 契約状況の照会 (2026-07-16)。オーナー(event_manager)が自分の契約を確認するための読み取り専用API。
+// 運営専用の contractNotes(運営メモ) と入金記録者(recordedBy) は返さない = テナントには非公開。
+// 変更は運営 (super_admin の契約管理) 側でのみ行うため、ここに更新系は置かない。
+eventRoutes.get("/:id/contract", async (c) => {
+  const db = c.get("db");
+  const eventId = c.req.param("id");
+
+  if (!(await hasPermission(c, null, "event:read", eventId))) {
+    apiError("FORBIDDEN", "契約状況を参照する権限がありません");
+  }
+
+  const rows = await db.select().from(event).where(eq(event.id, eventId));
+  if (rows.length === 0) {
+    apiError("NOT_FOUND", "イベントが見つかりません");
+  }
+  const e = rows[0]!;
+
+  // 上限に対する現在のサークル数 (論理削除は除外)。
+  const circles = await db
+    .select({ id: circle.id })
+    .from(circle)
+    .where(and(eq(circle.eventId, eventId), isNull(circle.deletedAt)));
+
+  const payments = await db
+    .select()
+    .from(contractPayment)
+    .where(eq(contractPayment.eventId, eventId))
+    .orderBy(desc(contractPayment.paidAt));
+
+  const paidTotal = payments.reduce((s, p) => s + p.amount, 0);
+
+  return c.json({
+    eventId: e.id,
+    eventName: e.eventName,
+    plan: e.plan,
+    billingStatus: e.billingStatus,
+    billingAmount: e.billingAmount,
+    nextBillingAt: e.nextBillingAt,
+    maxCircles: e.maxCircles,
+    circleCount: circles.length,
+    activatedAt: e.activatedAt,
+    suspendedAt: e.suspendedAt,
+    lifecycleStatus: e.lifecycleStatus,
+    paidTotal,
+    // 残額 (契約金額 - 入金合計)。マイナスにはしない。
+    outstanding: Math.max(0, (e.billingAmount ?? 0) - paidTotal),
+    payments: payments.map((p) => ({
+      id: p.id,
+      amount: p.amount,
+      method: p.method,
+      paidAt: p.paidAt,
+      note: p.note,
+    })),
+  });
+});
+
 // 開催ライフサイクル状態の変更 (2026-07-15)。event_manager(event:write)。
 // 注文可否 (live のみ可) や来場者/ダッシュボードの表示モードの正本になる。
 eventRoutes.put(
@@ -132,7 +189,9 @@ eventRoutes.put(
   async (c) => {
     const db = c.get("db");
     const eventId = c.req.param("id");
-    if (!(await hasPermission(c, null, "event:write", eventId))) {
+    // allowWhenClosed: 終了/保持中は閲覧のみモードで event:write が落ちるため、
+    // この経路だけゲートを外す (そうしないと「開催中」に戻せずロックアウトする)。
+    if (!(await hasPermission(c, null, "event:write", eventId, { allowWhenClosed: true }))) {
       apiError("FORBIDDEN", "イベントの状態を変更する権限がありません");
     }
     await db
