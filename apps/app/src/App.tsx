@@ -1,3 +1,4 @@
+import { lazy, Suspense, useEffect } from "react";
 import { Routes, Route, Outlet, Navigate, useSearchParams } from "react-router-dom";
 import { useVisitor } from "@/hooks/useVisitor";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
@@ -9,40 +10,106 @@ import SystemBanner from "@/components/SystemBanner";
 
 import SystemGate from "@/components/SystemGate";
 import VisitorHeader from "@/components/visitor-header";
+import Loader from "@/components/loader";
 
-import Home from "@/pages/Home";
-import Login from "@/pages/Login";
-import Register from "@/pages/Register";
-import Backyard from "@/pages/Backyard";
-import Checkin from "@/pages/Checkin";
-import Invite from "@/pages/Invite";
-import Admin from "@/pages/Admin";
-import EventDashboard from "@/pages/EventDashboard";
-import DashboardIndex from "@/pages/dashboard/Index";
-import DashboardCircle from "@/pages/dashboard/Circle";
-import DashboardMembers from "@/pages/dashboard/Members";
-import DashboardMenu from "@/pages/dashboard/Menu";
-import DashboardQr from "@/pages/dashboard/Qr";
-import DashboardSales from "@/pages/dashboard/Sales";
-import DashboardStaff from "@/pages/dashboard/Staff";
-import DashboardStock from "@/pages/dashboard/Stock";
-import DashboardAnalytics from "@/pages/dashboard/Analytics";
-import DashboardExport from "@/pages/dashboard/Export";
-import Placeholder from "@/pages/Placeholder";
 import { CircleAuthGuard, SystemAdminGuard, EventAdminGuard } from "@/hooks/useCircleAuth";
-
-import Branding from "@/pages/Branding";
-import VisitorHome from "@/pages/VisitorHome";
-import Entry from "@/pages/Entry";
-import Onboarding from "@/pages/Onboarding";
-import StaffOnboarding from "@/pages/StaffOnboarding";
 import { ImpersonationBanner } from "@/components/system/ImpersonationBanner";
-import Menu from "@/pages/Menu";
-import MyPage from "@/pages/MyPage";
-import Orders from "@/pages/Orders";
-import EventMenu from "@/pages/EventMenu";
+
+// 2026-07-15: オフライン対応（スタッフ側）のためのプリロード対象および lazy 定義。
+// 来場者とスタッフ画面を切り分けるため、インポート用関数をオブジェクトにまとめて管理する。
+const pageImports = {
+	// スタッフ・管理者用画面 (プリロード対象)
+	Home: () => import("@/pages/Home"),
+	Login: () => import("@/pages/Login"),
+	Register: () => import("@/pages/Register"),
+	Backyard: () => import("@/pages/Backyard"),
+	Checkin: () => import("@/pages/Checkin"),
+	Invite: () => import("@/pages/Invite"),
+	Admin: () => import("@/pages/Admin"),
+	EventDashboard: () => import("@/pages/EventDashboard"),
+	DashboardIndex: () => import("@/pages/dashboard/Index"),
+	DashboardCircle: () => import("@/pages/dashboard/Circle"),
+	DashboardMembers: () => import("@/pages/dashboard/Members"),
+	DashboardMenu: () => import("@/pages/dashboard/Menu"),
+	DashboardQr: () => import("@/pages/dashboard/Qr"),
+	DashboardSales: () => import("@/pages/dashboard/Sales"),
+	DashboardStaff: () => import("@/pages/dashboard/Staff"),
+	DashboardStock: () => import("@/pages/dashboard/Stock"),
+	DashboardAnalytics: () => import("@/pages/dashboard/Analytics"),
+	DashboardExport: () => import("@/pages/dashboard/Export"),
+	StaffOnboarding: () => import("@/pages/StaffOnboarding"),
+	Placeholder: () => import("@/pages/Placeholder"),
+
+	// 来場者用画面 (基本プリロード不要)
+	Branding: () => import("@/pages/Branding"),
+	VisitorHome: () => import("@/pages/VisitorHome"),
+	Entry: () => import("@/pages/Entry"),
+	Onboarding: () => import("@/pages/Onboarding"),
+	Menu: () => import("@/pages/Menu"),
+	MyPage: () => import("@/pages/MyPage"),
+	Orders: () => import("@/pages/Orders"),
+	EventMenu: () => import("@/pages/EventMenu"),
+};
+
+// Lazy コンポーネント定義
+const Home = lazy(pageImports.Home);
+const Login = lazy(pageImports.Login);
+const Register = lazy(pageImports.Register);
+const Backyard = lazy(pageImports.Backyard);
+const Checkin = lazy(pageImports.Checkin);
+const Invite = lazy(pageImports.Invite);
+const Admin = lazy(pageImports.Admin);
+const EventDashboard = lazy(pageImports.EventDashboard);
+const DashboardIndex = lazy(pageImports.DashboardIndex);
+const DashboardCircle = lazy(pageImports.DashboardCircle);
+const DashboardMembers = lazy(pageImports.DashboardMembers);
+const DashboardMenu = lazy(pageImports.DashboardMenu);
+const DashboardQr = lazy(pageImports.DashboardQr);
+const DashboardSales = lazy(pageImports.DashboardSales);
+const DashboardStaff = lazy(pageImports.DashboardStaff);
+const DashboardStock = lazy(pageImports.DashboardStock);
+const DashboardAnalytics = lazy(pageImports.DashboardAnalytics);
+const DashboardExport = lazy(pageImports.DashboardExport);
+const Placeholder = lazy(pageImports.Placeholder);
+
+const Branding = lazy(pageImports.Branding);
+const VisitorHome = lazy(pageImports.VisitorHome);
+const Entry = lazy(pageImports.Entry);
+const Onboarding = lazy(pageImports.Onboarding);
+const StaffOnboarding = lazy(pageImports.StaffOnboarding);
+const Menu = lazy(pageImports.Menu);
+const MyPage = lazy(pageImports.MyPage);
+const Orders = lazy(pageImports.Orders);
+const EventMenu = lazy(pageImports.EventMenu);
+
+// スタッフ用画面のプリロード関数
+// 2026-07-15: スタッフ画面の読み込み開始時に、オフライン下での操作（タブ切り替え等）で ChunkLoadError が起きるのを防ぐため、
+// 関連モジュールをバックグラウンドで一括ダウンロードする。
+export function preloadStaffPages() {
+	const staffKeys: (keyof typeof pageImports)[] = [
+		"Home", "Login", "Register", "Backyard", "Checkin", "Invite", "Admin", 
+		"EventDashboard", "DashboardIndex", "DashboardCircle", "DashboardMembers", 
+		"DashboardMenu", "DashboardQr", "DashboardSales", "DashboardStaff", 
+		"DashboardStock", "DashboardAnalytics", "DashboardExport", "StaffOnboarding", "Placeholder"
+	];
+	
+	staffKeys.forEach((key) => {
+		pageImports[key]().catch((err) => console.error(`Preload failed for ${key}:`, err));
+	});
+}
 
 function AdminLayout() {
+	// 2026-07-15: スタッフ用管理画面に入った時点で、オフライン運用に備えてバックグラウンドで全スタッフ画面モジュールをプリロードする。
+	useEffect(() => {
+		if (typeof window !== "undefined") {
+			if ("requestIdleCallback" in window) {
+				(window as any).requestIdleCallback(() => preloadStaffPages());
+			} else {
+				setTimeout(preloadStaffPages, 1000);
+			}
+		}
+	}, []);
+
 	return (
 		<div className="grid grid-rows-[auto_auto_1fr] min-h-svh">
 			<Header />
@@ -108,7 +175,8 @@ export default function App() {
 			<DebugConsole />
 			{/* なりすまし中は全ページ最上部にバナーを出す (Phase E) */}
 			<ImpersonationBanner />
-			<Routes>
+			<Suspense fallback={<Loader />}>
+				<Routes>
 				{/* ドメインルートはブランディングページ (VisitorHeader なし) */}
 				<Route element={<BareLayout />}>
 					<Route path="/" element={<Branding />} />
@@ -274,6 +342,7 @@ export default function App() {
 					<Route path="*" element={<Placeholder />} />
 				</Route>
 			</Routes>
+			</Suspense>
 		</Providers>
 		</ErrorBoundary>
 	);
