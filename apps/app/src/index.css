@@ -217,4 +217,18 @@
   .border-b-heavy { @apply border-b-[5px]; }
   .border-l-heavy { @apply border-l-[5px]; }
   .border-r-heavy { @apply border-r-[5px]; }
+
+  @keyframes rawblock-shimmer {
+    0% { left: -100%; }
+    50% { left: 100%; }
+    100% { left: -100%; }
+  }
+  .animate-rawblock-shimmer {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 30%;
+    background-color: var(--primary);
+    animation: rawblock-shimmer 2s ease-in-out infinite;
+  }
 }
