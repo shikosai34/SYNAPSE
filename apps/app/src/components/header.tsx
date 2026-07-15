@@ -282,6 +282,23 @@ export default function Header() {
 
     if (!payload) return;
 
+    // 2026-07-16: 権限・メンバーシップ関連のキャッシュを無効化する。
+    // useAuth 側の role/circleId は saveAuthInfo が dispatch する authChange イベントで
+    // 即座に更新されるが、TanStack Query の staleTime=0 は「再マウント時に再フェッチ」
+    // する挙動でしかなく、既にマウント済みのまま同じクエリキーを見続けているコンポーネント
+    // (例: 同じ /circle/dashboard に留まったまま別スペースへ切り替えた場合) までは
+    // 自動で追随しない。切り替え先の所属・権限に関わるクエリを明示的に無効化して
+    // 即時反映させる (queryClient.clear() は他の無関係なキャッシュまで巻き込むため避ける)。
+    queryClient.invalidateQueries({ queryKey: ["mySpaces"] });
+    queryClient.invalidateQueries({ queryKey: ["accountMe"] });
+    queryClient.invalidateQueries({ queryKey: ["notifications"] });
+    if (payload.circleId) {
+      queryClient.invalidateQueries({ queryKey: ["circle", payload.circleId] });
+    }
+    if (payload.eventId) {
+      queryClient.invalidateQueries({ queryKey: ["event", payload.eventId] });
+    }
+
     // 2026-07-07 単一ドメイン化: circle=/circle・event=/event・sys=/sys はすべて同一オリジンの
     // 同一SPA になったため、旧来のクロスドメイン移動 (?_sw で authInfo を持ち越す) は不要。
     // 常にクライアント側 navigate で切り替える。

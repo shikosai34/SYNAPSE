@@ -414,28 +414,24 @@ export function PermissionGuard({
 }
 
 // 認証ガードコンポーネント (2026-07-04 SaaS簡素化)
+// 2026-07-16: 従来は mount 時 (useEffect の依存配列が [navigate] のみ) にしか
+// localStorage を読み直しておらず、circleId/isBypassAdmin を自前の state に固定していた。
+// ヘッダーのスペース切り替えは同じパス (例: /circle/dashboard に留まったまま別サークルへ
+// 切り替え) の場合ルート遷移が起きずこのコンポーネントは再マウントされないため、
+// 古いサークルの判定のままリロードするまで反映されない不具合があった。
+// useAuth() は saveAuthInfo が dispatch する "authChange" イベントを購読して常に最新の
+// localStorage 値を返すため、これに乗り換えて再マウントに依存せず反映されるようにする。
 export function CircleAuthGuard({ children }: { children: React.ReactNode }) {
   const navigate = useNavigate();
-  const [circleId, setCircleId] = useState<string | null>(null);
-  const [isBypassAdmin, setIsBypassAdmin] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
+  const { circleId, role, isLoading } = useAuth();
+  const isBypassAdmin = role === "super_admin" || role === "event_manager";
 
   useEffect(() => {
-    const authInfo = getAuthInfo();
-    const isBypass = authInfo?.role === "super_admin" || authInfo?.role === "event_manager";
-
-    if (authInfo?.circleId) {
-      setCircleId(authInfo.circleId);
-      setIsBypassAdmin(isBypass);
-    } else if (isBypass) {
-      // 管理者はサークル選択がなくてもバイパス可能にする
-      setCircleId(null);
-      setIsBypassAdmin(true);
-    } else {
+    if (isLoading) return;
+    if (!circleId && !isBypassAdmin) {
       navigate("/login");
     }
-    setIsLoading(false);
-  }, [navigate]);
+  }, [isLoading, circleId, isBypassAdmin, navigate]);
 
   if (isLoading) {
     return (
