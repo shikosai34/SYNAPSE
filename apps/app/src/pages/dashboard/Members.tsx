@@ -195,8 +195,9 @@ function MembersContent() {
     createInviteMutation.mutate({
       circleId,
       role: inviteSettings.role,
-      maxUses: inviteSettings.maxUses,
-      expiresInHours: inviteSettings.expiresInHours,
+      // 空欄(0)のまま送られても妥当な下限に丸める
+      maxUses: Math.max(1, inviteSettings.maxUses || 1),
+      expiresInHours: Math.max(1, inviteSettings.expiresInHours || 24),
       createdBy: userEmail || "",
       targetEmail: inviteSettings.targetEmail || undefined,
     });
@@ -329,30 +330,29 @@ function MembersContent() {
                 </option>
               ))}
           </FormSelect>
+          {/* 編集中に 1 未満へ丸めると打ち直しがつっかえるため、空欄(0)を許容する。
+              実際の下限は送信時 (handleCreateInvite) に 1 以上へ丸める。 */}
           <FormField
             id="max-uses"
             label="最大使用回数"
             type="number"
-            min={1}
             max={100}
             value={inviteSettings.maxUses}
-            onChange={(e) =>
-              setInviteSettings({ ...inviteSettings, maxUses: parseInt(e.target.value) || 1 })
-            }
+            onChange={(e) => {
+              const n = parseInt(e.target.value);
+              setInviteSettings({ ...inviteSettings, maxUses: Number.isNaN(n) ? 0 : Math.max(0, n) });
+            }}
           />
           <FormField
             id="expires"
             label="有効期限（時間）"
             type="number"
-            min={1}
             max={720}
             value={inviteSettings.expiresInHours}
-            onChange={(e) =>
-              setInviteSettings({
-                ...inviteSettings,
-                expiresInHours: parseInt(e.target.value) || 24,
-              })
-            }
+            onChange={(e) => {
+              const n = parseInt(e.target.value);
+              setInviteSettings({ ...inviteSettings, expiresInHours: Number.isNaN(n) ? 0 : Math.max(0, n) });
+            }}
           />
           <FormField
             id="target-email"

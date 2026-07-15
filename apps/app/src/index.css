@@ -65,6 +65,9 @@
   --input-hover: #E8E8E8;
   --input-disabled: #F5F5F5;
   --border-disabled: #CCCCCC;
+  /* プレースホルダ専用色 (2026-07-15): muted-foreground が前景色(黒/白)と同一で、
+     プレースホルダと入力済みテキストが見分けられなかったため、確実に薄いグレーを充てる。 */
+  --placeholder: #8C8C8C;
 }
 
 .dark {
@@ -101,6 +104,7 @@
   --input-hover: #222222;
   --input-disabled: #151515;
   --border-disabled: #444444;
+  --placeholder: #6E6E6E;
 }
 
 @theme inline {
@@ -137,6 +141,7 @@
   --color-input-hover: var(--input-hover);
   --color-input-disabled: var(--input-disabled);
   --color-border-disabled: var(--border-disabled);
+  --color-placeholder: var(--placeholder);
 }
 
 @layer base {

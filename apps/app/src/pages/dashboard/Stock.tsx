@@ -18,6 +18,56 @@ import { AlertTriangle, Package, Search, Plus, Minus, XCircle, RotateCcw, Coins 
 
 const DEFAULT_LOW = 10;
 
+// 在庫数の直接入力 (2026-07-15)。
+// 従来は onChange のたびに updateStock.mutate を叩いており、1文字打つごとに
+// サーバ更新→再取得が走って value がサーバ値に巻き戻り「入力が不安定」だった。
+// ローカルの下書き状態で自由に編集させ、確定(blur / Enter)時にだけ親へ通知する。
+// 編集中は空欄も許容し、数字以外は無視する。
+function StockQtyInput({
+  value,
+  disabled,
+  onCommit,
+}: {
+  value: number;
+  disabled?: boolean;
+  onCommit: (v: number) => void;
+}) {
+  const [draft, setDraft] = useState<string>(String(value));
+
+  // 外部(サーバ)値が変わったら、非編集時に追従させる
+  useEffect(() => {
+    setDraft(String(value));
+  }, [value]);
+
+  const commit = () => {
+    const n = Math.max(0, Math.trunc(Number(draft)));
+    if (draft.trim() === "" || Number.isNaN(Number(draft))) {
+      setDraft(String(value)); // 不正入力は元に戻す
+      return;
+    }
+    setDraft(String(n));
+    onCommit(n);
+  };
+
+  return (
+    <Input
+      type="number"
+      inputMode="numeric"
+      className="w-16 border-thick border-border rounded-none h-7 text-xs bg-background focus-visible:ring-0 text-center tabular-nums"
+      value={draft}
+      disabled={disabled}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          e.currentTarget.blur();
+        }
+      }}
+    />
+  );
+}
+
 // 在庫管理 (拡張機能)。2026-07-14 に大幅拡充: サマリ(品目/売切/僅少/在庫数/在庫金額)、
 // クイック増減(±1/±5/±10)、売切・再開のワンタップ、僅少しきい値(端末保存)、検索、要対応フィルタ。
 function StockManagementContent() {
@@ -260,15 +310,11 @@ function StockManagementContent() {
                             {d}
                           </button>
                         ))}
-                        <Input
-                          type="number"
-                          min={0}
-                          className="w-16 border-thick border-border rounded-none h-7 text-xs bg-background focus-visible:ring-0 text-center tabular-nums"
+                        <StockQtyInput
                           value={q}
                           disabled={pending}
-                          onChange={(e) => {
-                            const v = Math.max(0, Number(e.target.value) || 0);
-                            updateStock.mutate({ id: m.id, stock: v });
+                          onCommit={(v) => {
+                            if (v !== q) updateStock.mutate({ id: m.id, stock: v });
                           }}
                         />
                         {[1, 5, 10].map((d) => (

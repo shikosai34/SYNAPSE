@@ -46,7 +46,7 @@ export function LotteryTab({ eventId }: { eventId: string }) {
   });
   const lot = data?.lottery;
   const addPrize = useMutation({
-    mutationFn: () => lotteryApi.addPrize(lot!.id, { name: prizeName.trim(), quantity: prizeQty }),
+    mutationFn: () => lotteryApi.addPrize(lot!.id, { name: prizeName.trim(), quantity: Math.max(1, prizeQty) }),
     onSuccess: () => { toast.success("景品を追加しました"); setPrizeName(""); setPrizeQty(1); invalidate(); },
     onError: (e: any) => toast.error(e?.message || "追加に失敗しました"),
   });
@@ -145,9 +145,11 @@ export function LotteryTab({ eventId }: { eventId: string }) {
                 </div>
                 <div className="space-y-1 w-24">
                   <Label htmlFor="prize-qty">当選数</Label>
-                  <Input id="prize-qty" type="number" min={1} value={prizeQty} onChange={(e) => setPrizeQty(Math.max(1, Number(e.target.value) || 1))} />
+                  {/* 入力中に 1 未満へ強制クランプすると打ち直しがつっかえるため、
+                      編集中は 0/空を許容し、確定は addPrize 側で 1 以上に丸める。 */}
+                  <Input id="prize-qty" type="number" min={0} value={prizeQty} onChange={(e) => setPrizeQty(Math.max(0, Math.trunc(Number(e.target.value)) || 0))} />
                 </div>
-                <Button variant="outline" onClick={() => addPrize.mutate()} disabled={addPrize.isPending || !prizeName.trim()}>追加</Button>
+                <Button variant="outline" onClick={() => addPrize.mutate()} disabled={addPrize.isPending || !prizeName.trim() || prizeQty < 1}>追加</Button>
               </div>
             )}
           </section>
