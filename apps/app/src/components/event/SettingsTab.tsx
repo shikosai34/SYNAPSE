@@ -1,13 +1,20 @@
 import { useState, useEffect } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { eventApi, uploadImage, parseEventPaymentMethods } from "@/lib/api";
+import { eventApi, uploadImage, parseEventPaymentMethods, type EventLifecycleStatus } from "@/lib/api";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Settings, Save, Upload, Loader2, Palette, CreditCard, Plus, X, Ticket } from "lucide-react";
+import { Settings, Save, Upload, Loader2, Palette, CreditCard, Plus, X, Ticket, CalendarClock } from "lucide-react";
 import { ToggleSwitch } from "@/components/ui/ToggleSwitch";
 import { toast } from "sonner";
+
+// 開催状態の選択肢 (主催者が切り替えられるのは upcoming/live/ended。archived は保持期間としてシステム側概念)。
+const LIFECYCLE_OPTIONS: { value: EventLifecycleStatus; label: string; desc: string }[] = [
+  { value: "upcoming", label: "開催前", desc: "準備中。メニューは見えるが注文は受け付けない。" },
+  { value: "live", label: "開催中", desc: "通常運用。注文を受け付ける。" },
+  { value: "ended", label: "終了", desc: "注文を締め切り、来場者には御礼画面を表示する。" },
+];
 
 interface SettingsTabProps {
   eventId: string;
@@ -54,6 +61,21 @@ export function SettingsTab({ eventId, event }: SettingsTabProps) {
     setPayments((p) => [...p, v]);
     setNewPayment("");
   };
+
+  // 開催ライフサイクル状態 (2026-07-15)。注文可否・来場者/管理の表示モードの正本。
+  const [lifecycle, setLifecycle] = useState<EventLifecycleStatus>("live");
+  useEffect(() => {
+    if (event?.lifecycleStatus) setLifecycle(event.lifecycleStatus);
+  }, [event]);
+  const saveLifecycle = useMutation({
+    mutationFn: (s: EventLifecycleStatus) => eventApi.setLifecycleStatus(eventId, s),
+    onSuccess: (_d, s) => {
+      setLifecycle(s);
+      toast.success("開催状態を更新しました");
+      queryClient.invalidateQueries({ queryKey: ["event", eventId] });
+    },
+    onError: (e: any) => toast.error(e?.message || "更新に失敗しました"),
+  });
 
   // 抽選機能(拡張)の有効化トグル (2026-07-12)。event.lotteryEnabled を更新する。
   const [lotteryEnabled, setLotteryEnabled] = useState(false);
@@ -164,6 +186,52 @@ export function SettingsTab({ eventId, event }: SettingsTabProps) {
           イベント基本設定・テーマ
         </h2>
       </div>
+
+      {/* 開催状態 (2026-07-15)。注文可否や来場者/管理の表示モードを決める最重要設定。 */}
+      <Card className="rounded-none bg-background shadow-none">
+        <CardContent className="pt-6 space-y-3">
+          <div className="flex items-center gap-2 border-b-thin border-border pb-2">
+            <CalendarClock className="h-4 w-4" />
+            <h3 className="text-xs font-bold uppercase tracking-wider">開催状態</h3>
+            {lifecycle === "archived" && (
+              <span className="text-[10px] font-bold border-thick border-border px-1.5 py-0.5 text-muted-foreground">保持期間 (閲覧のみ)</span>
+            )}
+          </div>
+          <p className="font-mono text-[11px] text-muted-foreground leading-[1.6]">
+            イベントの進行状態です。<strong className="text-foreground">開催中</strong>のときだけ注文を受け付けます。
+            終了にすると注文は締め切られ、来場者には御礼画面が表示されます。
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+            {LIFECYCLE_OPTIONS.map((opt) => {
+              const active = lifecycle === opt.value;
+              return (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => { if (!active) saveLifecycle.mutate(opt.value); }}
+                  disabled={saveLifecycle.isPending || lifecycle === "archived"}
+                  className={`text-left border-thick p-3 transition-all disabled:opacity-50 ${
+                    active
+                      ? opt.value === "live"
+                        ? "border-success bg-success/10"
+                        : opt.value === "ended"
+                          ? "border-destructive bg-destructive/10"
+                          : "border-warning bg-warning/10"
+                      : "border-border bg-background hover:bg-muted"
+                  }`}
+                >
+                  <div className="flex items-center gap-1.5 text-xs font-black uppercase tracking-wider">
+                    <span className={`h-2 w-2 rounded-full ${opt.value === "live" ? "bg-success" : opt.value === "ended" ? "bg-destructive" : "bg-warning"}`} />
+                    {opt.label}
+                    {active && <span className="ml-auto text-[9px]">● 現在</span>}
+                  </div>
+                  <p className="text-[10px] text-muted-foreground leading-snug mt-1">{opt.desc}</p>
+                </button>
+              );
+            })}
+          </div>
+        </CardContent>
+      </Card>
 
       {/* 支払い方法 (2026-07-12) */}
       <Card className="rounded-none bg-background shadow-none">

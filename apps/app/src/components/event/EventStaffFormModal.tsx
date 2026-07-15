@@ -22,8 +22,8 @@ interface EventStaffFormModalProps {
 //   出店代表者がこのコード/リンクでサークルを新規作成し circle_manager になる。
 //   複数サークルに配るため email 任意・maxUses 複数可。
 type InvitePurpose = "event_manager" | "circle_host";
-// expiresInDays: 招待の有効期限(日)。既定7日 (出店募集は数日〜1週間かかるため。サーバ上限は168h=7日) (2026-07-14 P1-4)。
-type InviteForm = { email: string; purpose: InvitePurpose; maxUses: number; expiresInDays: number };
+// 2026-07-15: 期限付き・人数制限付きの招待リンク機能向上のため、expiresInDays から expiresInHours (時間指定) に変更
+type InviteForm = { email: string; purpose: InvitePurpose; maxUses: number; expiresInHours: number };
 
 export function EventStaffFormModal({ eventId, isOpen, onClose }: EventStaffFormModalProps) {
   // 招待は常に新規発行のみ (編集モードなし) なので entity は渡さない。
@@ -32,7 +32,7 @@ export function EventStaffFormModal({ eventId, isOpen, onClose }: EventStaffForm
     handleOverlayClose, handleSaveAndClose, handleDiscardAndClose,
   } = useEntityForm<InviteForm, never>({
     isOpen,
-    emptyForm: { email: "", purpose: "circle_host", maxUses: 1, expiresInDays: 7 },
+    emptyForm: { email: "", purpose: "circle_host", maxUses: 1, expiresInHours: 168 },
     onClose,
     toastId: "event-staff-invite",
     invalidateKeys: [["invites", eventId]],
@@ -41,18 +41,19 @@ export function EventStaffFormModal({ eventId, isOpen, onClose }: EventStaffForm
         eventId,
         // circle_host はイベント配下にサークルを作る権利 (role=circle_manager, circleId 無し)。
         role: data.purpose === "event_manager" ? "event_manager" : "circle_manager",
-        // circle_host は不特定多数に配れるよう email 任意 + maxUses 複数可。
+        // 2026-07-15: 共同管理者でも直接リンク共有可能にするためメールアドレスは任意。
         targetEmail: data.email.trim() ? data.email.toLowerCase() : undefined,
-        maxUses: data.purpose === "circle_host" ? Math.max(1, data.maxUses) : 1,
-        // 有効期限 (日→時間)。1〜7日にクランプ (サーバ側も max 168h)。
-        expiresInHours: Math.min(7, Math.max(1, data.expiresInDays)) * 24,
-        createdBy: "event_admin",
+        // 2026-07-15: 共同管理者でも最大使用回数を指定できるように修正。
+        maxUses: Math.max(1, data.maxUses),
+        // 2026-07-15: サークルと同様に時間(1〜168時間)でクランプして送信。
+        expiresInHours: Math.min(168, Math.max(1, data.expiresInHours)),
       }),
-    validate: (data) =>
-      data.purpose === "event_manager" && !data.email
-        ? "共同管理者の招待にはメールアドレスが必要です"
-        : null,
-    hasInput: (data) => data.email.trim() !== "" || data.purpose === "circle_host",
+    validate: () => null, // 2026-07-15: 共同管理者でもメールアドレスを任意とするためバリデーションを解除
+    hasInput: (data) =>
+      data.email.trim() !== "" ||
+      data.maxUses !== 1 ||
+      data.expiresInHours !== 168 ||
+      data.purpose !== "circle_host",
     messages: {
       createSuccess: "招待を発行しました",
       createError: "招待の発行に失敗しました",
@@ -80,39 +81,42 @@ export function EventStaffFormModal({ eventId, isOpen, onClose }: EventStaffForm
 
         <FormField
           id="inviteEmail"
-          label={form.purpose === "event_manager" ? "メールアドレス" : "メールアドレス (任意)"}
-          required={form.purpose === "event_manager"}
+          label="メールアドレス (任意)"
+          required={false}
           type="email"
           value={form.email}
           onChange={(e) => setForm({ ...form, email: e.target.value })}
-          placeholder="staff@example.com"
+          placeholder="staff@example.com (任意)"
         />
 
-        {form.purpose === "circle_host" && (
-          <FormField
-            id="inviteMaxUses"
-            label="使用可能回数 (何サークル分)"
-            type="number"
-            value={String(form.maxUses)}
-            onChange={(e) => setForm({ ...form, maxUses: Number(e.target.value) || 1 })}
-            placeholder="1"
-          />
-        )}
+        <FormField
+          id="inviteMaxUses"
+          label={form.purpose === "event_manager" ? "最大使用回数 (人数)" : "使用可能回数 (何サークル分)"}
+          type="number"
+          max={100}
+          value={String(form.maxUses)}
+          onChange={(e) => {
+            const n = parseInt(e.target.value);
+            setForm({ ...form, maxUses: Number.isNaN(n) ? 0 : Math.max(0, n) });
+          }}
+          placeholder="1"
+        />
 
-        <FormSelect
+        <FormField
           id="inviteExpiry"
-          label="有効期限"
-          value={String(form.expiresInDays)}
-          onChange={(e) => setForm({ ...form, expiresInDays: Number(e.target.value) })}
-        >
-          <option value="1">1日</option>
-          <option value="3">3日</option>
-          <option value="7">7日</option>
-        </FormSelect>
+          label="有効期限（時間）"
+          type="number"
+          max={168}
+          value={String(form.expiresInHours)}
+          onChange={(e) => {
+            const n = parseInt(e.target.value);
+            setForm({ ...form, expiresInHours: Number.isNaN(n) ? 0 : Math.max(0, n) });
+          }}
+          placeholder="168"
+        />
 
         <FormSubmitButton
           onClick={handleSaveAndClose}
-          disabled={form.purpose === "event_manager" && !form.email}
           isPending={isCreating}
           icon={UserPlus}
         >

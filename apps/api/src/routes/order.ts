@@ -11,6 +11,7 @@ import {
   topping,
   userStamp,
   circle,
+  event,
   eventUser,
   wristband,
   type DB,
@@ -365,6 +366,31 @@ orderRoutes.post(
       }
       const eventId = circles[0]!.eventId;
 
+      // 2026-07-15: イベントの停止/削除を注文時にハードゲートする。
+      // 従来 billingStatus==="suspended" はサークル作成時しか見ておらず、停止済みイベントでも
+      // 注文が通ってしまう「UIと実挙動の乖離」があった。停止(suspended)・論理削除(deletedAt)の
+      // どちらでも新規注文を受け付けない。
+      const eventRows = await db.select().from(event).where(eq(event.id, eventId));
+      if (eventRows.length === 0 || eventRows[0]!.deletedAt) {
+        apiError("BAD_REQUEST", "このイベントは終了しています");
+      }
+      if (eventRows[0]!.billingStatus === "suspended") {
+        apiError("BAD_REQUEST", "このイベントは現在停止中のため注文を受け付けていません");
+      }
+      // 開催ライフサイクル状態が live 以外なら注文を受け付けない (状態が正本)。
+      const lifecycle = eventRows[0]!.lifecycleStatus;
+      if (lifecycle === "upcoming") {
+        apiError("BAD_REQUEST", "このイベントはまだ開催前のため注文を受け付けていません");
+      }
+      if (lifecycle === "ended" || lifecycle === "archived") {
+        apiError("BAD_REQUEST", "このイベントは終了しているため注文を受け付けていません");
+      }
+      // 期間(endDate)超過は自動締切のセーフティネット (状態を live のままにしていても止まる)。
+      const eventEnd = eventRows[0]!.endDate;
+      if (eventEnd && eventEnd.getTime() < Date.now()) {
+        apiError("BAD_REQUEST", "このイベントは開催期間を終了しているため注文を受け付けていません");
+      }
+
       // サークル設定から注文モードを解決する。
       //   "pending"    : 未着手で受付 (既定・従来挙動、厨房が調理開始→完成)
       //   "preparing"  : 最初から調理中として受付
@@ -395,6 +421,10 @@ orderRoutes.post(
           "FORBIDDEN",
           "リストバンドが発行されていません。受付でリストバンドの発行を受けるか、店頭でスタッフにお申し付けください。",
         );
+      } else if (existingUser[0]!.status === "banned") {
+        // 2026-07-15: BAN された来場者の注文を拒否する。従来 status:"banned" は
+        // 更新APIのenum値としてのみ存在し、どこでも検査されず「BANできない」状態だった。
+        apiError("FORBIDDEN", "このリストバンドは利用できません。受付・本部にお問い合わせください。");
       } else if (existingUser[0]!.eventId !== eventId) {
         // 2026-07-06: クロスイベント混入対策 (H-3, ベストエフォート)。
         // userId は認証を伴わないベアラー値のため、既存の userId を任意に指定して
@@ -447,6 +477,9 @@ orderRoutes.post(
       }[] = [];
       // 在庫管理対象(stockQuantity > 0)のメニューごとの必要数を集計する
       const stockNeeded = new Map<string, number>();
+      // トッピングも同様に在庫管理する (2026-07-15)。1つのトッピングが複数アイテムに
+      // 跨って選択され得るため、必要数はアイテム横断で合算する。
+      const toppingStockNeeded = new Map<string, number>();
 
       for (const item of input.items) {
         const menuItem = menus.find((m) => m.id === item.menuId);
@@ -489,6 +522,17 @@ orderRoutes.post(
           if (!isLinked) {
             apiError("BAD_REQUEST", `トッピング ${t.name} はメニュー ${menuItem.name} に紐付いていません`);
           }
+
+          // 在庫管理対象(stockQuantity > 0)のトッピングのみ集計・チェックする。
+          // stockQuantity === 0 は無制限/未管理を意味し、減算しない (メニューと同じ意味論)。
+          if (t.stockQuantity > 0) {
+            const already = toppingStockNeeded.get(t.id) || 0;
+            const totalNeeded = already + item.quantity;
+            toppingStockNeeded.set(t.id, totalNeeded);
+            if (t.stockQuantity < totalNeeded) {
+              apiError("BAD_REQUEST", `${t.name}の在庫が不足しています`);
+            }
+          }
         }
 
         // 2026-07-05: 在庫が管理されているメニュー(stockQuantity > 0)のみ在庫チェック対象とする。
@@ -527,6 +571,41 @@ orderRoutes.post(
       // ドライバは transaction() 内で `BEGIN` を発行し、D1 がこれを拒否して例外→注文が全て 500 に
       // なっていた (POST /api/orders 500)。D1 は対話的トランザクションを提供しないため、
       // 従来どおり逐次実行＋ガード付きUPDATE＋ベストエフォート補償に戻す。
+      // 減算済み在庫のベストエフォート補償 (2026-07-15 にトッピング対応で共通化)。
+      // メニューは stockNeeded 全量、トッピングは実際に減算できた分 (decrementedToppings) のみ戻す。
+      // D1 は対話的トランザクション非対応のため完全なロールバック保証はない (既知の制約 M-5)。
+      const decrementedToppings: Array<[string, number]> = [];
+      const restoreStockBestEffort = async () => {
+        for (const [menuId, neededQty] of stockNeeded.entries()) {
+          try {
+            await db
+              .update(menu)
+              .set({ stockQuantity: sql`${menu.stockQuantity} + ${neededQty}` })
+              .where(eq(menu.id, menuId));
+            await db
+              .update(menu)
+              .set({ soldOut: false })
+              .where(and(eq(menu.id, menuId), gte(menu.stockQuantity, 1)));
+          } catch (restoreError) {
+            console.error("Stock restore error:", restoreError);
+          }
+        }
+        for (const [toppingId, neededQty] of decrementedToppings) {
+          try {
+            await db
+              .update(topping)
+              .set({ stockQuantity: sql`${topping.stockQuantity} + ${neededQty}` })
+              .where(eq(topping.id, toppingId));
+            await db
+              .update(topping)
+              .set({ soldOut: false })
+              .where(and(eq(topping.id, toppingId), gte(topping.stockQuantity, 1)));
+          } catch (restoreError) {
+            console.error("Topping stock restore error:", restoreError);
+          }
+        }
+      };
+
       for (const [menuId, neededQty] of stockNeeded.entries()) {
         const result = await db
           .update(menu)
@@ -547,6 +626,27 @@ orderRoutes.post(
             .update(menu)
             .set({ soldOut: true })
             .where(eq(menu.id, menuId));
+        }
+      }
+
+      // トッピング在庫も同じガード付きUPDATEで減算する (2026-07-15)。
+      // メニュー在庫の減算後・注文レコード作成前に行う。ここでの不足(競合)時は
+      // 既に減らしたメニュー在庫も戻してから注文を中断する。
+      for (const [toppingId, neededQty] of toppingStockNeeded.entries()) {
+        const result = await db
+          .update(topping)
+          .set({ stockQuantity: sql`${topping.stockQuantity} - ${neededQty}` })
+          .where(and(eq(topping.id, toppingId), gte(topping.stockQuantity, neededQty)))
+          .returning({ stockQuantity: topping.stockQuantity });
+
+        if (result.length === 0) {
+          await restoreStockBestEffort();
+          const t = toppings.find((x) => x.id === toppingId);
+          apiError("BAD_REQUEST", `${t?.name ?? toppingId}の在庫が不足しています`);
+        }
+        decrementedToppings.push([toppingId, neededQty]);
+        if (result[0]!.stockQuantity <= 0) {
+          await db.update(topping).set({ soldOut: true }).where(eq(topping.id, toppingId));
         }
       }
       // 2026-07-06: 既知の制約 (M-5)。D1 はマルチステートメントの対話的トランザクションに
@@ -638,26 +738,9 @@ orderRoutes.post(
         }
       } catch (innerError) {
         // ベストエフォート補償: order/orderItem 作成が失敗した場合、既に減算済みの
-        // 在庫を可能な範囲で戻す (在庫が減ったまま注文が存在しない不整合を軽減する)。
-        // これも複数UPDATEの逐次実行であり完全なロールバックの保証はない。
-        for (const [menuId, neededQty] of stockNeeded.entries()) {
-          try {
-            await db
-              .update(menu)
-              .set({
-                stockQuantity: sql`${menu.stockQuantity} + ${neededQty}`,
-              })
-              .where(eq(menu.id, menuId));
-            // 戻した結果、在庫が正に戻っていれば soldOut を解除する
-            // (他の同時注文で本当に売り切れている場合に誤って解除しないよう条件付きで行う)
-            await db
-              .update(menu)
-              .set({ soldOut: false })
-              .where(and(eq(menu.id, menuId), gte(menu.stockQuantity, 1)));
-          } catch (restoreError) {
-            console.error("Stock restore error:", restoreError);
-          }
-        }
+        // メニュー/トッピング在庫を可能な範囲で戻す (在庫が減ったまま注文が存在しない
+        // 不整合を軽減する)。逐次実行のため完全なロールバックの保証はない (M-5)。
+        await restoreStockBestEffort();
         throw innerError;
       }
 

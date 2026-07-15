@@ -62,6 +62,7 @@ toppingRoutes.post(
       description: z.string().optional(),
       imagePath: z.string().optional(),
       soldOut: z.boolean().optional(),
+      stockQuantity: z.number().min(0).optional(),
     })
   ),
   async (c) => {
@@ -83,6 +84,7 @@ toppingRoutes.post(
       description: input.description,
       imagePath: input.imagePath ?? null,
       soldOut: input.soldOut ?? false,
+      stockQuantity: input.stockQuantity ?? 0,
     });
 
     return c.json({ id }, 201);
@@ -99,6 +101,7 @@ toppingRoutes.put(
       description: z.string().optional(),
       imagePath: z.string().optional(),
       soldOut: z.boolean().optional(),
+      stockQuantity: z.number().min(0).optional(),
     })
   ),
   async (c) => {
@@ -128,8 +131,39 @@ toppingRoutes.put(
     if (input.imagePath !== undefined)
       updates.imagePath = input.imagePath ?? null;
     if (input.soldOut !== undefined) updates.soldOut = input.soldOut;
+    if (input.stockQuantity !== undefined)
+      updates.stockQuantity = input.stockQuantity;
 
     await db.update(topping).set(updates).where(eq(topping.id, id));
+
+    return c.json({ success: true });
+  }
+);
+
+// トッピングの在庫数を絶対値で更新する (2026-07-15)。menu の /:id/stock と同じ意味論。
+// 在庫を 1 以上に補充したら soldOut を自動解除する (0 のときは無制限/未管理の意味も
+// 兼ねるため soldOut には触れない)。権限は在庫操作の stock:write を要求する。
+toppingRoutes.put(
+  "/:id/stock",
+  zBody(z.object({ stockQuantity: z.number().min(0) })),
+  async (c) => {
+    const db = c.get("db");
+    const id = c.req.param("id");
+    const { stockQuantity } = c.req.valid("json");
+
+    const existing = await db.select().from(topping).where(eq(topping.id, id));
+    if (existing.length === 0) {
+      apiError("NOT_FOUND", "トッピングが見つかりません");
+    }
+    if (!(await hasPermission(c, existing[0]!.circleId, "stock:write"))) {
+      apiError("FORBIDDEN", "権限がありません");
+    }
+
+    const stockUpdate: Partial<typeof topping.$inferSelect> = { stockQuantity };
+    if (stockQuantity > 0) {
+      stockUpdate.soldOut = false;
+    }
+    await db.update(topping).set(stockUpdate).where(eq(topping.id, id));
 
     return c.json({ success: true });
   }

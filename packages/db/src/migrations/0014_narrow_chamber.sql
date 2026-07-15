@@ -1,0 +1,1 @@
+ALTER TABLE `event` ADD `lifecycle_status` text DEFAULT 'live' NOT NULL;

@@ -522,6 +522,27 @@ membershipRoutes.patch("/:id/deactivate", async (c) => {
   return c.json({ success: true });
 });
 
+// メンバー再有効化 (2026-07-15)。deactivate と対で、停止したアカウントを復帰させる。
+// isActive は hasPermission で強制されており (false は権限ゼロ)、これで停止/復帰が実運用できる。
+membershipRoutes.patch("/:id/reactivate", async (c) => {
+  const db = c.get("db");
+  const id = c.req.param("id");
+
+  const targets = await db.select().from(membership).where(eq(membership.id, id));
+  if (targets.length === 0) apiError("NOT_FOUND", "メンバーが見つかりません");
+
+  const target = targets[0]!;
+  const err = await checkMemberWritePermission(c, target.circleId, target.role, undefined, target.eventId);
+  if (err) apiError(err.code, err.error, { status: err.status });
+
+  await db
+    .update(membership)
+    .set({ isActive: true })
+    .where(eq(membership.id, id));
+
+  return c.json({ success: true });
+});
+
 // メンバー削除
 membershipRoutes.delete("/:id", async (c) => {
   const db = c.get("db");
@@ -549,8 +570,8 @@ membershipRoutes.post(
       role: z.enum(ROLES),
       expiresInHours: z.number().min(1).max(168).default(24), // 1時間〜7日
       maxUses: z.number().min(1).max(100).optional(),
-      createdBy: z.string(), // 作成者のメールアドレス
-      targetEmail: z.string().optional(), // 招待相手のメールアドレス
+      createdBy: z.string().optional(), // 作成者のメールアドレス (互換性のためオプショナル化)
+      targetEmail: z.string().optional(), // 招待相手 of メールアドレス
     })
   ),
   async (c) => {
@@ -559,6 +580,10 @@ membershipRoutes.post(
     const id = ulid();
     const token = nanoid(32);
     const code = genInviteCode(); // 手入力用の短コード (2026-07-12)
+
+    // 2026-07-15: セッションから作成者のメールアドレスを安全に取得し、不正な値の指定を防ぐ設計に変更
+    const session = c.get("session")!;
+    const userEmail = session.user.email;
 
     const err = await checkMemberWritePermission(c, input.circleId || null, "viewer", input.role, input.eventId);
     if (err) apiError(err.code, err.error, { status: err.status });
@@ -577,7 +602,7 @@ membershipRoutes.post(
       expiresAt,
       maxUses: input.maxUses,
       usedCount: 0,
-      createdBy: input.createdBy,
+      createdBy: userEmail, // ログイン中のセッションユーザーのアドレスを強制
       targetEmail: input.targetEmail ? input.targetEmail.toLowerCase() : null,
     });
 

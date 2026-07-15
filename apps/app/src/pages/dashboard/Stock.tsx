@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { CircleAuthGuard } from "@/hooks/useCircleAuth";
-import { menuApi, type Menu } from "@/lib/api";
+import { menuApi, toppingApi, type Menu, type Topping } from "@/lib/api";
 import DashboardLayout from "@/components/DashboardLayout";
 import {
   Card,
@@ -17,6 +17,56 @@ import { toast } from "sonner";
 import { AlertTriangle, Package, Search, Plus, Minus, XCircle, RotateCcw, Coins } from "lucide-react";
 
 const DEFAULT_LOW = 10;
+
+// 在庫数の直接入力 (2026-07-15)。
+// 従来は onChange のたびに updateStock.mutate を叩いており、1文字打つごとに
+// サーバ更新→再取得が走って value がサーバ値に巻き戻り「入力が不安定」だった。
+// ローカルの下書き状態で自由に編集させ、確定(blur / Enter)時にだけ親へ通知する。
+// 編集中は空欄も許容し、数字以外は無視する。
+function StockQtyInput({
+  value,
+  disabled,
+  onCommit,
+}: {
+  value: number;
+  disabled?: boolean;
+  onCommit: (v: number) => void;
+}) {
+  const [draft, setDraft] = useState<string>(String(value));
+
+  // 外部(サーバ)値が変わったら、非編集時に追従させる
+  useEffect(() => {
+    setDraft(String(value));
+  }, [value]);
+
+  const commit = () => {
+    const n = Math.max(0, Math.trunc(Number(draft)));
+    if (draft.trim() === "" || Number.isNaN(Number(draft))) {
+      setDraft(String(value)); // 不正入力は元に戻す
+      return;
+    }
+    setDraft(String(n));
+    onCommit(n);
+  };
+
+  return (
+    <Input
+      type="number"
+      inputMode="numeric"
+      className="w-16 border-thick border-border rounded-none h-7 text-xs bg-background focus-visible:ring-0 text-center tabular-nums"
+      value={draft}
+      disabled={disabled}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          e.currentTarget.blur();
+        }
+      }}
+    />
+  );
+}
 
 // 在庫管理 (拡張機能)。2026-07-14 に大幅拡充: サマリ(品目/売切/僅少/在庫数/在庫金額)、
 // クイック増減(±1/±5/±10)、売切・再開のワンタップ、僅少しきい値(端末保存)、検索、要対応フィルタ。
@@ -59,6 +109,37 @@ function StockManagementContent() {
     queryFn: () => menuApi.list(circleId),
     enabled: !!circleId,
   });
+
+  // トッピング在庫も同じ画面で管理する (2026-07-15)
+  const { data: toppings } = useQuery({
+    queryKey: ["toppings", circleId],
+    queryFn: () => toppingApi.list(circleId),
+    enabled: !!circleId,
+  });
+
+  const updateToppingStock = useMutation({
+    mutationFn: (input: { id: string; stock: number }) => toppingApi.updateStock(input.id, input.stock),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["toppings", circleId] }),
+    onError: (e: any) => toast.error(e?.message || "在庫の更新に失敗しました"),
+  });
+
+  const toggleToppingSoldOut = useMutation({
+    mutationFn: (t: Topping) => toppingApi.update(t.id, { soldOut: !t.soldOut }),
+    onSuccess: (_d, t) => {
+      toast.success(t.soldOut ? "販売を再開しました" : "売り切れにしました");
+      queryClient.invalidateQueries({ queryKey: ["toppings", circleId] });
+    },
+    onError: (e: any) => toast.error(e?.message || "更新に失敗しました"),
+  });
+
+  const adjustTopping = (t: Topping, delta: number) => {
+    const next = Math.max(0, (t.stockQuantity ?? 0) + delta);
+    updateToppingStock.mutate({ id: t.id, stock: next });
+  };
+
+  const isToppingRowPending = (id: string) =>
+    (updateToppingStock.isPending && updateToppingStock.variables?.id === id) ||
+    (toggleToppingSoldOut.isPending && toggleToppingSoldOut.variables?.id === id);
 
   // 在庫の絶対値更新 (レジ在庫API。stock>0 で soldOut は自動解除される)
   const updateStock = useMutation({
@@ -260,15 +341,11 @@ function StockManagementContent() {
                             {d}
                           </button>
                         ))}
-                        <Input
-                          type="number"
-                          min={0}
-                          className="w-16 border-thick border-border rounded-none h-7 text-xs bg-background focus-visible:ring-0 text-center tabular-nums"
+                        <StockQtyInput
                           value={q}
                           disabled={pending}
-                          onChange={(e) => {
-                            const v = Math.max(0, Number(e.target.value) || 0);
-                            updateStock.mutate({ id: m.id, stock: v });
+                          onCommit={(v) => {
+                            if (v !== q) updateStock.mutate({ id: m.id, stock: v });
                           }}
                         />
                         {[1, 5, 10].map((d) => (
@@ -299,6 +376,93 @@ function StockManagementContent() {
             )}
           </CardContent>
         </Card>
+
+        {/* トッピング在庫 (2026-07-15)。メニューと同じ意味論で管理する。 */}
+        {toppings && toppings.length > 0 && (
+          <Card className="rounded-none shadow-none">
+            <CardHeader className="pb-2 border-b-thick border-border">
+              <CardTitle className="flex items-center text-sm font-bold uppercase">
+                <Package className="mr-2 h-4 w-4" />
+                トッピング在庫
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="p-0">
+              <div className="divide-y divide-border">
+                {[...toppings]
+                  .sort((a, b) => (a.soldOut === b.soldOut ? a.name.localeCompare(b.name, "ja") : a.soldOut ? -1 : 1))
+                  .map((t) => {
+                    const q = t.stockQuantity ?? 0;
+                    const pending = isToppingRowPending(t.id);
+                    return (
+                      <div
+                        key={t.id}
+                        className={`flex flex-wrap items-center gap-3 p-3 text-xs ${t.soldOut ? "bg-error/5" : ""}`}
+                      >
+                        <div className="relative h-11 w-11 overflow-hidden shrink-0 border-thick border-border">
+                          {t.imagePath ? (
+                            <img src={t.imagePath} alt={t.name} className={`absolute inset-0 h-full w-full object-cover ${t.soldOut ? "opacity-40" : ""}`} />
+                          ) : (
+                            <div className="flex h-full w-full items-center justify-center bg-muted">
+                              <span className="text-[8px] text-muted-foreground">No Image</span>
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex-grow min-w-[120px]">
+                          <p className="font-bold text-foreground truncate">{t.name}</p>
+                          <p className="text-[10px] text-muted-foreground">
+                            {t.price >= 0 ? `+¥${t.price.toLocaleString()}` : `-¥${Math.abs(t.price).toLocaleString()}`}
+                          </p>
+                        </div>
+
+                        <div className="shrink-0 w-16 text-right tabular-nums">
+                          {t.soldOut ? (
+                            <span className="text-error font-bold">売切</span>
+                          ) : (
+                            <span className="text-muted-foreground">残{q}</span>
+                          )}
+                        </div>
+
+                        <div className="flex items-center gap-1 shrink-0">
+                          {[-10, -5, -1].map((d) => (
+                            <button key={d} type="button" disabled={pending || q + d < 0} onClick={() => adjustTopping(t, d)}
+                              className="border-thick border-border h-7 w-8 text-[10px] font-bold hover:bg-destructive hover:text-white disabled:opacity-30">
+                              {d}
+                            </button>
+                          ))}
+                          <StockQtyInput
+                            value={q}
+                            disabled={pending}
+                            onCommit={(v) => {
+                              if (v !== q) updateToppingStock.mutate({ id: t.id, stock: v });
+                            }}
+                          />
+                          {[1, 5, 10].map((d) => (
+                            <button key={d} type="button" disabled={pending} onClick={() => adjustTopping(t, d)}
+                              className="border-thick border-border h-7 w-8 text-[10px] font-bold hover:bg-success hover:text-white disabled:opacity-30">
+                              +{d}
+                            </button>
+                          ))}
+                        </div>
+
+                        <button
+                          type="button"
+                          disabled={pending}
+                          onClick={() => toggleToppingSoldOut.mutate(t)}
+                          className={`shrink-0 border-thick h-7 px-2 text-[10px] font-bold uppercase flex items-center gap-1 disabled:opacity-40 ${
+                            t.soldOut
+                              ? "border-success text-success hover:bg-success hover:text-white"
+                              : "border-destructive text-destructive hover:bg-destructive hover:text-white"
+                          }`}
+                        >
+                          {t.soldOut ? (<><RotateCcw className="h-3 w-3" />再開</>) : (<><XCircle className="h-3 w-3" />売切</>)}
+                        </button>
+                      </div>
+                    );
+                  })}
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         <p className="text-[10px] text-muted-foreground flex items-center gap-1">
           <Coins className="h-3 w-3" />

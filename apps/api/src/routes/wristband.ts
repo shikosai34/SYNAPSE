@@ -468,7 +468,7 @@ wristbandRoutes.patch(
   }
 );
 
-// 来場者オンボーディング: ニックネーム+誕生日を登録 (2026-07-04)
+// 来場者オンボーディング / プロフィール自己編集 (2026-07-04, 2026-07-15 セルフ編集対応)
 // 認証は不要。userId(eventUser.id) を持っている人=リストバンド保持者本人とみなす
 // (ベアラーモデル)。初回のみ onboardedAt を刻む。
 wristbandRoutes.post(
@@ -490,20 +490,23 @@ wristbandRoutes.post(
     }
     const u = users[0]!;
 
-    // 2026-07-06: write-once化。onboardedAt が既に設定済み(=初回登録完了済み)の場合、
-    // userId さえ知っていれば誰でも他人のニックネーム/誕生日を無制限に上書きできてしまう
-    // 経路を塞ぐ。初回のセルフ登録(onboardedAt が null)のみ許可し、以降の変更はスタッフ経由に限定する。
-    if (u.onboardedAt) {
-      apiError("CONFLICT", "既に登録済みです。変更にはスタッフにお問い合わせください");
+    // 日付は保存前に形式検証する (マイページのセルフ編集からも入ってくるため)。
+    if (favoriteDate && !/^\d{4}-\d{2}-\d{2}$/.test(favoriteDate)) {
+      apiError("BAD_REQUEST", "日付は YYYY-MM-DD 形式で入力してください");
     }
 
+    // 2026-07-15: 2026-07-06 の write-once (登録後は変更不可) を緩和し、来場者が自分の
+    // ニックネーム/お好きな日付を後から編集できるようにする (プロダクト要件)。
+    // ベアラーモデル(userId 保持者=本人)は来場者アプリ全体の信頼境界なので、編集もこれに委ねる
+    // — userId は QR/localStorage に入る実質トークンであり、所持=本人とみなすのは lookup 等と同じ。
+    // ただし onboardedAt(入場確定時刻)は初回のみ設定し以降は動かさない。これにより
+    //   (a) オンボーディングゲートが再編集で再発火しない、(b) 入場日時がぶれない、を保つ。
     await db
       .update(eventUser)
       .set({
         nickname,
         favoriteDate: favoriteDate || null,
-        // 初回のみ確定させる (再編集で入場日時が動かないように)
-        onboardedAt: new Date(),
+        onboardedAt: u.onboardedAt ?? new Date(),
       })
       .where(eq(eventUser.id, userId));
 

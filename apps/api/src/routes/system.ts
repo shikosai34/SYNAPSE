@@ -9,6 +9,7 @@ import {
   announcement,
   event,
   circle,
+  contractPayment,
   sudoSession,
   impersonationSession,
   auditLog,
@@ -407,6 +408,18 @@ adminRoutes.get("/events", async (c) => {
   const circles = await db.select({ id: circle.id, eventId: circle.eventId }).from(circle).where(isNull(circle.deletedAt));
   const circleCount = new Map<string, number>();
   for (const c2 of circles) circleCount.set(c2.eventId, (circleCount.get(c2.eventId) ?? 0) + 1);
+
+  // 入金合計・最終入金日をテナントごとに集計する (契約管理の一覧で見せる)。
+  const paidRows = await db
+    .select({
+      eventId: contractPayment.eventId,
+      total: sql<number>`sum(${contractPayment.amount})`,
+      lastPaidAt: sql<number>`max(${contractPayment.paidAt})`,
+    })
+    .from(contractPayment)
+    .groupBy(contractPayment.eventId);
+  const paid = new Map(paidRows.map((r) => [r.eventId, r]));
+
   return c.json(
     events.map((e) => ({
       id: e.id,
@@ -419,6 +432,11 @@ adminRoutes.get("/events", async (c) => {
       createdAt: e.createdAt,
       activatedAt: e.activatedAt,
       suspendedAt: e.suspendedAt,
+      billingAmount: e.billingAmount,
+      nextBillingAt: e.nextBillingAt,
+      contractNotes: e.contractNotes,
+      paidTotal: paid.get(e.id)?.total ?? 0,
+      lastPaidAt: paid.get(e.id)?.lastPaidAt ? new Date(Number(paid.get(e.id)!.lastPaidAt)) : null,
     })),
   );
 });
@@ -432,6 +450,10 @@ adminRoutes.patch(
       plan: z.string().min(1).max(40).optional(),
       maxCircles: z.number().int().min(1).max(10000).optional(),
       billingStatus: z.enum(["active", "trial", "suspended", "unpaid"]).optional(),
+      billingAmount: z.number().int().min(0).max(100000000).optional(),
+      // ISO 文字列 or null (未設定に戻す)。空なら null。
+      nextBillingAt: z.string().datetime().nullable().optional(),
+      contractNotes: z.string().max(2000).nullable().optional(),
     }),
   ),
   async (c) => {
@@ -446,6 +468,10 @@ adminRoutes.patch(
     if (input.eventName !== undefined) patch.eventName = input.eventName;
     if (input.plan !== undefined) patch.plan = input.plan;
     if (input.maxCircles !== undefined) patch.maxCircles = input.maxCircles;
+    if (input.billingAmount !== undefined) patch.billingAmount = input.billingAmount;
+    if (input.nextBillingAt !== undefined)
+      patch.nextBillingAt = input.nextBillingAt ? new Date(input.nextBillingAt) : null;
+    if (input.contractNotes !== undefined) patch.contractNotes = input.contractNotes;
     if (input.billingStatus !== undefined) {
       patch.billingStatus = input.billingStatus;
       // 有効化/停止の時刻を記録 (監査・銀行振込運用のため)。
@@ -465,6 +491,61 @@ adminRoutes.delete("/events/:id", async (c) => {
   const db = c.get("db");
   const id = c.req.param("id");
   await db.update(event).set({ deletedAt: new Date() }).where(eq(event.id, id));
+  return c.json({ success: true });
+});
+
+// ── 契約入金履歴 (2026-07-15)。銀行振込等の手動入金台帳。 ──
+
+// テナントの入金履歴一覧 (新しい順)。
+adminRoutes.get("/events/:id/payments", async (c) => {
+  const db = c.get("db");
+  const eventId = c.req.param("id");
+  const rows = await db
+    .select()
+    .from(contractPayment)
+    .where(eq(contractPayment.eventId, eventId))
+    .orderBy(desc(contractPayment.paidAt));
+  return c.json(rows);
+});
+
+// 入金を1件記録する。
+adminRoutes.post(
+  "/events/:id/payments",
+  zBody(
+    z.object({
+      amount: z.number().int().min(1).max(100000000),
+      method: z.string().min(1).max(40).default("銀行振込"),
+      paidAt: z.string().datetime(), // ISO
+      note: z.string().max(500).optional(),
+    }),
+  ),
+  async (c) => {
+    const db = c.get("db");
+    const eventId = c.req.param("id");
+    const input = c.req.valid("json");
+
+    const rows = await db.select().from(event).where(eq(event.id, eventId));
+    if (rows.length === 0) apiError("NOT_FOUND", "イベントが見つかりません");
+
+    const id = ulid();
+    await db.insert(contractPayment).values({
+      id,
+      eventId,
+      amount: input.amount,
+      method: input.method,
+      paidAt: new Date(input.paidAt),
+      note: input.note ?? null,
+      recordedBy: c.get("adminEmail") ?? null,
+    });
+    return c.json({ id }, 201);
+  },
+);
+
+// 入金記録の削除 (誤登録の訂正用)。
+adminRoutes.delete("/payments/:paymentId", async (c) => {
+  const db = c.get("db");
+  const paymentId = c.req.param("paymentId");
+  await db.delete(contractPayment).where(eq(contractPayment.id, paymentId));
   return c.json({ success: true });
 });
 

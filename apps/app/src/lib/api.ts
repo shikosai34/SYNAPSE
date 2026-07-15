@@ -90,6 +90,9 @@ export const eventApi = {
   // 抽選機能の有効化トグル (event_manager event:write 権限)。
   setLotteryEnabled: (id: string, enabled: boolean) =>
     fetchApi<{ success: boolean }>(`/api/festivals/${id}/lottery-enabled`, { method: "PUT", body: { enabled } }),
+  // 開催ライフサイクル状態の変更 (event_manager event:write 権限)。
+  setLifecycleStatus: (id: string, status: EventLifecycleStatus) =>
+    fetchApi<{ success: boolean }>(`/api/festivals/${id}/lifecycle-status`, { method: "PUT", body: { status } }),
   // 支払い方法の設定 (event_manager event:write 権限)。
   setPaymentMethods: (id: string, paymentMethods: string[]) =>
     fetchApi<{ success: boolean; paymentMethods: string[] }>(`/api/festivals/${id}/payment-methods`, {
@@ -181,6 +184,12 @@ export const toppingApi = {
     fetchApi<{ success: boolean }>(`/api/toppings/${id}`, {
       method: "PUT",
       body: data,
+    }),
+  // 在庫の絶対値更新 (在庫>0 で soldOut は自動解除される)
+  updateStock: (id: string, stockQuantity: number) =>
+    fetchApi<{ success: boolean }>(`/api/toppings/${id}/stock`, {
+      method: "PUT",
+      body: { stockQuantity },
     }),
   delete: (id: string) =>
     fetchApi<{ success: boolean }>(`/api/toppings/${id}`, { method: "DELETE" }),
@@ -274,6 +283,10 @@ export const membershipApi = {
     }),
   deactivate: (id: string) =>
     fetchApi<{ success: boolean }>(`/api/memberships/${id}/deactivate`, {
+      method: "PATCH",
+    }),
+  reactivate: (id: string) =>
+    fetchApi<{ success: boolean }>(`/api/memberships/${id}/reactivate`, {
       method: "PATCH",
     }),
   delete: (id: string) =>
@@ -421,9 +434,13 @@ export interface Event extends EventTheme {
   paymentMethods?: string;
   // 抽選機能(イベント単位)の有効化フラグ (2026-07-12)。
   lotteryEnabled?: boolean;
+  // 開催ライフサイクル状態 (2026-07-15): upcoming(開催前) / live(開催中) / ended(終了) / archived(保持)。
+  lifecycleStatus?: "upcoming" | "live" | "ended" | "archived";
   startDate: Date | null;
   endDate: Date | null;
 }
+
+export type EventLifecycleStatus = "upcoming" | "live" | "ended" | "archived";
 
 // event.paymentMethods (JSON文字列) を配列にパースする。既定は ["現金"]。
 export function parseEventPaymentMethods(raw?: string | null): string[] {
@@ -626,6 +643,7 @@ export interface Topping {
   description: string | null;
   imagePath: string | null;
   soldOut: boolean;
+  stockQuantity: number;
 }
 
 export interface MenuWithToppings extends Menu {
@@ -840,8 +858,8 @@ export interface CreateToppingInput {
   price: number;
   description?: string;
   imagePath?: string;
-  stock?: number;
-  isAvailable?: boolean;
+  soldOut?: boolean;
+  stockQuantity?: number;
 }
 
 export interface UpdateToppingInput {
@@ -849,8 +867,8 @@ export interface UpdateToppingInput {
   price?: number;
   description?: string | null;
   imagePath?: string | null;
-  stock?: number | null;
-  isAvailable?: boolean;
+  soldOut?: boolean;
+  stockQuantity?: number;
 }
 
 export interface CreateStaffInput {
@@ -903,7 +921,8 @@ export interface CreateInviteInput {
   role: Role;
   expiresInHours?: number;
   maxUses?: number;
-  createdBy: string;
+  // 2026-07-15: バックエンドでセッションから自動設定されるようになったためオプショナルに変更
+  createdBy?: string;
   targetEmail?: string;
 }
 
@@ -1179,6 +1198,13 @@ export const adminApi = {
     fetchApi<{ success: boolean }>(`/api/admin/events/${id}`, { method: "PATCH", body: data }),
   deleteEvent: (id: string) =>
     fetchApi<{ success: boolean }>(`/api/admin/events/${id}`, { method: "DELETE" }),
+  // 契約入金履歴 (2026-07-15)
+  listPayments: (eventId: string) =>
+    fetchApi<ContractPayment[]>(`/api/admin/events/${eventId}/payments`),
+  addPayment: (eventId: string, data: ContractPaymentInput) =>
+    fetchApi<{ id: string }>(`/api/admin/events/${eventId}/payments`, { method: "POST", body: data }),
+  deletePayment: (paymentId: string) =>
+    fetchApi<{ success: boolean }>(`/api/admin/payments/${paymentId}`, { method: "DELETE" }),
   // sudo (昇格) / impersonation (なりすまし) / 監査 (2026-07-12 Phase D/E)
   sudoStatus: () => fetchApi<{ elevated: boolean; expiresAt: string | null }>("/api/admin/sudo/status"),
   elevate: () => fetchApi<{ elevated: boolean; expiresAt: string }>("/api/admin/sudo/elevate", { method: "POST" }),
@@ -1274,6 +1300,12 @@ export interface AdminEvent {
   createdAt: string;
   activatedAt: string | null;
   suspendedAt: string | null;
+  // 契約管理(手動運用)フィールド (2026-07-15)
+  billingAmount: number;
+  nextBillingAt: string | null;
+  contractNotes: string | null;
+  paidTotal: number;
+  lastPaidAt: string | null;
 }
 
 export interface AdminEventPatch {
@@ -1281,4 +1313,25 @@ export interface AdminEventPatch {
   plan?: string;
   maxCircles?: number;
   billingStatus?: BillingStatus;
+  billingAmount?: number;
+  nextBillingAt?: string | null;
+  contractNotes?: string | null;
+}
+
+// 契約入金記録 (2026-07-15)
+export interface ContractPayment {
+  id: string;
+  eventId: string;
+  amount: number;
+  method: string;
+  paidAt: string;
+  note: string | null;
+  recordedBy: string | null;
+  createdAt: string;
+}
+export interface ContractPaymentInput {
+  amount: number;
+  method: string;
+  paidAt: string; // ISO
+  note?: string;
 }

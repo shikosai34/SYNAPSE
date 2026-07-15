@@ -294,13 +294,16 @@ function CartBody({
       <div className="p-3 sm:p-4 border-t-thick border-border space-y-3 bg-background">
         <div className="flex items-center gap-3">
           <Label htmlFor="peopleCount" className="font-mono text-xs uppercase tracking-wider whitespace-nowrap">来店人数</Label>
+          {/* 入力中は 0/空を許容し、フォーカスを外した時に 1 未満なら 1 へ戻す
+              (min=1 だと打ち直しのたびに値が押し戻されて入力しづらいため)。 */}
           <Input
             id="peopleCount"
             type="number"
-            min="1"
+            inputMode="numeric"
             className="h-10 text-center font-bold border-thick border-border rounded-none"
             value={peopleCount}
-            onChange={(e) => onSetPeople(Number(e.target.value))}
+            onChange={(e) => onSetPeople(Math.max(0, Math.trunc(Number(e.target.value)) || 0))}
+            onBlur={() => { if (peopleCount < 1) onSetPeople(1); }}
           />
         </div>
         <div className="flex justify-between items-center border-thick border-border px-4 py-3 bg-muted">

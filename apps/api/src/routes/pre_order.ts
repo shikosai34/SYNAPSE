@@ -16,6 +16,7 @@ import {
   eventUser,
   userStamp,
   circle,
+  event,
   type DB,
 } from "@fesflow/db";
 import { eq, and, or, inArray, desc, sql } from "drizzle-orm";
@@ -92,6 +93,28 @@ preOrderRoutes.post(
       }
       const eventId = circles[0]!.eventId;
 
+      // 2026-07-15: レジ注文(order.ts)と同じく、停止/削除イベントの事前オーダーも拒否する。
+      const eventRows = await db.select().from(event).where(eq(event.id, eventId));
+      if (eventRows.length === 0 || eventRows[0]!.deletedAt) {
+        apiError("BAD_REQUEST", "このイベントは終了しています");
+      }
+      if (eventRows[0]!.billingStatus === "suspended") {
+        apiError("BAD_REQUEST", "このイベントは現在停止中のため注文を受け付けていません");
+      }
+      // 開催ライフサイクル状態が live 以外なら事前オーダーも受け付けない。
+      const lifecycle = eventRows[0]!.lifecycleStatus;
+      if (lifecycle === "upcoming") {
+        apiError("BAD_REQUEST", "このイベントはまだ開催前のため注文を受け付けていません");
+      }
+      if (lifecycle === "ended" || lifecycle === "archived") {
+        apiError("BAD_REQUEST", "このイベントは終了しているため注文を受け付けていません");
+      }
+      // 期間(endDate)超過は自動締切のセーフティネット。
+      const eventEnd = eventRows[0]!.endDate;
+      if (eventEnd && eventEnd.getTime() < Date.now()) {
+        apiError("BAD_REQUEST", "このイベントは開催期間を終了しているため注文を受け付けていません");
+      }
+
       const existingUser = await db
         .select()
         .from(eventUser)
@@ -104,6 +127,9 @@ preOrderRoutes.post(
           "FORBIDDEN",
           "リストバンドが発行されていません。受付でリストバンドの発行を受けてください。",
         );
+      } else if (existingUser[0]!.status === "banned") {
+        // 2026-07-15: BAN された来場者の事前オーダーを拒否する。
+        apiError("FORBIDDEN", "このリストバンドは利用できません。受付・本部にお問い合わせください。");
       } else if (existingUser[0]!.eventId !== eventId) {
         // 2026-07-06: クロスイベント混入対策 (H-3, ベストエフォート)。
         // userId は認証を伴わないベアラー値のため、既存の userId を任意に指定して
