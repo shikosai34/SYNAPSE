@@ -1,7 +1,7 @@
 
 import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { CircleAuthGuard } from "@/hooks/useCircleAuth";
+import { CircleAuthGuard, getAuthInfo } from "@/hooks/useCircleAuth";
 import { menuApi, toppingApi, orderApi, circleApi, eventApi, wristbandApi, preOrderApi, parseCircleSettings, parseEventPaymentMethods, type MenuWithToppings, type Topping } from "@/lib/api";
 import { extractIdFromCode, cn } from "@/lib/utils";
 import { undoableAction } from "@/lib/toast-undo";
@@ -206,9 +206,16 @@ function CartBody({
   // 支払い方法が2つ以上あるのに未選択なら確定を止める。
   const needsPayment = paymentMethods.length > 1 && !paymentMethod;
   return (
-    <div className="flex flex-col h-full font-mono">
-      {/* アイテム一覧 */}
-      <div className="flex-1 overflow-y-auto p-3 sm:p-4 space-y-3">
+    // 2026-07-16: 親 (aside / モバイルのスライドアップパネル) は max-height + overflow-hidden で
+    // 高さの上限を持つコンテナ。ここを h-full ではなく flex-1 min-h-0 にすることで、
+    // 「アイテム一覧」と「フッター」を含むこのブロック全体が親の残り高さぴったりに収まり、
+    // はみ出した分は内側の overflow-y-auto (アイテム一覧側) がスクロールで吸収するようにする。
+    // (h-full は親が max-height のみで高さが確定していないと効かず、以前はここが常に
+    //  コンテンツ丈まで伸びてしまい、フッターごと画面外に押し出されてスクロールもできなかった)
+    <div className="flex flex-col flex-1 min-h-0 font-mono">
+      {/* アイテム一覧: flex-1 だけでは子が縮まない (flexアイテムの初期 min-height:auto によりコンテンツ丈を下回れない) ため、
+          min-h-0 を明示して初めて overflow-y-auto が実際にスクロール領域として機能する。 */}
+      <div className="flex-1 min-h-0 overflow-y-auto p-3 sm:p-4 space-y-3">
         {cart.length === 0 ? (
           <div className="border-thick border-dashed border-border p-8 text-center text-muted-foreground text-xs uppercase tracking-wider">
             カートは空です
@@ -290,8 +297,10 @@ function CartBody({
         )}
       </div>
 
-      {/* フッター (合計・人数・確定) */}
-      <div className="p-3 sm:p-4 border-t-thick border-border space-y-3 bg-background">
+      {/* フッター (合計・人数・確定): shrink-0 で、アイテムが増えて領域が窮屈になっても
+          このフッター自体は縮まないようにする (縮むのは上のアイテム一覧側だけにする)。
+          これが無いと flex の既定 shrink:1 により極端なケースで確定ボタンごと潰れうる。 */}
+      <div className="shrink-0 p-3 sm:p-4 border-t-thick border-border space-y-3 bg-background">
         <div className="flex items-center gap-3">
           <Label htmlFor="peopleCount" className="font-mono text-xs uppercase tracking-wider whitespace-nowrap">来店人数</Label>
           {/* 入力中は 0/空を許容し、フォーカスを外した時に 1 未満なら 1 へ戻す
@@ -524,6 +533,7 @@ function RegisterPageContent() {
       peopleCount: number;
       items: { menuId: string; quantity: number; toppingIds?: string[] }[];
       paymentMethod?: string;
+      cashierId?: string;
     }) => orderApi.create(input),
     onSuccess: (data) => {
       toast.success(`注文完了！注文番号: ${data.orderNumber}`);
@@ -542,8 +552,10 @@ function RegisterPageContent() {
 
   const claimOrder = useMutation({
     // 受取確定でもレジで選択した支払い方法を渡す (2026-07-14)。省略時はサーバが単一方法を補完する。
-    mutationFn: async (input: { preOrderId: string; paymentMethod?: string }) => {
-      return preOrderApi.claim(input.preOrderId, undefined, input.paymentMethod);
+    // 2026-07-16: cashierId も通常注文と同様にログイン中スタッフの識別子を渡す
+    // (以前は undefined を明示的に渡していたため、誰が受取確定を処理したかが記録されなかった)。
+    mutationFn: async (input: { preOrderId: string; paymentMethod?: string; cashierId?: string }) => {
+      return preOrderApi.claim(input.preOrderId, input.cashierId, input.paymentMethod);
     },
     onSuccess: (data) => {
       toast.success(`注文完了！ 注文番号: ${data.orderNumber}`, {
@@ -650,8 +662,13 @@ function RegisterPageContent() {
     if (!activeCustomer) { toast.error("顧客が特定されていません。リストバンド/QRをスキャンしてください"); return; }
     if (effectivePayments.length > 1 && !paymentMethod) { toast.error("支払い方法を選択してください"); return; }
 
+    // 2026-07-16: 「誰がレジをやったか」を記録するため、ログイン中スタッフの識別子を
+    // cashierId として送る。メールアドレスが無いアカウント (旧形式の認証情報等) では
+    // undefined のままとし、サーバ側で NULL として保存される。
+    const cashierId = getAuthInfo()?.userEmail ?? undefined;
+
     if (activePreOrderId) {
-      await claimOrder.mutateAsync({ preOrderId: activePreOrderId, paymentMethod: paymentMethod || undefined });
+      await claimOrder.mutateAsync({ preOrderId: activePreOrderId, paymentMethod: paymentMethod || undefined, cashierId });
       return;
     }
 
@@ -662,6 +679,7 @@ function RegisterPageContent() {
       items: cart.map((l) => ({ menuId: l.menuId, quantity: l.quantity, toppingIds: l.toppings.map((t) => t.toppingId) })),
       // 1つだけの場合は空でもサーバが補完するが、選択済みなら明示的に送る。
       paymentMethod: paymentMethod || undefined,
+      cashierId,
     });
   };
 
@@ -856,9 +874,14 @@ function RegisterPageContent() {
           })}
         </div>
 
-        {/* ===== デスクトップ用: 右サイドバーの常設カート (xl+) ===== */}
-        <aside className="hidden xl:flex xl:flex-col xl:sticky xl:top-4 xl:w-[380px] xl:shrink-0 xl:max-h-[calc(100vh-2rem)] border-heavy border-border bg-background">
-          <div className="flex items-center justify-between px-4 py-3 border-b-thick border-border bg-primary text-primary-foreground">
+        {/* ===== デスクトップ用: 右サイドバーの常設カート (xl+) =====
+            2026-07-16: overflow-hidden が無いと max-height はレイアウト計算に反映されず、
+            中身 (CartBody) がコンテンツ丈まで際限なく伸びてしまい、画面下のフッター/確定ボタンが
+            見えなくなる・スクロールもできない、という破綻の原因になっていた。
+            overflow-hidden をここに付けることで初めて max-height が「実際の高さ上限」として働き、
+            CartBody 側の flex-1 min-h-0 + 内側 overflow-y-auto が機能するようになる。 */}
+        <aside className="hidden xl:flex xl:flex-col xl:sticky xl:top-4 xl:w-[380px] xl:shrink-0 xl:max-h-[calc(100vh-2rem)] overflow-hidden border-heavy border-border bg-background">
+          <div className="shrink-0 flex items-center justify-between px-4 py-3 border-b-thick border-border bg-primary text-primary-foreground">
             <h2 className="font-black text-lg uppercase font-mono">[カート]</h2>
             <span className="bg-background text-foreground px-2 py-0.5 text-xs font-black uppercase font-mono">
               {getTotalCount()}点
@@ -911,8 +934,11 @@ function RegisterPageContent() {
       {isCartPanelOpen && (
         <div className="xl:hidden fixed inset-0 z-50 flex items-end sm:items-center justify-center">
           <div className="absolute inset-0 bg-foreground/60" onClick={() => setIsCartPanelOpen(false)} />
-          <div className="relative w-full sm:max-w-lg bg-background border-t-heavy sm:border-heavy border-border max-h-[90vh] flex flex-col font-mono">
-            <div className="flex items-center justify-between px-4 py-3 border-b-thick border-border bg-primary text-primary-foreground">
+          {/* 2026-07-16: aside 側と同じ理由で overflow-hidden が必須。無いと画面が小さい端末で
+              カート行が増えたときにシートが max-h-[90vh] を超えて伸び、確定ボタンが画面外に出て
+              かつスクロールもできなくなる (UI破綻)。 */}
+          <div className="relative w-full sm:max-w-lg bg-background border-t-heavy sm:border-heavy border-border max-h-[90vh] overflow-hidden flex flex-col font-mono">
+            <div className="shrink-0 flex items-center justify-between px-4 py-3 border-b-thick border-border bg-primary text-primary-foreground">
               <h2 className="font-black text-lg uppercase">[カート確認]</h2>
               <button
                 onClick={() => setIsCartPanelOpen(false)}

@@ -390,6 +390,11 @@ function SalesManagementContent() {
                         ? new Date(order.createdAt).toLocaleString("ja-JP")
                         : "-"}
                     </p>
+                    {/* 2026-07-16: レジ担当者 (cashierId) の閲覧導線。誰が処理したか追跡できるよう表示する。
+                        未記録 (cashierId 実装前の注文等) は「-」表示にする。 */}
+                    <p className="text-xs text-muted-foreground">
+                      担当: {order.cashierId || "-"}
+                    </p>
                   </div>
                   <div className="text-right">
                     <p className="font-black">

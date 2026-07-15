@@ -688,7 +688,6 @@ export type OrderStatus =
 export interface Order {
   id: string;
   circleId: string;
-  staffId: string | null;
   orderNumber: string;
   status: OrderStatus;
   totalPrice: number;
@@ -698,6 +697,9 @@ export interface Order {
   completedAt: Date | null;
   peopleCount: number;
   paymentMethod: string | null;
+  // レジ担当者 (order.cashier_id)。スタッフ向け一覧 (orderApi.list) にのみ含まれる想定で、
+  // 来場者向け履歴 API (orders/user/:code) は意図的にこの項目を返さない。
+  cashierId: string | null;
 }
 
 export interface OrderItemTopping {
@@ -903,7 +905,12 @@ export interface UpdateStaffInput {
 export interface CreateOrderInput {
   circleId: string;
   userId: string; // 2026-07-04: リストバンド/QR必須化のため追加
-  staffId?: string;
+  // レジ担当者の識別子 (現状はログイン中スタッフのメールアドレス)。
+  // DB には order.cashier_id として保存される。
+  // 2026-07-16: 以前あった未使用の `staffId?` はサーバ側が受け取っておらず
+  // (order テーブルに staff_id カラム自体が存在しない) 死んでいたフィールドだったため、
+  // 実際にサーバが受け取る cashierId に置き換えて撤去した。
+  cashierId?: string;
   peopleCount?: number;
   items: {
     menuId: string;
