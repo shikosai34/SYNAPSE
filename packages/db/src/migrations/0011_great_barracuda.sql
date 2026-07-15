@@ -1,0 +1,1 @@
+ALTER TABLE `circle` ADD `created_from_invite_id` text;

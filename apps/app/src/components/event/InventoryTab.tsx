@@ -22,11 +22,13 @@ export function InventoryTab({ eventId }: { eventId: string }) {
   });
 
   const items = data ?? [];
+  // 在庫僅少は「在庫管理ONのサークル」だけで判定する (OFFのサークルは売切のみ扱い、残数は無意味)。
+  const isLow = (m: InventoryItem) => m.stockManaged && !m.soldOut && m.stockQuantity <= LOW_STOCK;
   const soldOutCount = items.filter((m) => m.soldOut).length;
-  const lowCount = items.filter((m) => !m.soldOut && m.stockQuantity <= LOW_STOCK).length;
+  const lowCount = items.filter(isLow).length;
 
   const shown = useMemo(
-    () => (onlyIssues ? items.filter((m) => m.soldOut || m.stockQuantity <= LOW_STOCK) : items),
+    () => (onlyIssues ? items.filter((m) => m.soldOut || isLow(m)) : items),
     [items, onlyIssues]
   );
 
@@ -81,7 +83,7 @@ export function InventoryTab({ eventId }: { eventId: string }) {
       ) : (
         <div className="space-y-1">
           {shown.map((m: InventoryItem) => {
-            const level = m.soldOut ? "out" : m.stockQuantity <= LOW_STOCK ? "low" : "ok";
+            const level = m.soldOut ? "out" : isLow(m) ? "low" : "ok";
             return (
               <div
                 key={m.id}
@@ -106,8 +108,10 @@ export function InventoryTab({ eventId }: { eventId: string }) {
                     <span className="flex items-center gap-1 text-warning font-bold">
                       <AlertTriangle className="h-3.5 w-3.5" /> 残{m.stockQuantity}
                     </span>
-                  ) : (
+                  ) : m.stockManaged ? (
                     <span className="text-muted-foreground">残{m.stockQuantity}</span>
+                  ) : (
+                    <span className="text-success">販売中</span>
                   )}
                 </div>
               </div>

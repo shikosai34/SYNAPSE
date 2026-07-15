@@ -10,6 +10,7 @@ import { Building2 } from "lucide-react";
 // 切り出したタブコンポーネント
 import { CirclesTab } from "@/components/event/CirclesTab";
 import { AnalyticsTab } from "@/components/event/AnalyticsTab";
+import { BehaviorTab } from "@/components/event/BehaviorTab";
 import { OrderMonitorTab } from "@/components/event/OrderMonitorTab";
 import { InventoryTab } from "@/components/event/InventoryTab";
 import { AnnounceTab } from "@/components/event/AnnounceTab";
@@ -128,6 +129,7 @@ export default function EventDashboard() {
         <div className="space-y-6">
           {/* TAB: 統計・分析 */}
           {activeTab === "analytics" && <AnalyticsTab eventId={eventId} eventName={eventName} />}
+          {activeTab === "behavior" && <BehaviorTab eventId={eventId} />}
 
           {/* TAB: データエクスポート */}
           {activeTab === "export" && <ExportTab eventId={eventId} />}

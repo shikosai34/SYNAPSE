@@ -538,8 +538,9 @@ function RegisterPageContent() {
   });
 
   const claimOrder = useMutation({
-    mutationFn: async (preOrderId: string) => {
-      return preOrderApi.claim(preOrderId);
+    // 受取確定でもレジで選択した支払い方法を渡す (2026-07-14)。省略時はサーバが単一方法を補完する。
+    mutationFn: async (input: { preOrderId: string; paymentMethod?: string }) => {
+      return preOrderApi.claim(input.preOrderId, undefined, input.paymentMethod);
     },
     onSuccess: (data) => {
       toast.success(`注文完了！ 注文番号: ${data.orderNumber}`, {
@@ -647,7 +648,7 @@ function RegisterPageContent() {
     if (effectivePayments.length > 1 && !paymentMethod) { toast.error("支払い方法を選択してください"); return; }
 
     if (activePreOrderId) {
-      await claimOrder.mutateAsync(activePreOrderId);
+      await claimOrder.mutateAsync({ preOrderId: activePreOrderId, paymentMethod: paymentMethod || undefined });
       return;
     }
 

@@ -13,7 +13,7 @@ import {
   circleVisit,
   menu,
 } from "@fesflow/db";
-import { eq, and, isNull, gt, lt, inArray } from "drizzle-orm";
+import { eq, and, isNull, lt, inArray } from "drizzle-orm";
 import { ulid } from "ulidx";
 import { getAdminSession, hasPermission } from "../utils/auth";
 import { requireAuth } from "../middleware/auth";
@@ -253,18 +253,24 @@ circleRoutes.post(
       if (!input.inviteToken) {
         apiError("FORBIDDEN", "サークルを作成するにはイベントの招待が必要です");
       }
+      // 2026-07-14 (P2-8): 期限切れ条件を SQL に含めず、原因ごとに個別のメッセージを返す。
       const rows = await db
         .select()
         .from(inviteToken)
-        .where(and(eq(inviteToken.token, input.inviteToken!), gt(inviteToken.expiresAt, new Date())));
+        .where(eq(inviteToken.token, input.inviteToken!));
       const t = rows[0];
-      const kindOk =
-        !!t && !t.circleId && t.eventId === input.eventId && t.role === "circle_manager";
+      if (!t) {
+        apiError("NOT_FOUND", "招待が見つかりません。コード / リンクをご確認ください。");
+      }
+      if (new Date(t!.expiresAt) <= new Date()) {
+        apiError("BAD_REQUEST", "招待の有効期限が切れています。主催者に再発行を依頼してください。");
+      }
+      const kindOk = !t!.circleId && t!.eventId === input.eventId && t!.role === "circle_manager";
       if (!kindOk) {
-        apiError("FORBIDDEN", "無効または対象外の招待です");
+        apiError("FORBIDDEN", "この招待ではこのイベントにサークルを作成できません。");
       }
       if (t!.maxUses !== null && t!.usedCount >= t!.maxUses) {
-        apiError("BAD_REQUEST", "招待の使用回数上限に達しました");
+        apiError("BAD_REQUEST", "招待の使用回数の上限に達しました。主催者にお問い合わせください。");
       }
       hostInvite = t!;
     }
@@ -329,6 +335,8 @@ circleRoutes.post(
       eventId: input.eventId,
       name: input.name,
       description: input.description,
+      // 招待経由なら、どの circle_host 招待から作られたかを記録する (2026-07-14 P2-5 使用内訳)。
+      createdFromInviteId: hostInvite?.id ?? null,
     });
 
     // 2026-07-06 (M5): D1 はトランザクション非対応のため、membership insert が

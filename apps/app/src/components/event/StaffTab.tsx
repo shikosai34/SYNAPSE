@@ -7,8 +7,9 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { ErrorState } from "@/components/ui/ErrorState";
-import { Users, UserPlus, Trash2 } from "lucide-react";
+import { Users, UserPlus, Copy } from "lucide-react";
 import { toast } from "sonner";
+import { QRCodeSVG } from "qrcode.react";
 
 // モーダル
 import { EventStaffFormModal } from "./EventStaffFormModal";
@@ -44,6 +45,30 @@ export function StaffTab({
   // スタッフ削除（解除）確認用ステート
   const [isDeactivateConfirmOpen, setIsDeactivateConfirmOpen] = useState(false);
   const [memberToDeactivate, setMemberToDeactivate] = useState<any | null>(null);
+
+  // 招待の有効期限を7日延長 (2026-07-14 P1-4)
+  const extendInviteMutation = useMutation({
+    mutationFn: (id: string) => membershipApi.extendInvite(id, 168),
+    onSuccess: () => {
+      toast.success("有効期限を7日間延長しました");
+      queryClient.invalidateQueries({ queryKey: ["invites", eventId] });
+    },
+    onError: (err: any) => {
+      toast.error(err.message || "延長に失敗しました");
+    },
+  });
+
+  // 期限切れ招待の再発行 (新しいコード・7日期限で作り直す) (2026-07-14 P1-4 強化)
+  const regenerateInviteMutation = useMutation({
+    mutationFn: (id: string) => membershipApi.regenerateInvite(id),
+    onSuccess: () => {
+      toast.success("新しい招待コードを発行しました");
+      queryClient.invalidateQueries({ queryKey: ["invites", eventId] });
+    },
+    onError: (err: any) => {
+      toast.error(err.message || "再発行に失敗しました");
+    },
+  });
 
   // 招待トークン削除
   const deleteInviteMutation = useMutation({
@@ -87,6 +112,12 @@ export function StaffTab({
     setIsDeactivateConfirmOpen(true);
   };
 
+  // ワンクリックコピー (2026-07-14 P2-6)。配布導線を楽にする。
+  const copy = (text: string, label: string) => {
+    navigator.clipboard.writeText(text);
+    toast.success(`${label}をコピーしました`);
+  };
+
   return (
     <div className="space-y-6 font-mono text-foreground">
       <div className="flex justify-between items-center border-b-thick border-border pb-3">
@@ -107,7 +138,7 @@ export function StaffTab({
       {invites && invites.length > 0 && (
         <Card className=" rounded-none bg-background shadow-none">
           <CardHeader className="p-4 pb-2 border-b-thin border-border bg-muted/20">
-            <CardTitle className="text-xs uppercase font-bold">[アクティブな招待リンク一覧]</CardTitle>
+            <CardTitle className="text-xs uppercase font-bold">[招待リンク一覧]</CardTitle>
           </CardHeader>
           <CardContent className="p-4 space-y-2">
             {invites.map((inv) => {
@@ -123,23 +154,89 @@ export function StaffTab({
                   : kind === "event"
                     ? "イベント共同管理者"
                     : "サークルスタッフ";
+              // 有効期限の残り時間表示 (2026-07-14 P1-4)。24h未満は時間、以上は日で概算。
+              const msLeft = new Date(inv.expiresAt).getTime() - Date.now();
+              const hoursLeft = Math.max(0, Math.floor(msLeft / 3_600_000));
+              const remainLabel =
+                hoursLeft >= 24 ? `残り約${Math.floor(hoursLeft / 24)}日` : `残り約${hoursLeft}時間`;
+              const expiringSoon = hoursLeft < 24;
+              const isExpired = !!inv.expired;
               return (
-                <div key={inv.id} className="flex flex-col sm:flex-row justify-between items-start sm:items-center p-2.5 text-[10px] font-mono bg-muted/30">
-                  <div className="space-y-0.5">
-                    <p className="font-bold text-foreground">{purposeLabel}（{inv.usedCount}/{inv.maxUses ?? "∞"} 使用）</p>
-                    {inv.code && (
-                      <p className="text-foreground text-[11px] select-all">招待コード: <span className="font-bold tracking-wider">{inv.code}</span></p>
-                    )}
-                    <p className="text-muted-foreground text-[8px] break-all select-all">リンク: {inviteUrl}</p>
+                <div key={inv.id} className={`flex flex-col sm:flex-row justify-between items-start gap-3 p-2.5 text-[10px] font-mono ${isExpired ? "bg-destructive/5 opacity-80" : "bg-muted/30"}`}>
+                  <div className="flex gap-3 min-w-0">
+                    {/* 配布用QR (リンクをエンコード)。掲示・スクショで共有しやすくする (P2-6)。失効時は薄く表示 */}
+                    <div className={`border-thick border-border p-1 bg-white shrink-0 hidden sm:block ${isExpired ? "opacity-40" : ""}`}>
+                      <QRCodeSVG value={inviteUrl} size={72} level="M" />
+                    </div>
+                    <div className="space-y-0.5 min-w-0">
+                      <p className="font-bold text-foreground flex items-center gap-1.5">
+                        {purposeLabel}（{inv.usedCount}/{inv.maxUses ?? "∞"} 使用）
+                        {isExpired && (
+                          <Badge variant="default" className="rounded-none text-[8px] font-mono border-thick border-destructive bg-destructive/10 text-destructive uppercase">期限切れ</Badge>
+                        )}
+                      </p>
+                      {inv.code && (
+                        <p className="text-foreground text-[11px] flex items-center gap-1">
+                          招待コード: <span className="font-bold tracking-wider select-all">{inv.code}</span>
+                          <button onClick={() => copy(inv.code, "招待コード")} className="text-muted-foreground hover:text-foreground" aria-label="招待コードをコピー">
+                            <Copy className="h-3 w-3" />
+                          </button>
+                        </p>
+                      )}
+                      <p className="text-muted-foreground text-[8px] break-all flex items-center gap-1">
+                        <span className="select-all min-w-0 break-all">リンク: {inviteUrl}</span>
+                        <button onClick={() => copy(inviteUrl, "招待リンク")} className="text-muted-foreground hover:text-foreground shrink-0" aria-label="招待リンクをコピー">
+                          <Copy className="h-3 w-3" />
+                        </button>
+                      </p>
+                      <p className={`text-[8px] ${expiringSoon ? "text-destructive font-bold" : "text-muted-foreground"}`}>
+                        有効期限: {new Date(inv.expiresAt).toLocaleString("ja-JP")}（{remainLabel}）
+                      </p>
+                      {/* 使用内訳: この招待から作られたサークル (P2-5) */}
+                      {inv.consumedBy && inv.consumedBy.length > 0 && (
+                        <div className="pt-1 mt-1 border-t border-border/30">
+                          <p className="text-[8px] text-muted-foreground font-bold">作成されたサークル:</p>
+                          <ul className="text-[9px] text-foreground list-disc list-inside">
+                            {inv.consumedBy.map((cc: { id: string; name: string }) => (
+                              <li key={cc.id} className="truncate">{cc.name}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
                   </div>
-                  <Button
-                    variant="destructive"
-                    size="sm"
-                    onClick={() => handleOpenDeleteInvite(inv)}
-                    className="h-7 text-[8px] font-bold uppercase rounded-none px-2 shadow-none border border-transparent mt-2 sm:mt-0 shrink-0"
-                  >
-                    取消
-                  </Button>
+                  <div className="flex gap-1 shrink-0">
+                    {isExpired ? (
+                      // 失効時は「再発行」(新コード) を主導線にする。延長(同コード延命)も残す。
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => regenerateInviteMutation.mutate(inv.id)}
+                        disabled={regenerateInviteMutation.isPending}
+                        className="h-7 text-[8px] font-bold uppercase rounded-none px-2 shadow-none border-thick border-primary bg-primary text-primary-foreground hover:bg-background hover:text-foreground"
+                      >
+                        再発行
+                      </Button>
+                    ) : (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => extendInviteMutation.mutate(inv.id)}
+                        disabled={extendInviteMutation.isPending}
+                        className="h-7 text-[8px] font-bold uppercase rounded-none px-2 shadow-none border-thick border-border"
+                      >
+                        7日延長
+                      </Button>
+                    )}
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      onClick={() => handleOpenDeleteInvite(inv)}
+                      className="h-7 text-[8px] font-bold uppercase rounded-none px-2 shadow-none border border-transparent"
+                    >
+                      取消
+                    </Button>
+                  </div>
                 </div>
               );
             })}

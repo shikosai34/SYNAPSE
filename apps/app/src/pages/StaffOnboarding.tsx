@@ -23,11 +23,21 @@ export default function StaffOnboarding() {
 	const navigate = useNavigate();
 	const [searchParams] = useSearchParams();
 	const presetToken = searchParams.get("inviteToken");
+	// 招待コード単体のディープリンク (/join?code=XXXX や /onboarding?code=XXXX) にも対応 (2026-07-14 P0)。
+	const presetCode = searchParams.get("code");
+	// ヘッダーの「招待コードで参加 / スペースを追加」からは ?join=1 で来る (所属があっても選択画面を出す)。
+	const joinIntent = searchParams.get("join") === "1";
+	// 招待を処理する意図がある間は「所属あり → 既存スペースへ即リダイレクト」を抑止する。
+	// これが無いと、既にサークル/イベントを持つ人や主催者本人が招待リンク/コードを開いても
+	// 既存スペースに弾かれてサークルを作成できなかった (P0 の詰まりの主因)。
+	const wantsInvite = !!presetToken || !!presetCode || joinIntent;
 	const { data: session, isPending: sessionPending } = authClient.useSession();
 
 	// 既に所属があるアカウントはオンボーディング不要。所属を解決して送り返す。
+	// ただし招待処理中 (wantsInvite) は送り返さず、招待の受諾/サークル作成を優先する。
 	const { data: spaces } = useMySpaces();
 	useEffect(() => {
+		if (wantsInvite) return;
 		if (spaces && spaces.length > 0 && session?.user?.email) {
 			resolveActiveSpaceAfterAuth(session.user.email)
 				.then((r) => {
@@ -35,9 +45,9 @@ export default function StaffOnboarding() {
 				})
 				.catch(() => {});
 		}
-	}, [spaces, session?.user?.email, navigate]);
+	}, [wantsInvite, spaces, session?.user?.email, navigate]);
 
-	const [mode, setMode] = useState<Mode>(presetToken ? "join" : "choose");
+	const [mode, setMode] = useState<Mode>(presetToken || presetCode ? "join" : "choose");
 
 	// ── イベント主催 ───────────────────────────────────────────────
 	const [eventName, setEventName] = useState("");
@@ -67,13 +77,13 @@ export default function StaffOnboarding() {
 		onError: (e: any) => toast.error(e?.message || "招待の照会に失敗しました"),
 	});
 
-	// URL に inviteToken があれば自動照会
+	// URL に inviteToken / code があれば自動照会 (token 優先)
 	useEffect(() => {
-		if (presetToken && !lookup && !doLookup.isPending) {
-			doLookup.mutate({ token: presetToken });
-		}
+		if (lookup || doLookup.isPending) return;
+		if (presetToken) doLookup.mutate({ token: presetToken });
+		else if (presetCode) doLookup.mutate({ code: presetCode });
 		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [presetToken]);
+	}, [presetToken, presetCode]);
 
 	// circle_member / event_manager 招待をその場で受諾
 	const acceptInvite = useMutation({
@@ -120,7 +130,10 @@ export default function StaffOnboarding() {
 
 	if (sessionPending) return <Loader />;
 	if (!session?.user) {
-		navigate("/login", { replace: true });
+		// 招待コード/トークンを URL に持ったまま来た場合は、ログイン後にこの画面へ戻す
+		// (sign-in-form が callbackUrl を Google/passkey の戻り先に使うため招待が引き継がれる)。
+		const cb = encodeURIComponent(window.location.pathname + window.location.search);
+		navigate(`/login?callbackUrl=${cb}`, { replace: true });
 		return <Loader />;
 	}
 

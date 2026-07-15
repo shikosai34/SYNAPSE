@@ -142,7 +142,10 @@ export default function InvitePage() {
           <CardContent className="pt-6 text-center space-y-3">
             <XCircle className="h-14 w-14 mx-auto text-destructive" />
             <p className="text-muted-foreground">
-              {lookup.data?.reason || "無効または期限切れの招待です。"}
+              {/* サーバの具体的なエラー文言をそのまま表示する (P2-8)。原因(未存在/期限切れ/上限)が分かるように。 */}
+              {lookup.data?.reason ||
+                (lookup.error as Error | undefined)?.message ||
+                "無効または期限切れの招待です。"}
             </p>
             <Button variant="outline" onClick={() => navigate("/onboarding")}>
               オンボーディングへ

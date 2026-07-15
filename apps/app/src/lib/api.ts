@@ -82,6 +82,8 @@ export const eventApi = {
   get: (id: string) => fetchApi<Event>(`/api/festivals/${id}`),
   // イベント統計・分析 (2026-07-12)。event_manager (sales:read) 権限が必要。
   analytics: (id: string) => fetchApi<EventAnalytics>(`/api/festivals/${id}/analytics`),
+  // 来場者行動・混雑・スタッフ分析 (2026-07-14)
+  behavior: (id: string) => fetchApi<EventBehavior>(`/api/festivals/${id}/behavior`),
   // 日次締め (指定日 JST の売上を支払い方法別/サークル別に集計)。event_manager sales:read。
   dailyClose: (id: string, date?: string) =>
     fetchApi<DailyClose>(`/api/festivals/${id}/daily-close${date ? `?date=${date}` : ""}`),
@@ -198,16 +200,7 @@ export const staffApi = {
     }),
   delete: (id: string) =>
     fetchApi<{ success: boolean }>(`/api/staff/${id}`, { method: "DELETE" }),
-  getCurrentShift: (circleId: string) =>
-    fetchApi<Staff[]>(`/api/staff/shift/current?circleId=${circleId}`),
-  clockIn: (id: string) =>
-    fetchApi<{ success: boolean }>(`/api/staff/${id}/clock-in`, {
-      method: "POST",
-    }),
-  clockOut: (id: string) =>
-    fetchApi<{ success: boolean }>(`/api/staff/${id}/clock-out`, {
-      method: "POST",
-    }),
+  // 2026-07-14: シフト機能(getCurrentShift/clockIn/clockOut)を撤去。
 };
 
 // Order API
@@ -312,6 +305,18 @@ export const membershipApi = {
       : "";
     return fetchApi<InviteToken[]>(`/api/memberships/invite/list?${params}`);
   },
+  // 招待の有効期限を「今から N 時間後」に延長する (2026-07-14 P1-4)。
+  extendInvite: (id: string, expiresInHours: number) =>
+    fetchApi<{ success: boolean; expiresAt: string }>(`/api/memberships/invite/${id}/extend`, {
+      method: "PATCH",
+      body: { expiresInHours },
+    }),
+  // 期限切れの招待を新しい token/code で再発行する (2026-07-14 P1-4 強化)。
+  regenerateInvite: (id: string) =>
+    fetchApi<{ id: string; token: string; code: string; expiresAt: string }>(
+      `/api/memberships/invite/${id}/regenerate`,
+      { method: "POST" }
+    ),
   deleteInvite: (id: string) =>
     fetchApi<{ success: boolean }>(`/api/memberships/invite/${id}`, {
       method: "DELETE",
@@ -352,11 +357,12 @@ export const accountApi = {
 export const notificationApi = {
   list: () => fetchApi<any[]>("/api/memberships/notifications/list"),
   read: (id: string) => fetchApi<{ success: boolean }>(`/api/memberships/notifications/${id}/read`, { method: "POST" }),
+  // circle_host 招待の承認時は kind/token/eventId を返す (メンバーシップは作らずサークル作成へ誘導)。
   respond: (id: string, data: { action: "accept" | "decline"; userName?: string }) =>
-    fetchApi<{ success: boolean }>(`/api/memberships/notifications/${id}/respond`, {
-      method: "POST",
-      body: data,
-    }),
+    fetchApi<{ success: boolean; kind?: string; token?: string; eventId?: string }>(
+      `/api/memberships/notifications/${id}/respond`,
+      { method: "POST", body: data }
+    ),
 };
 
 // 画像アップロード
@@ -462,6 +468,32 @@ export interface EventAnalytics {
   paymentBreakdown: { method: string; orders: number; revenue: number }[];
 }
 
+// 来場者行動・混雑・スタッフ分析 (GET /api/festivals/:id/behavior) のレスポンス (2026-07-14)
+export interface EventBehavior {
+  journey: {
+    visitors: number;
+    buyers: number;
+    buyerRate: number;
+    avgOrdersPerBuyer: number;
+    avgSpendPerBuyer: number;
+    avgCirclesPerVisitor: number;
+    repeatBuyerRate: number;
+    multiCircleRate: number;
+    avgStayMin: number;
+    medianStayMin: number;
+  };
+  stayBuckets: { label: string; count: number }[];
+  circleCountBuckets: { label: string; count: number }[];
+  byHour: { hour: number; activeUsers: number; orders: number; revenue: number; arrivals: number }[];
+  peakHour: number | null;
+  funnel: { stage: string; count: number }[];
+  staffing: {
+    totalStaff: number;
+    byCircle: { circleId: string; name: string; staff: number; orders: number; revenue: number; ordersPerStaff: number | null }[];
+  };
+  topTransitions: { from: string; to: string; count: number }[];
+}
+
 // サークル統計 (GET /api/circles/:id/analytics) のレスポンス (2026-07-13)
 export interface CircleAnalytics {
   totals: {
@@ -511,6 +543,8 @@ export interface InventoryItem {
   price: number;
   soldOut: boolean;
   stockQuantity: number;
+  // 在庫管理拡張ON=残数/僅少が意味を持つ。OFF=売切フラグのみ扱う (2026-07-14)
+  stockManaged: boolean;
 }
 
 
@@ -602,8 +636,6 @@ export interface Staff {
   id: string;
   circleId: string;
   name: string;
-  shiftStart: Date | null;
-  shiftEnd: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -742,6 +774,10 @@ export interface InviteToken {
   maxUses: number | null;
   usedCount: number;
   targetEmail?: string | null;
+  // 失効フラグ (P1-4 強化)。直近14日以内に失効した招待は一覧に残り、再発行/延長できる。
+  expired?: boolean;
+  // この招待から作成されたサークル一覧 (使用内訳。P2-5)
+  consumedBy?: { id: string; name: string; createdAt: string }[];
 }
 
 // Input Types
@@ -779,6 +815,7 @@ export interface CreateMenuInput {
   stockQuantity?: number;
   stock?: number;
   isAvailable?: boolean;
+  soldOut?: boolean;
   toppingIds?: string[];
   defaultToppingIds?: string[];
 }
@@ -792,6 +829,7 @@ export interface UpdateMenuInput {
   stockQuantity?: number | null;
   stock?: number | null;
   isAvailable?: boolean;
+  soldOut?: boolean;
   toppingIds?: string[];
   defaultToppingIds?: string[];
 }
@@ -940,6 +978,12 @@ export const wristbandApi = {
       method: "POST",
       body: { userId, wristbandId },
     }),
+  // 既存の未紐付けユーザーにスマホ用デジタルID(sp_)を発行する (2026-07-14)
+  issueSmartphone: (userId: string) =>
+    fetchApi<{ success: boolean; wristbandId: string }>("/api/wristbands/issue-smartphone", {
+      method: "POST",
+      body: { userId },
+    }),
   reportLost: (wristbandId: string) =>
     fetchApi<{ success: boolean }>(
       `/api/wristbands/${encodeURIComponent(wristbandId)}/report-lost`,
@@ -1032,10 +1076,11 @@ export const preOrderApi = {
         circleId ? `?circleId=${circleId}` : ""
       }`
     ).catch(() => []),
-  claim: (id: string, cashierId?: string) =>
+  // 支払い方法 (2026-07-14): レジで選択された方法を受取確定にも渡す (未指定だとDBがNULLになるため)。
+  claim: (id: string, cashierId?: string, paymentMethod?: string) =>
     fetchApi<{ success: boolean; orderId: string; orderNumber: string }>(
       `/api/pre-orders/${id}/claim`,
-      { method: "POST", body: { cashierId } }
+      { method: "POST", body: { cashierId, paymentMethod } }
     ),
 };
 

@@ -1,7 +1,8 @@
 import { useState, useEffect } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { CircleAuthGuard } from "@/hooks/useCircleAuth";
-import { menuApi, toppingApi } from "@/lib/api";
+import { menuApi, toppingApi, circleApi, parseCircleSettings } from "@/lib/api";
 import DashboardLayout from "@/components/DashboardLayout";
 import {
   Card,
@@ -75,6 +76,24 @@ function MenuManagementContent() {
     queryKey: ["toppings", circleId],
     queryFn: () => toppingApi.list(circleId),
     enabled: !!circleId,
+  });
+
+  // 在庫管理拡張がONか (ONなら売切はメニュー管理から変更不可、在庫で自動制御)
+  const { data: circleData } = useQuery({
+    queryKey: ["circle", circleId],
+    queryFn: () => circleApi.get(circleId),
+    enabled: !!circleId,
+  });
+  const stockManaged = parseCircleSettings(circleData?.settings).extensions.stock;
+
+  // カードから売切をワンタップで切り替える (在庫管理OFF時のみ) (2026-07-14)
+  const toggleSoldOut = useMutation({
+    mutationFn: (menu: any) => menuApi.update(menu.id, { soldOut: !menu.soldOut }),
+    onSuccess: (_d, menu) => {
+      toast.success(menu.soldOut ? "販売中に戻しました" : "売り切れにしました");
+      queryClient.invalidateQueries({ queryKey: ["menus", circleId] });
+    },
+    onError: (e: any) => toast.error(e?.message || "更新に失敗しました"),
   });
 
   // メニュー削除 (確認ダイアログの代わりに undo 付きトースト)
@@ -185,11 +204,19 @@ function MenuManagementContent() {
                       <img
                         src={menu.imagePath}
                         alt={menu.name}
-                        className="object-cover absolute inset-0 h-full w-full"
+                        className={`object-cover absolute inset-0 h-full w-full ${menu.soldOut ? "opacity-40" : ""}`}
                       />
                     ) : (
                       <div className="flex h-full w-full items-center justify-center bg-muted/40">
                         <span className="text-[10px] uppercase font-bold tracking-widest text-muted-foreground">No Image</span>
+                      </div>
+                    )}
+                    {/* 売り切れオーバーレイ (管理側でも一目で分かるように) */}
+                    {menu.soldOut && (
+                      <div className="absolute inset-0 flex items-center justify-center bg-black/50">
+                        <span className="text-white text-lg font-headline uppercase tracking-[2px] border-thick border-white px-3 py-1">
+                          売り切れ
+                        </span>
                       </div>
                     )}
                   </div>
@@ -199,13 +226,25 @@ function MenuManagementContent() {
                       <p className="text-xs text-muted-foreground font-mono mt-0.5">ID: {menu.id}</p>
                     </div>
 
-                    <div className="flex justify-between items-baseline">
+                    <div className="flex justify-between items-center">
                       <span className="text-lg font-black text-primary">
                         ¥{menu.price.toLocaleString()}
                       </span>
-                      <span className="text-[10px] text-muted-foreground">
-                        在庫: {menu.stockQuantity ?? 0}個
-                      </span>
+                      {/* 販売状態: 在庫管理OFFならワンタップ切替、ONなら在庫連動で読み取り専用 (2026-07-14) */}
+                      {stockManaged ? (
+                        <span className={`text-[10px] font-bold font-mono px-2 py-1 border-thick ${menu.soldOut ? "border-destructive text-destructive" : "border-success text-success"}`} title="在庫管理で自動制御">
+                          {menu.soldOut ? "売り切れ" : "販売中"}<span className="text-muted-foreground">(在庫連動)</span>
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => toggleSoldOut.mutate(menu)}
+                          disabled={toggleSoldOut.isPending}
+                          className={`text-[10px] font-bold font-mono uppercase px-2 py-1 border-thick transition-all ${menu.soldOut ? "border-destructive bg-destructive/10 text-destructive hover:bg-destructive hover:text-white" : "border-success bg-success/10 text-success hover:bg-success hover:text-white"}`}
+                        >
+                          {menu.soldOut ? "🔴 売り切れ" : "🟢 販売中"}
+                        </button>
+                      )}
                     </div>
 
                     {menu.description && (

@@ -344,13 +344,16 @@ preOrderRoutes.post(
   zBody(
     z.object({
       cashierId: z.string().optional(),
+      // 支払い方法 (2026-07-14): レジで選択された方法。事前オーダーの受取確定でも
+      // 通常注文と同様に支払い方法を記録する (未指定だと order.payment_method が NULL のままになるため)。
+      paymentMethod: z.string().max(30).optional(),
     })
   ),
   async (c) => {
     const db = c.get("db");
     try {
       const id = c.req.param("id");
-      const { cashierId } = c.req.valid("json");
+      const { cashierId, paymentMethod } = c.req.valid("json");
 
       const pos = await db.select().from(preOrder).where(eq(preOrder.id, id));
       if (pos.length === 0) {
@@ -391,6 +394,22 @@ preOrderRoutes.post(
               .where(inArray(preOrderItemTopping.preOrderItemId, itemIds))
           : [];
 
+      // 支払い方法の解決 (2026-07-14): 明示指定を優先し、無ければサークルの対応方法が
+      // ちょうど1つのときだけそれを補完する (通常注文 order.ts と同じ挙動に揃える)。
+      let resolvedPayment: string | undefined = paymentMethod?.trim() || undefined;
+      if (!resolvedPayment) {
+        const circles = await db.select().from(circle).where(eq(circle.id, po.circleId));
+        try {
+          const parsed = JSON.parse(circles[0]?.settings || "{}");
+          const accepted: unknown = parsed?.acceptedPayments;
+          if (Array.isArray(accepted) && accepted.length === 1 && typeof accepted[0] === "string") {
+            resolvedPayment = accepted[0];
+          }
+        } catch {
+          /* settings が壊れていても受取確定は通す */
+        }
+      }
+
       // 正規注文を作成
       const newOrderId = ulid();
       const orderNumber = await generateOrderNumber(db, po.circleId);
@@ -404,6 +423,7 @@ preOrderRoutes.post(
         peopleCount: 1,
         totalPrice: po.totalPrice,
         status: "preparing", // 受取確定と同時に調理開始
+        paymentMethod: resolvedPayment,
         completed: false,
       });
 

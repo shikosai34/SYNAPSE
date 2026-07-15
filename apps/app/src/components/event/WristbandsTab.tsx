@@ -157,6 +157,20 @@ export function WristbandsTab({ eventId }: WristbandsTabProps) {
     },
   });
 
+  // 既存の未紐付けユーザーにスマホ用デジタルIDを発行する API (2026-07-14)
+  // 物理リストバンドを紐付けずに、その場でスマホ単体で使えるIDを立ち上げる導線。
+  const issueSmartphoneMutation = useMutation({
+    mutationFn: (userId: string) => wristbandApi.issueSmartphone(userId),
+    onSuccess: (_, userId) => {
+      toast.success("スマホ用リストバンドIDを発行しました");
+      queryClient.invalidateQueries({ queryKey: ["eventVisitors"] });
+      lookupMutation.mutate(userId);
+    },
+    onError: (err: any) => {
+      toast.error(err.message || "スマホ用IDの発行に失敗しました");
+    },
+  });
+
   // スマホ用デジタルQR新規発行 API
   const issueUserMutation = useMutation({
     mutationFn: () => wristbandApi.issue(eventId),
@@ -192,6 +206,24 @@ export function WristbandsTab({ eventId }: WristbandsTabProps) {
       setSearchInput(code);
       setSearchQuery(code);
     }
+  };
+
+  // プロフィール編集フォームに未保存の変更があるか判定する (2026-07-14)。
+  // 閉じる際にこの結果を見て、破棄確認を出すかどうかを決める。
+  const isProfileDirty =
+    !!selectedUser?.user &&
+    (editNickname !== (selectedUser.user.nickname || "") ||
+      editFavoriteDate !== (selectedUser.user.favoriteDate || "") ||
+      String(editDisplayId) !== String(selectedUser.user.displayId ?? "") ||
+      editUserStatus !== (selectedUser.user.status || "available"));
+
+  // 詳細編集モーダルを閉じる。未保存の変更があれば確認を挟み、破棄を選んだ場合のみ閉じる。
+  const closeDetailsModal = () => {
+    if (isProfileDirty && !window.confirm("保存していないプロフィールの変更があります。破棄して閉じますか？")) {
+      return;
+    }
+    setIsDetailsModalOpen(false);
+    setSelectedUser(null);
   };
 
   const handleSearchSubmit = (e: React.FormEvent) => {
@@ -586,10 +618,7 @@ export function WristbandsTab({ eventId }: WristbandsTabProps) {
         isOpen={isDetailsModalOpen}
         title="[来場者・リストバンド詳細編集]"
         subtitle="来場者の基本プロフィール情報、および紐付く物理リストバンドの状態変更・再発行・紐付け解除を行います。"
-        onClose={() => {
-          setIsDetailsModalOpen(false);
-          setSelectedUser(null);
-        }}
+        onClose={closeDetailsModal}
         maxWidth="xl"
       >
         {selectedUser && (
@@ -663,27 +692,6 @@ export function WristbandsTab({ eventId }: WristbandsTabProps) {
                     </select>
                   </div>
                 </div>
-
-                <Button
-                  onClick={() => {
-                    if (editDisplayId === "") {
-                      toast.error("呼出IDを入力してください");
-                      return;
-                    }
-                    updateProfileMutation.mutate({
-                      userId: selectedUser.user.id,
-                      nickname: editNickname.trim() || null,
-                      favoriteDate: editFavoriteDate.trim() || null,
-                      displayId: Number(editDisplayId),
-                      status: editUserStatus,
-                    });
-                  }}
-                  disabled={updateProfileMutation.isPending}
-                  className="w-full border-thick border-primary bg-primary text-primary-foreground hover:bg-background hover:text-foreground h-9 text-xs font-bold rounded-none shadow-none mt-4 flex items-center justify-center gap-1"
-                >
-                  {updateProfileMutation.isPending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-                  プロフィール情報を保存
-                </Button>
               </div>
 
               {/* 右カラム: リストバンド管理 */}
@@ -763,8 +771,26 @@ export function WristbandsTab({ eventId }: WristbandsTabProps) {
                     </div>
                   </div>
                 ) : (
-                  <div className="bg-muted/10 p-4 text-center border border-dashed border-border text-muted-foreground text-xs font-mono">
-                    現在、有効なリストバンドは紐付いていません
+                  <div className="bg-muted/10 p-4 text-center border border-dashed border-border space-y-3">
+                    <p className="text-muted-foreground text-xs font-mono">
+                      現在、有効なリストバンドは紐付いていません
+                    </p>
+                    {/* 未紐付けの来場者に、物理バンドなしでスマホ単体で使えるデジタルIDを発行する (2026-07-14) */}
+                    <Button
+                      onClick={() => issueSmartphoneMutation.mutate(selectedUser.user.id)}
+                      disabled={issueSmartphoneMutation.isPending}
+                      className="w-full border-thick border-primary bg-primary text-primary-foreground hover:bg-background hover:text-foreground h-9 text-xs font-bold rounded-none shadow-none flex items-center justify-center gap-1.5"
+                    >
+                      {issueSmartphoneMutation.isPending ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Smartphone className="h-3.5 w-3.5" />
+                      )}
+                      スマホ用リストバンドIDを発行
+                    </Button>
+                    <p className="text-[10px] text-muted-foreground leading-normal font-sans">
+                      物理リストバンドを使わずに、この来場者のスマホ単体で決済・スタンプが使えるデジタルID（sp_）を即時発行します。
+                    </p>
                   </div>
                 )}
 
@@ -816,12 +842,31 @@ export function WristbandsTab({ eventId }: WristbandsTabProps) {
                 </div>
               </div>
             </div>
-            <div className="flex justify-end pt-4 border-t border-border">
+            {/* フッター: プロフィール保存を閉じるの隣に配置。保存せず離脱したい場合は「閉じる」で破棄して閉じる (2026-07-14) */}
+            <div className="flex justify-end gap-2 pt-4 border-t border-border">
               <Button
                 onClick={() => {
-                  setIsDetailsModalOpen(false);
-                  setSelectedUser(null);
+                  if (editDisplayId === "") {
+                    toast.error("呼出IDを入力してください");
+                    return;
+                  }
+                  updateProfileMutation.mutate({
+                    userId: selectedUser.user.id,
+                    nickname: editNickname.trim() || null,
+                    favoriteDate: editFavoriteDate.trim() || null,
+                    displayId: Number(editDisplayId),
+                    status: editUserStatus,
+                  });
                 }}
+                disabled={updateProfileMutation.isPending}
+                className="border-thick border-primary bg-primary text-primary-foreground hover:bg-background hover:text-foreground h-9 text-xs font-bold rounded-none shadow-none px-5 flex items-center justify-center gap-1"
+              >
+                {updateProfileMutation.isPending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                プロフィール情報を保存
+              </Button>
+              <Button
+                onClick={closeDetailsModal}
+                variant="outline"
                 className="border-thick border-border bg-background text-foreground hover:bg-primary hover:text-primary-foreground h-9 text-xs font-bold rounded-none shadow-none px-5"
               >
                 閉じる

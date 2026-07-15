@@ -634,11 +634,15 @@ membershipRoutes.get("/invite/lookup", async (c) => {
     .from(inviteToken)
     .where(token ? eq(inviteToken.token, token) : eq(inviteToken.code, code!));
 
+  // 2026-07-14 (P2-8): 「無効または期限切れ」で全部まとめず、原因ごとに分けて返す。
   const found = rows[0];
-  if (!found || new Date(found.expiresAt) <= new Date()) {
-    apiError("NOT_FOUND", "無効または期限切れの招待です");
+  if (!found) {
+    apiError("NOT_FOUND", "招待が見つかりません。コード / リンクをご確認ください。");
   }
   const t = found!;
+  if (new Date(t.expiresAt) <= new Date()) {
+    apiError("BAD_REQUEST", "招待の有効期限が切れています。主催者に再発行を依頼してください。");
+  }
 
   const overLimit = t.maxUses !== null && t.usedCount >= t.maxUses;
 
@@ -698,28 +702,30 @@ membershipRoutes.post(
     const session = c.get("session")!;
     const userEmail = session.user.email.toLowerCase();
 
-    // トークンを検索 (token 優先、無ければ code)
+    // トークンを検索 (token 優先、無ければ code)。
+    // 2026-07-14 (P2-8): 期限切れと未存在を別メッセージにするため、expiresAt 条件は付けず後段で判定する。
     const tokens = await db
       .select()
       .from(inviteToken)
       .where(
-        and(
-          input.token
-            ? eq(inviteToken.token, input.token)
-            : eq(inviteToken.code, input.code!),
-          gt(inviteToken.expiresAt, new Date())
-        )
+        input.token
+          ? eq(inviteToken.token, input.token)
+          : eq(inviteToken.code, input.code!)
       );
 
     if (tokens.length === 0) {
-      apiError("BAD_REQUEST", "無効または期限切れの招待トークンです");
+      apiError("NOT_FOUND", "招待が見つかりません。コード / リンクをご確認ください。");
     }
 
     const foundToken = tokens[0]!;
 
+    if (new Date(foundToken.expiresAt) <= new Date()) {
+      apiError("BAD_REQUEST", "招待の有効期限が切れています。主催者に再発行を依頼してください。");
+    }
+
     // targetEmail が指定されたトークンは、そのメール宛のセッションでしか使えない
     if (foundToken.targetEmail && foundToken.targetEmail.toLowerCase() !== userEmail) {
-      apiError("FORBIDDEN", "この招待は別のメールアドレス宛です");
+      apiError("FORBIDDEN", "この招待は別のメールアドレス宛です。招待を受け取ったメールでログインしてください。");
     }
 
     // circle_host 招待はメンバーシップを作らず、サークル作成へ誘導する
@@ -823,11 +829,28 @@ membershipRoutes.get("/invite/list", async (c) => {
 
   const tokens = await query;
 
-  // 期限切れのトークンを除外
-  const activeTokens = tokens.filter((t) => new Date(t.expiresAt) > new Date());
+  // 2026-07-14 (P1-4 強化): 有効な招待に加え、直近14日以内に失効したものも返す
+  // (再発行/延長の導線を出すため)。それより古い失効トークンは一覧から落とす。
+  const now = Date.now();
+  const RECENT_EXPIRED_MS = 14 * 24 * 3600 * 1000;
+  const shown = tokens.filter((t) => {
+    const exp = new Date(t.expiresAt).getTime();
+    return exp > now || now - exp < RECENT_EXPIRED_MS;
+  });
+
+  // 使用内訳 (2026-07-14 P2-5): 各招待から作成されたサークルを引き当てる。
+  // 「0/10 使用」の内訳(どのサークルが作られたか)を一覧で辿れるようにする。
+  const shownIds = shown.map((t) => t.id);
+  const consumers =
+    shownIds.length > 0
+      ? await db
+          .select({ id: circle.id, name: circle.name, createdAt: circle.createdAt, inviteId: circle.createdFromInviteId })
+          .from(circle)
+          .where(and(inArray(circle.createdFromInviteId, shownIds), isNull(circle.deletedAt)))
+      : [];
 
   // 生トークンの値をレスポンスから除外し、一覧に必要な項目のみ返す
-  const sanitized = activeTokens.map((t) => ({
+  const sanitized = shown.map((t) => ({
     id: t.id,
     circleId: t.circleId,
     eventId: t.eventId,
@@ -843,9 +866,80 @@ membershipRoutes.get("/invite/list", async (c) => {
     targetEmail: t.targetEmail,
     createdBy: t.createdBy,
     createdAt: t.createdAt,
+    // 失効フラグ (2026-07-14 P1-4): UI で「期限切れ・再発行」導線を出すため。
+    expired: new Date(t.expiresAt).getTime() <= now,
+    // この招待から作成されたサークル一覧 (使用内訳)。
+    consumedBy: consumers
+      .filter((cc) => cc.inviteId === t.id)
+      .map((cc) => ({ id: cc.id, name: cc.name, createdAt: cc.createdAt })),
   }));
 
   return c.json(sanitized);
+});
+
+// 招待の有効期限を延長する (2026-07-14 P1-4)。
+// 既定24hだと出店募集期間より短く、リンク/コードが黙って失効していたため、
+// 有効な招待の期限を「今から N 時間後」に付け替えられるようにする (再発行せず延命)。
+membershipRoutes.patch(
+  "/invite/:id/extend",
+  zBody(z.object({ expiresInHours: z.number().min(1).max(168).default(168) })),
+  async (c) => {
+    const db = c.get("db");
+    const id = c.req.param("id");
+    const { expiresInHours } = c.req.valid("json");
+
+    const tokens = await db.select().from(inviteToken).where(eq(inviteToken.id, id));
+    if (tokens.length === 0) apiError("NOT_FOUND", "トークンが見つかりません");
+    const t = tokens[0]!;
+
+    const err = await checkMemberWritePermission(c, t.circleId, "viewer", undefined, t.eventId);
+    if (err) apiError(err.code, err.error, { status: err.status });
+
+    const expiresAt = new Date();
+    expiresAt.setHours(expiresAt.getHours() + expiresInHours);
+    await db.update(inviteToken).set({ expiresAt }).where(eq(inviteToken.id, id));
+
+    return c.json({ success: true, expiresAt });
+  }
+);
+
+// 招待の再発行 (2026-07-14 P1-4 強化)。
+// 期限切れの招待から、新しい token/code・7日有効期限で作り直す。設定(role/所属/maxUses/
+// targetEmail)は引き継ぐ。古いリンク/コードを無効化したい(漏洩時等)ケースにも使えるよう、
+// 延長(同じコードのまま延命)とは別に「新しいコードを発行する」導線として用意する。
+// 元トークンは削除せず残す(使用内訳の履歴を保持。失効後14日で一覧から自然に落ちる)。
+membershipRoutes.post("/invite/:id/regenerate", async (c) => {
+  const db = c.get("db");
+  const id = c.req.param("id");
+
+  const rows = await db.select().from(inviteToken).where(eq(inviteToken.id, id));
+  if (rows.length === 0) apiError("NOT_FOUND", "トークンが見つかりません");
+  const src = rows[0]!;
+
+  const err = await checkMemberWritePermission(c, src.circleId, "viewer", undefined, src.eventId);
+  if (err) apiError(err.code, err.error, { status: err.status });
+
+  const newId = ulid();
+  const token = nanoid(32);
+  const code = genInviteCode();
+  const expiresAt = new Date();
+  expiresAt.setHours(expiresAt.getHours() + 168); // 7日
+
+  await db.insert(inviteToken).values({
+    id: newId,
+    token,
+    code,
+    circleId: src.circleId,
+    eventId: src.eventId,
+    role: src.role,
+    maxUses: src.maxUses,
+    usedCount: 0,
+    expiresAt,
+    createdBy: src.createdBy,
+    targetEmail: src.targetEmail,
+  });
+
+  return c.json({ id: newId, token, code, expiresAt }, 201);
 });
 
 // 招待トークン削除
@@ -954,6 +1048,20 @@ membershipRoutes.post(
       // 2026-07-05: targetEmail 指定付きトークンは、そのメール宛のセッションでしか使えない
       if (foundToken.targetEmail && foundToken.targetEmail.toLowerCase() !== email) {
         apiError("FORBIDDEN", "この招待は別のメールアドレス宛です");
+      }
+
+      // 2026-07-14 (P1-3): circle_host 招待はメンバーシップを作らず、サークル作成へ誘導する。
+      // ここで通常のメンバーシップ作成に進むと circleId 無しの「宙ぶらりん circle_manager」が
+      // 生成され、サークルは1つも作られないという不整合が起きていた (accept 側 invite/accept は
+      // 既に同様のガードで circle_host を除外済みで、通知承認側だけ抜けていた)。
+      // 通知は既読にせず、クライアントをサークル作成フロー (/onboarding?inviteToken=...) へ送る。
+      if (inviteKind(foundToken) === "circle_host") {
+        return c.json({
+          success: true,
+          kind: "circle_host",
+          token: foundToken.token,
+          eventId: foundToken.eventId,
+        });
       }
 
       // 使用上限チェック（事前チェック。確定は下の条件付きUPDATEで行う）

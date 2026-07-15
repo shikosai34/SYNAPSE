@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { z } from "zod";
 import { staff } from "@fesflow/db";
-import { eq, and, isNull } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { ulid } from "ulidx";
 import { hasPermission } from "../utils/auth";
 import { apiError } from "../http-error";
@@ -130,72 +130,7 @@ staffRoutes.delete("/:id", async (c) => {
   return c.json({ success: true });
 });
 
-// 現在のシフト（出勤中で退勤していないスタッフ）
-staffRoutes.get("/shift/current", async (c) => {
-  const db = c.get("db");
-  const circleId = c.req.query("circleId");
-
-  if (!circleId) {
-    apiError("BAD_REQUEST", "circleIdが必要です");
-  }
-
-  // 2026-07-05: 認可チェックが皆無だったため追加
-  if (!(await hasPermission(c, circleId, "staff:read"))) {
-    apiError("FORBIDDEN", "権限がありません");
-  }
-
-  const staffList = await db
-    .select()
-    .from(staff)
-    .where(and(eq(staff.circleId, circleId), isNull(staff.shiftEnd)));
-
-  // shiftStartがnullでないスタッフのみ
-  const currentShiftStaff = staffList.filter((s) => s.shiftStart !== null);
-
-  return c.json(currentShiftStaff);
-});
-
-// 出勤
-staffRoutes.post("/:id/clock-in", async (c) => {
-  const db = c.get("db");
-  const id = c.req.param("id");
-
-  // 2026-07-05: 認可チェックが皆無だったため追加。対象のcircleIdを先に取得して判定
-  const existingStaff = await db.select().from(staff).where(eq(staff.id, id));
-  if (existingStaff.length === 0) {
-    apiError("NOT_FOUND", "スタッフが見つかりません");
-  }
-
-  if (!(await hasPermission(c, existingStaff[0]!.circleId, "staff:write"))) {
-    apiError("FORBIDDEN", "権限がありません");
-  }
-
-  await db
-    .update(staff)
-    .set({ shiftStart: new Date(), shiftEnd: null })
-    .where(eq(staff.id, id));
-
-  return c.json({ success: true });
-});
-
-// 退勤
-staffRoutes.post("/:id/clock-out", async (c) => {
-  const db = c.get("db");
-  const id = c.req.param("id");
-
-  // 2026-07-05: 認可チェックが皆無だったため追加。対象のcircleIdを先に取得して判定
-  const existingStaff = await db.select().from(staff).where(eq(staff.id, id));
-  if (existingStaff.length === 0) {
-    apiError("NOT_FOUND", "スタッフが見つかりません");
-  }
-
-  if (!(await hasPermission(c, existingStaff[0]!.circleId, "staff:write"))) {
-    apiError("FORBIDDEN", "権限がありません");
-  }
-
-  await db.update(staff).set({ shiftEnd: new Date() }).where(eq(staff.id, id));
-
-  return c.json({ success: true });
-});
+// 2026-07-14: シフト機能 (GET /shift/current, POST /:id/clock-in, /:id/clock-out) を撤去。
+// スタッフの出退勤・稼働時間追跡は使われていなかったため、スタッフ名簿の CRUD のみ残す。
 
 export default staffRoutes;
