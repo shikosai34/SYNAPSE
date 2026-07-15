@@ -41,6 +41,14 @@ interface MenuItem {
   icon: any;
 }
 
+// サイドメニューをカテゴリ見出し付きで表示するためのグループ単位 (2026-07-16)。
+// 項目数が増えて平坦なリストでは目的の設定を探しづらくなったため導入。
+// label が空文字列のグループは見出しを描画しない (例: 見出し不要な単発グループ用の逃げ道として用意)。
+interface MenuGroup {
+  label: string;
+  items: MenuItem[];
+}
+
 interface DashboardLayoutProps {
   children: ReactNode;
   title: string;
@@ -100,63 +108,126 @@ export default function DashboardLayout({
   const lifecycle = layoutEvent?.lifecycleStatus;
   const isReadOnly = lifecycle === "ended" || lifecycle === "archived";
 
-  // サークル管理のメニュー項目
-  // 基本機能を先頭に、拡張機能(在庫/スタッフ/モッド)は末尾へ並べる。
-  // 在庫・スタッフは拡張機能としてON/OFFでき、OFFのときはメニューから隠す。
-  const circleMenuItems: MenuItem[] = [
-    { title: "ダッシュボード", href: "/circle/dashboard", icon: LayoutDashboard },
-    { title: "メニュー管理", href: "/circle/dashboard/menu", icon: UtensilsCrossed },
-    { title: "売上管理", href: "/circle/dashboard/sales", icon: TrendingUp },
-    { title: "統計・分析", href: "/circle/dashboard/analytics", icon: BarChart3 },
-    { title: "データエクスポート", href: "/circle/dashboard/export", icon: Download },
-    { title: "サークル設定", href: "/circle/dashboard/circle", icon: Settings },
-    { title: "メンバー管理", href: "/circle/dashboard/members", icon: Users },
-    { title: "モバイルオーダーQR", href: "/circle/dashboard/qr", icon: QrCode },
-    // --- ここから拡張機能 (末尾) ---
-    ...(circleSettings.extensions.stock
-      ? [{ title: "在庫管理", href: "/circle/dashboard/stock", icon: Package }]
-      : []),
-    ...(circleSettings.extensions.staff
-      ? [{ title: "スタッフ管理", href: "/circle/dashboard/staff", icon: UserCheck }]
-      : []),
-    // 2026-07-07: 「拡張機能 (モッド)」の独立ページは廃止。モッド管理はサークル設定内へ統合済み。
+  // サークル管理のメニュー項目 (カテゴリ分け, 2026-07-16)
+  // 「運営」= 日常的に開く画面、「商品・在庫」= 出す物の管理、
+  // 「売上・分析」= お金と数字、「管理」= サークル自体の設定・人。
+  // 在庫管理/スタッフ管理は拡張機能のON/OFFで出し分けるため、該当グループの配列末尾に条件付きで足す。
+  const circleGroups: MenuGroup[] = [
+    {
+      label: "運営",
+      items: [
+        { title: "ダッシュボード", href: "/circle/dashboard", icon: LayoutDashboard },
+        { title: "モバイルオーダーQR", href: "/circle/dashboard/qr", icon: QrCode },
+      ],
+    },
+    {
+      label: "商品・在庫",
+      items: [
+        { title: "メニュー管理", href: "/circle/dashboard/menu", icon: UtensilsCrossed },
+        ...(circleSettings.extensions.stock
+          ? [{ title: "在庫管理", href: "/circle/dashboard/stock", icon: Package }]
+          : []),
+      ],
+    },
+    {
+      label: "売上・分析",
+      items: [
+        { title: "売上管理", href: "/circle/dashboard/sales", icon: TrendingUp },
+        { title: "統計・分析", href: "/circle/dashboard/analytics", icon: BarChart3 },
+        { title: "データエクスポート", href: "/circle/dashboard/export", icon: Download },
+      ],
+    },
+    {
+      label: "管理",
+      items: [
+        { title: "サークル設定", href: "/circle/dashboard/circle", icon: Settings },
+        { title: "メンバー管理", href: "/circle/dashboard/members", icon: Users },
+        ...(circleSettings.extensions.staff
+          ? [{ title: "スタッフ管理", href: "/circle/dashboard/staff", icon: UserCheck }]
+          : []),
+        // 2026-07-07: 「拡張機能 (モッド)」の独立ページは廃止。モッド管理はサークル設定内へ統合済み。
+      ],
+    },
   ];
 
-  // イベント管理のメニュー項目 (タブ切り替え)
-  const eventMenuItems: MenuItem[] = [
-    { title: "統計・分析", tab: "analytics", icon: BarChart3 },
-    { title: "来場者行動・混雑", tab: "behavior", icon: Activity },
-    { title: "データエクスポート", tab: "export", icon: Download },
-    { title: "注文モニタ", tab: "order-monitor", icon: MonitorCheck },
-    { title: "在庫・売り切れ", tab: "inventory", icon: Boxes },
-    { title: "一斉アナウンス", tab: "announce", icon: Megaphone },
-    { title: "サークル管理", tab: "circles", icon: Grid },
-    { title: "全体売上管理", tab: "sales", icon: TrendingUp },
-    { title: "精算", tab: "settlement", icon: Calculator },
-    { title: "日次締め", tab: "daily-close", icon: CalendarCheck },
-    ...(lotteryEnabled ? [{ title: "抽選", tab: "lottery", icon: Ticket }] : []),
-    { title: "スタッフ管理", tab: "staff", icon: Users },
-    { title: "イベント設定", tab: "settings", icon: Settings },
-    { title: "契約状況", tab: "contract", icon: CreditCard },
-    { title: "リストバンド管理", tab: "wristbands", icon: IdCard },
+  // イベント管理のメニュー項目 (タブ切り替え, カテゴリ分け 2026-07-16)
+  // 「運営」= 開催中に頻繁に触る現場オペレーション、「売上・分析」= 数字・集計系、
+  // 「管理」= イベント自体の設定・契約・人、「拡張」= オプション機能 (抽選など、無効時は非表示)。
+  const eventGroups: MenuGroup[] = [
+    {
+      label: "運営",
+      items: [
+        { title: "注文モニタ", tab: "order-monitor", icon: MonitorCheck },
+        { title: "在庫・売り切れ", tab: "inventory", icon: Boxes },
+        { title: "一斉アナウンス", tab: "announce", icon: Megaphone },
+        { title: "リストバンド管理", tab: "wristbands", icon: IdCard },
+      ],
+    },
+    {
+      label: "売上・分析",
+      items: [
+        { title: "統計・分析", tab: "analytics", icon: BarChart3 },
+        { title: "来場者行動・混雑", tab: "behavior", icon: Activity },
+        { title: "全体売上管理", tab: "sales", icon: TrendingUp },
+        { title: "精算", tab: "settlement", icon: Calculator },
+        { title: "日次締め", tab: "daily-close", icon: CalendarCheck },
+        { title: "データエクスポート", tab: "export", icon: Download },
+      ],
+    },
+    {
+      label: "管理",
+      items: [
+        { title: "サークル管理", tab: "circles", icon: Grid },
+        { title: "スタッフ管理", tab: "staff", icon: Users },
+        { title: "イベント設定", tab: "settings", icon: Settings },
+        { title: "契約状況", tab: "contract", icon: CreditCard },
+      ],
+    },
+    {
+      label: "拡張",
+      items: [
+        ...(lotteryEnabled ? [{ title: "抽選", tab: "lottery", icon: Ticket }] : []),
+      ],
+    },
   ];
 
-  // システム管理のメニュー項目
-  const systemMenuItems: MenuItem[] = [
-    { title: "運営ダッシュボード", tab: "overview", icon: LayoutDashboard },
-    { title: "イベント/課金", tab: "saas-events", icon: Calendar },
-    { title: "監査ログ", tab: "audit", icon: ScrollText },
-    { title: "アカウント管理", tab: "accounts", icon: Users },
-    { title: "お知らせ管理", tab: "announcements", icon: Megaphone },
-    { title: "メンテナンス", tab: "system-settings", icon: Wrench },
+  // システム管理のメニュー項目 (カテゴリ分け, 2026-07-16)
+  const systemGroups: MenuGroup[] = [
+    {
+      label: "運営",
+      items: [
+        { title: "運営ダッシュボード", tab: "overview", icon: LayoutDashboard },
+        { title: "イベント/課金", tab: "saas-events", icon: Calendar },
+      ],
+    },
+    {
+      label: "管理",
+      items: [
+        { title: "アカウント管理", tab: "accounts", icon: Users },
+        { title: "お知らせ管理", tab: "announcements", icon: Megaphone },
+      ],
+    },
+    {
+      label: "システム",
+      items: [
+        { title: "監査ログ", tab: "audit", icon: ScrollText },
+        { title: "メンテナンス", tab: "system-settings", icon: Wrench },
+      ],
+    },
   ];
 
-  const menuItems =
+  const menuGroups =
     type === "circle"
-      ? circleMenuItems
+      ? circleGroups
       : type === "event"
-      ? eventMenuItems
-      : systemMenuItems;
+      ? eventGroups
+      : systemGroups;
+
+  // 空グループ (抽選OFFなど拡張機能が全て無効な場合) は見出しごと出さない
+  const visibleMenuGroups = menuGroups.filter((group) => group.items.length > 0);
+
+  // アコーディオンの現在地表示や href/tab のアクティブ判定は、グループを問わずフラットに探索すれば足りる
+  const menuItems = visibleMenuGroups.flatMap((group) => group.items);
 
   const activeItem = menuItems.find((item) => {
     if (type === "circle") {
@@ -219,49 +290,61 @@ export default function DashboardLayout({
         </button>
 
         {isMobileMenuOpen && (
-          <nav className="border-t-thick border-border p-1.5 space-y-1 bg-background">
-            {menuItems.map((item, idx) => {
-              const Icon = item.icon;
-              const isCircleActive = type === "circle" && location.pathname === item.href;
-              const isTabActive = type !== "circle" && activeTab === item.tab;
-              const isActive = isCircleActive || isTabActive;
+          // カテゴリ見出し付きで描画。モバイルは縦に長くなりやすいので、
+          // 項目の縦paddingを控えめ(py-2)にし、見出しの余白も最小限にして全体の高さを抑える。
+          <nav className="border-t-thick border-border p-1.5 space-y-0.5 bg-background max-h-[70vh] overflow-y-auto">
+            {visibleMenuGroups.map((group, gIdx) => (
+              <div key={group.label} className={gIdx === 0 ? "" : "pt-2"}>
+                <p className="px-3 pb-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                  {group.label}
+                </p>
+                <div className="space-y-0.5">
+                  {group.items.map((item, idx) => {
+                    const Icon = item.icon;
+                    const isCircleActive = type === "circle" && location.pathname === item.href;
+                    const isTabActive = type !== "circle" && activeTab === item.tab;
+                    const isActive = isCircleActive || isTabActive;
 
-              const baseClass = cn(
-                "flex items-center gap-2 px-3 py-2.5 text-[12px] font-bold uppercase rounded-none transition-all border border-transparent w-full select-none cursor-pointer text-left",
-                isActive
-                  ? "bg-primary text-primary-foreground border-primary"
-                  : "hover:bg-muted text-muted-foreground hover:text-foreground"
-              );
+                    const baseClass = cn(
+                      "flex items-center gap-2 px-3 py-2 text-[12px] font-bold uppercase rounded-none transition-all border border-transparent w-full select-none cursor-pointer text-left",
+                      isActive
+                        ? "bg-primary text-primary-foreground border-primary"
+                        : "hover:bg-muted text-muted-foreground hover:text-foreground"
+                    );
 
-              const handleItemClick = () => {
-                setIsMobileMenuOpen(false);
-                if (type !== "circle" && item.tab && onTabChange) {
-                  onTabChange(item.tab);
-                }
-              };
+                    const handleItemClick = () => {
+                      setIsMobileMenuOpen(false);
+                      if (type !== "circle" && item.tab && onTabChange) {
+                        onTabChange(item.tab);
+                      }
+                    };
 
-              if (type === "circle" && item.href) {
-                return (
-                  <Link key={idx} to={item.href} className="block w-full" onClick={() => setIsMobileMenuOpen(false)}>
-                    <span className={baseClass}>
-                      <Icon className="h-4 w-4 shrink-0" />
-                      {item.title}
-                    </span>
-                  </Link>
-                );
-              } else {
-                return (
-                  <button
-                    key={idx}
-                    onClick={handleItemClick}
-                    className={baseClass}
-                  >
-                    <Icon className="h-4 w-4 shrink-0" />
-                    {item.title}
-                  </button>
-                );
-              }
-            })}
+                    if (type === "circle" && item.href) {
+                      return (
+                        <Link
+                          key={idx}
+                          to={item.href}
+                          className="block w-full"
+                          onClick={() => setIsMobileMenuOpen(false)}
+                        >
+                          <span className={baseClass}>
+                            <Icon className="h-4 w-4 shrink-0" />
+                            {item.title}
+                          </span>
+                        </Link>
+                      );
+                    } else {
+                      return (
+                        <button key={idx} onClick={handleItemClick} className={baseClass}>
+                          <Icon className="h-4 w-4 shrink-0" />
+                          {item.title}
+                        </button>
+                      );
+                    }
+                  })}
+                </div>
+              </div>
+            ))}
           </nav>
         )}
       </div>
@@ -271,41 +354,50 @@ export default function DashboardLayout({
         {/* 左サイドバー: PCでは縦並び、モバイルでは非表示 (アコーディオンがカバーするため) */}
         <aside className="hidden md:block w-full md:w-64 shrink-0 border-thick border-border bg-background p-2 rounded-none shadow-none md:sticky md:top-4">
           <nav className="flex md:flex-col gap-1">
-            {menuItems.map((item, idx) => {
-              const Icon = item.icon;
-              const isCircleActive = type === "circle" && location.pathname === item.href;
-              const isTabActive = type !== "circle" && activeTab === item.tab;
-              const isActive = isCircleActive || isTabActive;
+            {visibleMenuGroups.map((group, gIdx) => (
+              <div key={group.label} className={cn("md:w-full", gIdx === 0 ? "" : "md:mt-2")}>
+                {/* カテゴリ見出し: RawBlockの太字uppercaseなメイン項目と区別するため、
+                    小さく控えめな muted テキストにする */}
+                <p className="px-3 pb-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                  {group.label}
+                </p>
+                {group.items.map((item, idx) => {
+                  const Icon = item.icon;
+                  const isCircleActive = type === "circle" && location.pathname === item.href;
+                  const isTabActive = type !== "circle" && activeTab === item.tab;
+                  const isActive = isCircleActive || isTabActive;
 
-              const baseClass = cn(
-                "flex items-center gap-2 px-3 py-2 text-[12px] font-bold uppercase rounded-none transition-all border border-transparent whitespace-nowrap md:w-full select-none cursor-pointer",
-                isActive
-                  ? "bg-primary text-primary-foreground border-primary"
-                  : "hover:bg-muted text-muted-foreground hover:text-foreground hover:border-border"
-              );
+                  const baseClass = cn(
+                    "flex items-center gap-2 px-3 py-2 text-[12px] font-bold uppercase rounded-none transition-all border border-transparent whitespace-nowrap md:w-full select-none cursor-pointer",
+                    isActive
+                      ? "bg-primary text-primary-foreground border-primary"
+                      : "hover:bg-muted text-muted-foreground hover:text-foreground hover:border-border"
+                  );
 
-              if (type === "circle" && item.href) {
-                return (
-                  <Link key={idx} to={item.href} className="block md:w-full">
-                    <span className={baseClass}>
-                      <Icon className="h-4 w-4 shrink-0" />
-                      {item.title}
-                    </span>
-                  </Link>
-                );
-              } else {
-                return (
-                  <button
-                    key={idx}
-                    onClick={() => item.tab && onTabChange && onTabChange(item.tab)}
-                    className={baseClass}
-                  >
-                    <Icon className="h-4 w-4 shrink-0" />
-                    {item.title}
-                  </button>
-                );
-              }
-            })}
+                  if (type === "circle" && item.href) {
+                    return (
+                      <Link key={idx} to={item.href} className="block md:w-full">
+                        <span className={baseClass}>
+                          <Icon className="h-4 w-4 shrink-0" />
+                          {item.title}
+                        </span>
+                      </Link>
+                    );
+                  } else {
+                    return (
+                      <button
+                        key={idx}
+                        onClick={() => item.tab && onTabChange && onTabChange(item.tab)}
+                        className={baseClass}
+                      >
+                        <Icon className="h-4 w-4 shrink-0" />
+                        {item.title}
+                      </button>
+                    );
+                  }
+                })}
+              </div>
+            ))}
           </nav>
         </aside>
 
