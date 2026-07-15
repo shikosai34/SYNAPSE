@@ -63,6 +63,8 @@ function CircleSettingsContent() {
   const [circleId, setCircleId] = useState<string>("");
   const [circleName, setCircleName] = useState<string>("サークルダッシュボード");
   const [form, setForm] = useState({ name: "", description: "" });
+  // 2026-07-16: 「基本情報」セクションの未保存判定用に、直近保存済みの値を保持する。
+  const [formSnapshot, setFormSnapshot] = useState({ name: "", description: "" });
 
   // 運用設定 (注文モード・拡張機能ON/OFF)
   const [orderFlowMode, setOrderFlowMode] = useState<OrderFlowMode>("pending");
@@ -70,6 +72,15 @@ function CircleSettingsContent() {
   const [staffEnabled, setStaffEnabled] = useState(false);
   // 対応する支払い方法 (2026-07-12)。イベントの paymentMethods の部分集合。
   const [acceptedPayments, setAcceptedPayments] = useState<string[]>([]);
+  // 2026-07-16: 「運用設定」(注文モード・拡張機能・支払い方法) は circleApi.updateSettings が
+  // settings カラムを丸ごと上書きする1本のAPIのため、3つを分けて保存することはできない。
+  // そのため見た目も1つのセクションにまとめ、この3項目分の未保存判定を1つのスナップショットで行う。
+  const [settingsSnapshot, setSettingsSnapshot] = useState({
+    orderFlowMode: "pending" as OrderFlowMode,
+    stockEnabled: false,
+    staffEnabled: false,
+    acceptedPayments: [] as string[],
+  });
 
   // オーナー譲渡確認
   const [pendingTransfer, setPendingTransfer] = useState<{ id: string; name: string } | null>(
@@ -109,12 +120,21 @@ function CircleSettingsContent() {
 
   useEffect(() => {
     if (circle) {
-      setForm({ name: circle.name, description: circle.description || "" });
+      const nextForm = { name: circle.name, description: circle.description || "" };
+      setForm(nextForm);
+      setFormSnapshot(nextForm);
+
       const s = parseCircleSettings(circle.settings);
       setOrderFlowMode(s.orderFlowMode);
       setStockEnabled(s.extensions.stock);
       setStaffEnabled(s.extensions.staff);
       setAcceptedPayments(s.acceptedPayments);
+      setSettingsSnapshot({
+        orderFlowMode: s.orderFlowMode,
+        stockEnabled: s.extensions.stock,
+        staffEnabled: s.extensions.staff,
+        acceptedPayments: s.acceptedPayments,
+      });
     }
   }, [circle]);
 
@@ -131,14 +151,18 @@ function CircleSettingsContent() {
       const { id, ...data } = input;
       return await circleApi.update(id, data);
     },
-    onSuccess: () => {
+    onSuccess: (_res, variables) => {
       toast.success("サークル情報を更新しました");
       localStorage.setItem("circleName", form.name);
       queryClient.invalidateQueries({ queryKey: ["circle", circleId] });
+      // 再取得を待たずにスナップショットを更新し、即座に「未保存」表示を消す。
+      setFormSnapshot({ name: variables.name ?? formSnapshot.name, description: variables.description ?? formSnapshot.description });
     },
     onError: (error: any) => toast.error(error.message || "更新に失敗しました"),
   });
 
+  // 「運用設定」の保存。circleApi.updateSettings は settings カラムを丸ごと上書きするため、
+  // 注文モード・拡張機能・支払い方法を常にまとめて送る (どれか1つだけを送る部分更新はできない)。
   const updateSettings = useMutation({
     mutationFn: async () =>
       circleApi.updateSettings(circleId, {
@@ -150,6 +174,7 @@ function CircleSettingsContent() {
     onSuccess: () => {
       toast.success("運用設定を保存しました");
       queryClient.invalidateQueries({ queryKey: ["circle", circleId] });
+      setSettingsSnapshot({ orderFlowMode, stockEnabled, staffEnabled, acceptedPayments });
     },
     onError: (error: any) => toast.error(error.message || "設定の保存に失敗しました"),
   });
@@ -171,6 +196,12 @@ function CircleSettingsContent() {
   const handleSave = () => {
     updateCircle.mutate({ id: circleId, name: form.name, description: form.description });
   };
+
+  // 未保存の変更があるかどうか (セクション単位)。変更が無ければ保存ボタンを disabled にする。
+  const isFormDirty = JSON.stringify(form) !== JSON.stringify(formSnapshot);
+  const isSettingsDirty =
+    JSON.stringify({ orderFlowMode, stockEnabled, staffEnabled, acceptedPayments }) !==
+    JSON.stringify(settingsSnapshot);
 
   // 上位管理者(オーナー/イベント管理者/システム管理者)のみオーナー譲渡を実行できる
   const canTransfer =
@@ -241,118 +272,137 @@ function CircleSettingsContent() {
                 className="border-thick border-border rounded-none focus-visible:ring-0 bg-background text-sm"
               />
             </div>
-            <Button
-              onClick={handleSave}
-              disabled={updateCircle.isPending}
-              className="rounded-none text-xs font-bold bg-primary text-primary-foreground hover:bg-background hover:text-foreground border-thick border-transparent hover:border-border h-9 shadow-none px-4"
-            >
-              <Save className="mr-2 h-4 w-4" />
-              {updateCircle.isPending ? "保存中..." : "変更を保存"}
-            </Button>
+            {/* 2026-07-16: セクション内(末尾)に保存ボタンを置き、未保存の変更があるときだけ活性化する */}
+            <div className="flex items-center justify-end gap-3">
+              {isFormDirty && (
+                <span className="text-[10px] font-bold uppercase text-warning">未保存の変更があります</span>
+              )}
+              <Button
+                onClick={handleSave}
+                disabled={!isFormDirty || updateCircle.isPending}
+                className="rounded-none text-xs font-bold bg-primary text-primary-foreground hover:bg-background hover:text-foreground border-thick border-transparent hover:border-border h-9 shadow-none px-4"
+              >
+                <Save className="mr-2 h-4 w-4" />
+                {updateCircle.isPending ? "保存中..." : "変更を保存"}
+              </Button>
+            </div>
           </CardContent>
         </Card>
 
-        {/* 注文モード */}
+        {/*
+          運用設定 (注文モード + 拡張機能 + 支払い方法)
+          2026-07-16: circleApi.updateSettings は circle.settings カラムを丸ごと上書きする1本のAPIで、
+          3項目を個別に部分保存することができない。そのため見た目も1つの保存範囲として1カードにまとめ、
+          「どこまでが保存対象か分かりづらい」問題を解消する (以前は3枚の別カード+ページ内に浮いた保存ボタンだった)。
+        */}
         <Card className="rounded-none shadow-none">
           <CardHeader className="pb-3 border-b-thick border-border">
-            <CardTitle className="text-sm font-bold uppercase">注文モード</CardTitle>
+            <CardTitle className="text-sm font-bold uppercase">運用設定</CardTitle>
             <CardDescription className="text-xs text-muted-foreground">
-              新規注文が入ったときの初期状態を選べます
+              注文モード・拡張機能・対応する支払い方法をこの1つの保存ボタンでまとめて保存します
             </CardDescription>
           </CardHeader>
-          <CardContent className="pt-4 space-y-2">
-            {ORDER_FLOW_OPTIONS.map((opt) => (
-              <OptionCard
-                key={opt.value}
-                icon={opt.icon}
-                label={opt.label}
-                description={opt.description}
-                selected={orderFlowMode === opt.value}
-                onSelect={() => setOrderFlowMode(opt.value)}
-              />
-            ))}
-          </CardContent>
-        </Card>
-
-        {/* 拡張機能 (在庫/スタッフ) */}
-        <Card className="rounded-none shadow-none">
-          <CardHeader className="pb-3 border-b-thick border-border">
-            <CardTitle className="text-sm font-bold uppercase">拡張機能</CardTitle>
-            <CardDescription className="text-xs text-muted-foreground">
-              使いたい機能だけONにできます。OFFの機能はダッシュボードから隠れます
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="pt-4 space-y-3">
-            <ExtensionToggle
-              icon={Package}
-              label="在庫管理"
-              description="在庫数の確認と更新"
-              enabled={stockEnabled}
-              onToggle={() => setStockEnabled((v) => !v)}
-            />
-            <ExtensionToggle
-              icon={UserCheck}
-              label="スタッフ管理"
-              description="シフトとスタッフの管理"
-              enabled={staffEnabled}
-              onToggle={() => setStaffEnabled((v) => !v)}
-            />
-          </CardContent>
-        </Card>
-
-        {/* 対応する支払い方法 (2026-07-12) */}
-        <Card className="rounded-none shadow-none">
-          <CardHeader className="pb-3 border-b-thick border-border">
-            <CardTitle className="text-sm font-bold uppercase flex items-center gap-2">
-              <CreditCard className="h-4 w-4" /> 対応する支払い方法
-            </CardTitle>
-            <CardDescription className="text-xs text-muted-foreground">
-              このサークルが受け付ける支払い方法を選びます。1つだけ選ぶとレジで選択せず自動で使われます。
-              未選択の場合はイベントの全方法に対応しているものとして扱います。
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="pt-4 space-y-2">
-            {eventPayments.length === 0 ? (
-              <p className="font-mono text-[12px] text-muted-foreground">
-                イベント側で支払い方法が設定されていません。
+          <CardContent className="pt-4 space-y-6">
+            {/* 注文モード */}
+            <div className="space-y-2">
+              <h3 className="text-xs font-bold uppercase tracking-wider">注文モード</h3>
+              <p className="text-[11px] text-muted-foreground">
+                新規注文が入ったときの初期状態を選べます
               </p>
-            ) : (
-              eventPayments.map((p) => {
-                const checked = acceptedPayments.includes(p);
-                return (
-                  <label
-                    key={p}
-                    className="flex items-center gap-2 border-thin border-border p-2 font-mono text-[13px] cursor-pointer hover:bg-muted"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={checked}
-                      onChange={(e) =>
-                        setAcceptedPayments((prev) =>
-                          e.target.checked ? [...prev, p] : prev.filter((x) => x !== p)
-                        )
-                      }
-                      className="h-4 w-4"
-                    />
-                    {p}
-                  </label>
-                );
-              })
-            )}
+              <div className="space-y-2 pt-1">
+                {ORDER_FLOW_OPTIONS.map((opt) => (
+                  <OptionCard
+                    key={opt.value}
+                    icon={opt.icon}
+                    label={opt.label}
+                    description={opt.description}
+                    selected={orderFlowMode === opt.value}
+                    onSelect={() => setOrderFlowMode(opt.value)}
+                  />
+                ))}
+              </div>
+            </div>
+
+            {/* 拡張機能 (在庫/スタッフ) */}
+            <div className="space-y-2 border-t-thin border-border pt-4">
+              <h3 className="text-xs font-bold uppercase tracking-wider">拡張機能</h3>
+              <p className="text-[11px] text-muted-foreground">
+                使いたい機能だけONにできます。OFFの機能はダッシュボードから隠れます
+              </p>
+              <div className="space-y-3 pt-1">
+                <ExtensionToggle
+                  icon={Package}
+                  label="在庫管理"
+                  description="在庫数の確認と更新"
+                  enabled={stockEnabled}
+                  onToggle={() => setStockEnabled((v) => !v)}
+                />
+                <ExtensionToggle
+                  icon={UserCheck}
+                  label="スタッフ管理"
+                  description="シフトとスタッフの管理"
+                  enabled={staffEnabled}
+                  onToggle={() => setStaffEnabled((v) => !v)}
+                />
+              </div>
+            </div>
+
+            {/* 対応する支払い方法 (2026-07-12) */}
+            <div className="space-y-2 border-t-thin border-border pt-4">
+              <h3 className="text-xs font-bold uppercase tracking-wider flex items-center gap-2">
+                <CreditCard className="h-4 w-4" /> 対応する支払い方法
+              </h3>
+              <p className="text-[11px] text-muted-foreground">
+                このサークルが受け付ける支払い方法を選びます。1つだけ選ぶとレジで選択せず自動で使われます。
+                未選択の場合はイベントの全方法に対応しているものとして扱います。
+              </p>
+              <div className="space-y-2 pt-1">
+                {eventPayments.length === 0 ? (
+                  <p className="font-mono text-[12px] text-muted-foreground">
+                    イベント側で支払い方法が設定されていません。
+                  </p>
+                ) : (
+                  eventPayments.map((p) => {
+                    const checked = acceptedPayments.includes(p);
+                    return (
+                      <label
+                        key={p}
+                        className="flex items-center gap-2 border-thin border-border p-2 font-mono text-[13px] cursor-pointer hover:bg-muted"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={(e) =>
+                            setAcceptedPayments((prev) =>
+                              e.target.checked ? [...prev, p] : prev.filter((x) => x !== p)
+                            )
+                          }
+                          className="h-4 w-4"
+                        />
+                        {p}
+                      </label>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+
+            {/* 運用設定 (注文モード + 拡張機能 + 支払い方法) の保存。3項目を常にまとめて送る。 */}
+            <div className="border-t-thick border-border pt-4 flex items-center justify-end gap-3">
+              {isSettingsDirty && (
+                <span className="text-[10px] font-bold uppercase text-warning">未保存の変更があります</span>
+              )}
+              <Button
+                onClick={() => updateSettings.mutate()}
+                disabled={!isSettingsDirty || updateSettings.isPending}
+                className="h-11 border-thick border-primary bg-primary font-mono text-xs font-bold text-primary-foreground rounded-none hover:bg-background hover:text-foreground uppercase px-6"
+              >
+                <Save className="mr-1.5 h-4 w-4" />
+                {updateSettings.isPending ? "保存中..." : "運用設定を保存"}
+              </Button>
+            </div>
           </CardContent>
         </Card>
-
-        {/* 運用設定 (注文モード + 拡張機能) の保存 */}
-        <div className="flex justify-end">
-          <Button
-            onClick={() => updateSettings.mutate()}
-            disabled={updateSettings.isPending}
-            className="h-11 border-thick border-primary bg-primary font-mono text-xs font-bold text-primary-foreground rounded-none hover:bg-background hover:text-foreground uppercase px-6"
-          >
-            <Save className="mr-1.5 h-4 w-4" />
-            {updateSettings.isPending ? "保存中..." : "運用設定を保存"}
-          </Button>
-        </div>
 
         {/* 拡張設定 (モッド管理): 旧「拡張機能 (モッド)」ダッシュボードページをここへ統合 */}
         {circleId && <ExtensionsManager circleId={circleId} />}
