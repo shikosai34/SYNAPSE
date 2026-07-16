@@ -1,9 +1,10 @@
-import { ReactNode, useState } from "react";
+import { ReactNode, useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import { circleApi, eventApi, parseCircleSettings } from "@/lib/api";
 import { useAuth } from "@/hooks/useCircleAuth";
+import { useFocusTrap } from "@/hooks/useFocusTrap";
 import {
   LayoutDashboard,
   UtensilsCrossed,
@@ -28,11 +29,11 @@ import {
   CalendarCheck,
   Ticket,
   ChevronDown,
-  ChevronUp,
   Download,
   IdCard,
   Activity,
   CreditCard,
+  X,
 } from "lucide-react";
 
 interface MenuItem {
@@ -80,7 +81,26 @@ export default function DashboardLayout({
   eventId,
 }: DashboardLayoutProps) {
   const location = useLocation();
+  // 2026-07-16: スマホ用メニューは以前アコーディオンでページ内に展開しており、
+  // 開閉でページの高さが変わってスマホでタップ後にレイアウトが動き見失う体験だった。
+  // CLAUDE.md の「入力フォームはモーダルで開く」と同じ思想で、画面左からスライドインする
+  // ドロワー(オーバーレイ)に変更し、開閉でページ本体の長さが変わらないようにする。
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+
+  // 背景スクロールロック (Modal.tsx と同じパターン)。アンマウント/クローズ時に必ず元へ戻す。
+  useEffect(() => {
+    if (!isMobileMenuOpen) return;
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [isMobileMenuOpen]);
+
+  // Escape 閉じ・フォーカストラップは Modal.tsx と同じ共通フックを再利用する。
+  const drawerFocusTrapRef = useFocusTrap<HTMLDivElement>(isMobileMenuOpen, {
+    onEscape: () => setIsMobileMenuOpen(false),
+  });
   // 2026-07-16: 従来は useState + useEffect(依存配列 []) で mount 時に一度だけ
   // localStorage の circleId を読んでいたため、同一パス上でヘッダーからスペースを
   // 切り替えても(再マウントされないので)ここが古いサークルIDのまま固定され、
@@ -278,23 +298,67 @@ export default function DashboardLayout({
         </div>
       )}
 
-      {/* モバイルアコーディオンメニュー (md未満) */}
+      {/* モバイルメニュー トリガー (md未満)。押すと下のドロワーが画面左からスライドインする。
+          トリガー自体はページ内に留まる (差し込み型ではない) のでページの高さは変わらない。 */}
       <div className="md:hidden w-full border-thick border-border bg-background mb-4">
         <button
-          onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+          onClick={() => setIsMobileMenuOpen(true)}
+          aria-expanded={isMobileMenuOpen}
+          aria-haspopup="dialog"
+          aria-label="メニューを開く"
           className="flex items-center justify-between w-full px-4 py-3 text-xs font-bold uppercase cursor-pointer"
         >
           <span className="flex items-center gap-2">
             {activeItem ? <activeItem.icon className="h-4 w-4 shrink-0 text-muted-foreground" /> : null}
             {activeItem ? activeItem.title : "メニューを選択"}
           </span>
-          {isMobileMenuOpen ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+          <ChevronDown className="h-4 w-4" />
         </button>
+      </div>
 
-        {isMobileMenuOpen && (
-          // カテゴリ見出し付きで描画。モバイルは縦に長くなりやすいので、
-          // 項目の縦paddingを控えめ(py-2)にし、見出しの余白も最小限にして全体の高さを抑える。
-          <nav className="border-t-thick border-border p-1.5 space-y-0.5 bg-background max-h-[70vh] overflow-y-auto">
+      {/* モバイルメニュー ドロワー (md未満)。トリガーとは別要素として常にマウントしておき、
+          開閉は translate-x の CSS transition のみで行う (アンマウント方式だと閉じるアニメーションが
+          出せないため)。閉じている間は `inert` で背景要素としてフォーカス/操作を無効化し、
+          スライドアウト先 (画面外) にあるリンク/ボタンが Tab で拾われないようにする。
+          z-index はヘッダーの sticky z-50 より上 (z-[60]) にして必ず前面に出す。 */}
+      <div
+        className={cn(
+          "md:hidden fixed inset-0 z-[60] transition-opacity duration-200",
+          isMobileMenuOpen ? "opacity-100" : "opacity-0 pointer-events-none",
+        )}
+        aria-hidden={!isMobileMenuOpen}
+      >
+        {/* オーバーレイ: タップで閉じる。背景はスクロールロック済み (useEffect 参照)。 */}
+        <div
+          className="absolute inset-0 bg-foreground/80 backdrop-blur-sm"
+          onClick={() => setIsMobileMenuOpen(false)}
+        />
+
+        <div
+          ref={drawerFocusTrapRef}
+          inert={!isMobileMenuOpen}
+          tabIndex={-1}
+          role="dialog"
+          aria-modal="true"
+          aria-label="メニュー"
+          className={cn(
+            "absolute inset-y-0 left-0 w-[82vw] max-w-xs bg-background border-r-thick border-border shadow-none flex flex-col transition-transform duration-200 ease-out",
+            isMobileMenuOpen ? "translate-x-0" : "-translate-x-full",
+          )}
+        >
+          <div className="flex items-center justify-between px-4 py-3 border-b-thick border-border shrink-0">
+            <span className="text-xs font-bold uppercase">メニュー</span>
+            <button
+              onClick={() => setIsMobileMenuOpen(false)}
+              aria-label="閉じる"
+              className="p-1 hover:bg-muted border-thick border-transparent hover:border-border transition-all shrink-0"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+
+          {/* カテゴリ見出し付きで描画。ドロワー内で完結してスクロールできるようにする。 */}
+          <nav className="p-1.5 space-y-0.5 overflow-y-auto flex-1">
             {visibleMenuGroups.map((group, gIdx) => (
               <div key={group.label} className={gIdx === 0 ? "" : "pt-2"}>
                 <p className="px-3 pb-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
@@ -348,7 +412,7 @@ export default function DashboardLayout({
               </div>
             ))}
           </nav>
-        )}
+        </div>
       </div>
 
       {/* 2カラムレイアウト */}
