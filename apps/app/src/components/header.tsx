@@ -89,17 +89,39 @@ export default function Header() {
     setActiveMenu((prev) => (prev === key ? null : key));
   };
 
+  // ホバー閉じの猶予タイマー (2026-07-16)。
+  // パネルはトリガーの DOM 子要素なので、トリガー→パネルへ「連続した領域を通って」移動する分には
+  // mouseleave は発火しない。ただしトリガーとパネルの間に隙間があったり、カーソルが枠の外を
+  // かすめて斜めに移動したりすると一瞬どちらの上でもなくなり mouseleave が発火して閉じてしまう。
+  // (実際「開いたパネルにカーソルを持っていくと閉じる」不具合になっていた)
+  // 隙間自体はパネル側を top-full + 透明パディングで埋めて解消しているが、それでも取りこぼす
+  // 微小な移動を吸収するため、閉じるのは短い猶予後にし、その間に再入したらキャンセルする。
+  const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cancelPendingClose = () => {
+    if (closeTimerRef.current) {
+      clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = null;
+    }
+  };
+
   // ホバーで開く(デスクトップのみ)。タッチ環境では supportsHover() が false になるため無視される。
   const handleHoverOpen = (key: Exclude<MenuKey, null>) => {
     if (!supportsHover()) return;
+    cancelPendingClose();
     setActiveMenu(key);
   };
-  // ホバーで閉じる(デスクトップのみ)。パネルはトリガーの DOM 子要素として描画しているため、
-  // トリガー→パネルへカーソルを移動しても mouseleave は発火しない(ブラウザ標準のmouseenter/leave挙動)。
+  // ホバーで閉じる(デスクトップのみ)。即座に閉じず猶予を置く (上記コメント参照)。
   const handleHoverClose = (key: Exclude<MenuKey, null>) => {
     if (!supportsHover()) return;
-    setActiveMenu((prev) => (prev === key ? null : prev));
+    cancelPendingClose();
+    closeTimerRef.current = setTimeout(() => {
+      setActiveMenu((prev) => (prev === key ? null : prev));
+      closeTimerRef.current = null;
+    }, 200);
   };
+
+  // アンマウント時にタイマーを掃除する
+  useEffect(() => () => cancelPendingClose(), []);
 
   // Escape キー / 外側クリックでメニューを閉じる。
   // 以前はメニューごとに fixed inset-0 の透明backdropを敷いて外側クリックを検知していたが、
@@ -493,9 +515,15 @@ export default function Header() {
                   <ChevronDown className="h-3 w-3 shrink-0 hidden sm:inline" />
                 </button>
 
-                {/* 通知ポップオーバー (StudioBlank デザインルール準拠のフラットスタイル) */}
+                {/* 通知ポップオーバー (StudioBlank デザインルール準拠のフラットスタイル)
+                    2026-07-16: 位置指定を top-11 から「top-full + 透明パディング(pt-2)」に変更。
+                    top-11 だとトリガー(h-9=36px)とパネル(44px)の間に 8px の隙間ができ、そこを
+                    カーソルが通ると一瞬どの要素上でもなくなって mouseleave が発火し、パネルに
+                    たどり着く前に閉じてしまっていた。パディングでホバー領域を連続させつつ
+                    見た目の余白は維持する。 */}
                 {notifOpen && (
-                  <div className="absolute right-0 top-11 z-50 w-72 sm:w-80 border-thick border-border bg-background p-4 shadow-none rounded-none text-left">
+                  <div className="absolute right-0 top-full pt-2 z-50">
+                  <div className="w-72 sm:w-80 border-thick border-border bg-background p-4 shadow-none rounded-none text-left">
                     <div className="flex items-center justify-between border-b border-border/20 pb-2 mb-3">
                       <span className="text-[11px] font-black uppercase tracking-wider">[お知らせ・通知]</span>
                       <button
@@ -589,6 +617,7 @@ export default function Header() {
                         )}
                     </div>
                   </div>
+                  </div>
                 )}
               </div>
 
@@ -621,8 +650,11 @@ export default function Header() {
                 </button>
 
                 {/* スペース切り替えポップオーバー */}
+                {/* 2026-07-16: 通知パネルと同じ理由で top-full + 透明パディングにする
+                    (トリガーとの隙間でホバーが切れてパネルに到達できなくなるのを防ぐ)。 */}
                 {spaceOpen && (
-                  <div className="absolute right-0 top-11 z-50 w-72 sm:w-80 border-thick border-border bg-background p-4 shadow-none rounded-none text-left">
+                  <div className="absolute right-0 top-full pt-2 z-50">
+                  <div className="w-72 sm:w-80 border-thick border-border bg-background p-4 shadow-none rounded-none text-left">
                     <div className="flex items-center justify-between border-b border-border/20 pb-2 mb-3">
                       <span className="text-[11px] font-black uppercase tracking-wider">[スペース切り替え]</span>
                       <button
@@ -688,6 +720,7 @@ export default function Header() {
                       招待コードで参加 / スペースを追加
                     </button>
                   </div>
+                  </div>
                 )}
               </div>
 
@@ -721,8 +754,10 @@ export default function Header() {
                 </button>
 
                 {/* アカウントメニューパネル */}
+                {/* 2026-07-16: 同上 (隙間でホバーが切れないよう top-full + 透明パディング)。 */}
                 {accountOpen && (
-                  <div className="absolute right-0 top-11 z-50 w-64 border-thick border-border bg-background p-4 shadow-none rounded-none text-left">
+                  <div className="absolute right-0 top-full pt-2 z-50">
+                  <div className="w-64 border-thick border-border bg-background p-4 shadow-none rounded-none text-left">
                     <div className="flex items-center justify-between border-b border-border/20 pb-2 mb-3">
                       <span className="text-[11px] font-black uppercase tracking-wider">[アカウント]</span>
                       <button
@@ -766,6 +801,7 @@ export default function Header() {
                         ログアウト
                       </button>
                     </div>
+                  </div>
                   </div>
                 )}
               </div>
