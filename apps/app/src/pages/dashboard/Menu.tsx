@@ -242,7 +242,7 @@ function MenuManagementContent() {
                           disabled={toggleSoldOut.isPending}
                           className={`text-[10px] font-bold font-mono uppercase px-2 py-1 border-thick transition-all ${menu.soldOut ? "border-destructive bg-destructive/10 text-destructive hover:bg-destructive hover:text-white" : "border-success bg-success/10 text-success hover:bg-success hover:text-white"}`}
                         >
-                          {menu.soldOut ? "🔴 売り切れ" : "🟢 販売中"}
+                          {menu.soldOut ? "売り切れ" : "販売中"}
                         </button>
                       )}
                     </div>
@@ -366,7 +366,7 @@ function MenuManagementContent() {
                         disabled={toggleToppingSoldOut.isPending}
                         className={`text-[9px] font-bold font-mono uppercase px-1.5 py-1 border-thick transition-all ${topping.soldOut ? "border-destructive bg-destructive/10 text-destructive hover:bg-destructive hover:text-white" : "border-success bg-success/10 text-success hover:bg-success hover:text-white"}`}
                       >
-                        {topping.soldOut ? "🔴 売切" : "🟢 販売中"}
+                        {topping.soldOut ? "売切" : "販売中"}
                       </button>
                     )}
                   </div>
