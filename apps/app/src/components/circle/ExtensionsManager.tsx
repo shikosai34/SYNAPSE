@@ -272,15 +272,19 @@ export function ExtensionsManager({ circleId }: { circleId: string }) {
                     return (
                       <Card key={modId} className="rounded-none shadow-none">
                         <CardHeader className="border-b-thick border-border bg-accent text-accent-foreground p-4">
+                          {/* 2026-07-16: manifest.name/description は外部から取り込む任意の文字列
+                              (URLインポート/JSONアップロード由来) で、スペースの無い長い文字列が
+                              入ると min-w-0 が無いこの列が縮まずページが横スクロールしていた。
+                              min-w-0 + break-words で、はみ出す場合はこの要素内で折り返す。 */}
                           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
-                            <div>
+                            <div className="min-w-0 break-words">
                               <CardTitle className="text-base font-bold flex items-center gap-1.5">
-                                <Sparkles className="h-4 w-4 text-yellow-500 fill-yellow-500" />
-                                {manifest.name}
+                                <Sparkles className="h-4 w-4 text-yellow-500 fill-yellow-500 shrink-0" />
+                                <span className="min-w-0 break-words">{manifest.name}</span>
                               </CardTitle>
-                              <CardDescription className="text-[10px] mt-1 text-accent-foreground/80">
+                              <CardDescription className="text-[10px] mt-1 text-accent-foreground/80 break-words">
                                 {manifest.description}
-                                {manifest.author && <span className="block mt-0.5">開発者: {manifest.author} | v{manifest.version}</span>}
+                                {manifest.author && <span className="block mt-0.5 break-words">開発者: {manifest.author} | v{manifest.version}</span>}
                               </CardDescription>
                             </div>
                             <div className="flex items-center gap-3 w-full sm:w-auto shrink-0">

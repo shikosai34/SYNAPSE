@@ -10,6 +10,7 @@ import {
   type OrderFlowMode,
 } from "@/lib/api";
 import DashboardLayout from "@/components/DashboardLayout";
+import { ImageUpload } from "@/components/image-upload";
 import {
   Card,
   CardContent,
@@ -66,9 +67,17 @@ function CircleSettingsContent() {
   const circleName = authCircleName ?? "サークルダッシュボード";
   const queryClient = useQueryClient();
 
-  const [form, setForm] = useState({ name: "", description: "" });
+  // 2026-07-16: サークルアイコン/背景画像を「基本情報」フォームに含める。
+  // circleApi.update (PUT /:id) が1本で name/description と一緒に保存できるため、
+  // 別セクション・別ボタンには分けず、既存の isFormDirty 判定にそのまま乗せる。
+  const [form, setForm] = useState({
+    name: "",
+    description: "",
+    iconImagePath: "",
+    backgroundImagePath: "",
+  });
   // 2026-07-16: 「基本情報」セクションの未保存判定用に、直近保存済みの値を保持する。
-  const [formSnapshot, setFormSnapshot] = useState({ name: "", description: "" });
+  const [formSnapshot, setFormSnapshot] = useState(form);
 
   // 運用設定 (注文モード・拡張機能ON/OFF)
   const [orderFlowMode, setOrderFlowMode] = useState<OrderFlowMode>("pending");
@@ -112,7 +121,12 @@ function CircleSettingsContent() {
 
   useEffect(() => {
     if (circle) {
-      const nextForm = { name: circle.name, description: circle.description || "" };
+      const nextForm = {
+        name: circle.name,
+        description: circle.description || "",
+        iconImagePath: circle.iconImagePath || "",
+        backgroundImagePath: circle.backgroundImagePath || "",
+      };
       setForm(nextForm);
       setFormSnapshot(nextForm);
 
@@ -139,7 +153,13 @@ function CircleSettingsContent() {
   const eventPayments = parseEventPaymentMethods(eventData?.paymentMethods);
 
   const updateCircle = useMutation({
-    mutationFn: async (input: { id: string; name?: string; description?: string }) => {
+    mutationFn: async (input: {
+      id: string;
+      name?: string;
+      description?: string;
+      iconImagePath?: string | null;
+      backgroundImagePath?: string | null;
+    }) => {
       const { id, ...data } = input;
       return await circleApi.update(id, data);
     },
@@ -148,7 +168,14 @@ function CircleSettingsContent() {
       localStorage.setItem("circleName", form.name);
       queryClient.invalidateQueries({ queryKey: ["circle", circleId] });
       // 再取得を待たずにスナップショットを更新し、即座に「未保存」表示を消す。
-      setFormSnapshot({ name: variables.name ?? formSnapshot.name, description: variables.description ?? formSnapshot.description });
+      // iconImagePath/backgroundImagePath は削除時に null を送るため、null は
+      // 「未設定」= "" として扱う (formSnapshot.x へのフォールバックではなく "" に正規化)。
+      setFormSnapshot({
+        name: variables.name ?? formSnapshot.name,
+        description: variables.description ?? formSnapshot.description,
+        iconImagePath: variables.iconImagePath ?? "",
+        backgroundImagePath: variables.backgroundImagePath ?? "",
+      });
     },
     onError: (error: any) => toast.error(error.message || "更新に失敗しました"),
   });
@@ -186,7 +213,13 @@ function CircleSettingsContent() {
   });
 
   const handleSave = () => {
-    updateCircle.mutate({ id: circleId, name: form.name, description: form.description });
+    updateCircle.mutate({
+      id: circleId,
+      name: form.name,
+      description: form.description,
+      iconImagePath: form.iconImagePath || null,
+      backgroundImagePath: form.backgroundImagePath || null,
+    });
   };
 
   // 未保存の変更があるかどうか (セクション単位)。変更が無ければ保存ボタンを disabled にする。
@@ -231,12 +264,17 @@ function CircleSettingsContent() {
   return (
     <DashboardLayout title={circleName} subtitle="サークル設定" type="circle">
       <div className="space-y-6">
-        {/* 基本情報 */}
+        {/* 基本情報 (+ アイコン/背景画像)
+            2026-07-16: アイコン/背景画像は circle.iconImagePath/backgroundImagePath (既存カラム) に
+            保存する。circleApi.update (name/description と同じ PUT /:id) で一緒に送るため、
+            別セクション・別ボタンには分けず「基本情報」に含めて保存範囲を1つにまとめる。
+            来場者側は既に EventMenu.tsx (出店一覧アイコン) / Menu.tsx (メニュー画面の背景+アイコン) で
+            表示に使っているが、これまで設定するUIが無く常に空だった。 */}
         <Card className="rounded-none shadow-none">
           <CardHeader className="pb-3 border-b-thick border-border">
             <CardTitle className="text-sm font-bold uppercase">基本情報</CardTitle>
             <CardDescription className="text-xs text-muted-foreground">
-              サークルの基本情報を編集できます
+              サークルの基本情報とアイコン/背景画像を編集できます
             </CardDescription>
           </CardHeader>
           <CardContent className="pt-4 space-y-4">
@@ -264,6 +302,24 @@ function CircleSettingsContent() {
                 className="border-thick border-border rounded-none focus-visible:ring-0 bg-background text-sm"
               />
             </div>
+
+            {/* アイコン/背景画像 (2026-07-16)。値の変更は他フォーム項目同様、末尾の
+                「変更を保存」ボタンを押すまでは未反映 (ImageUpload はアップロード自体は
+                即時に行うが、circle への保存は isFormDirty 経由でこのセクションの
+                保存ボタンにまとめる)。削除は ImageUpload 内蔵の × ボタンで行える。 */}
+            <div className="grid gap-4 sm:grid-cols-2 border-t-thin border-border pt-4">
+              <ImageUpload
+                label="アイコン画像"
+                value={form.iconImagePath}
+                onChange={(path) => setForm((prev) => ({ ...prev, iconImagePath: path }))}
+              />
+              <ImageUpload
+                label="背景画像"
+                value={form.backgroundImagePath}
+                onChange={(path) => setForm((prev) => ({ ...prev, backgroundImagePath: path }))}
+              />
+            </div>
+
             {/* 2026-07-16: セクション内(末尾)に保存ボタンを置き、未保存の変更があるときだけ活性化する */}
             <div className="flex items-center justify-end gap-3">
               {isFormDirty && (
@@ -461,7 +517,10 @@ function CircleSettingsContent() {
             </CardDescription>
           </CardHeader>
           <CardContent className="pt-4">
-            <code className="bg-muted px-3 py-1.5 text-xs rounded-none border-thick border-border block w-fit font-mono">
+            {/* 2026-07-16: ID はスペースを含まない長い一続きの文字列のため、
+                break-all が無いとブロック要素が改行できず横スクロールの原因になりうる。
+                max-w-full と合わせて、親幅を超えないようにする。 */}
+            <code className="bg-muted px-3 py-1.5 text-xs rounded-none border-thick border-border block w-fit max-w-full break-all font-mono">
               {circleId}
             </code>
           </CardContent>

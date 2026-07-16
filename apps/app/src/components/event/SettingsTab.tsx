@@ -300,6 +300,9 @@ export function SettingsTab({ eventId, event }: SettingsTabProps) {
               </span>
             ))}
           </div>
+          {/* 2026-07-16: Input は w-full だが、flex の子要素は既定で min-width:auto のため
+              画面幅が狭いと縮まずページ全体が横スクロールしていた。min-w-0 を付けて
+              このInputだけが縮むようにし、ページ全体の横スクロールを防ぐ。 */}
           <div className="flex gap-2">
             <Input
               value={newPayment}
@@ -307,9 +310,9 @@ export function SettingsTab({ eventId, event }: SettingsTabProps) {
               onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), addPayment())}
               placeholder="例: PayPay / 金券"
               maxLength={30}
-              className="max-w-xs"
+              className="max-w-xs min-w-0"
             />
-            <Button type="button" variant="outline" onClick={addPayment}>
+            <Button type="button" variant="outline" onClick={addPayment} className="shrink-0">
               <Plus className="h-4 w-4 mr-1" /> 追加
             </Button>
           </div>
@@ -372,8 +375,10 @@ export function SettingsTab({ eventId, event }: SettingsTabProps) {
                   className="border-thick border-border rounded-none focus-visible:ring-0 h-10 text-xs bg-background"
                 />
               </div>
+              {/* 2026-07-16: grid の子要素も flex 同様に既定 min-width:auto を持ち、
+                  date input の内容分だけ縮まなくなることがあるため min-w-0 を付ける。 */}
               <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1">
+                <div className="space-y-1 min-w-0">
                   <Label htmlFor="settingsStartDate" className="text-xs font-bold uppercase">開始日</Label>
                   <Input
                     id="settingsStartDate"
@@ -383,7 +388,7 @@ export function SettingsTab({ eventId, event }: SettingsTabProps) {
                     className="border-thick border-border rounded-none focus-visible:ring-0 h-10 text-xs bg-background font-mono"
                   />
                 </div>
-                <div className="space-y-1">
+                <div className="space-y-1 min-w-0">
                   <Label htmlFor="settingsEndDate" className="text-xs font-bold uppercase">終了日</Label>
                   <Input
                     id="settingsEndDate"

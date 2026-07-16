@@ -863,6 +863,9 @@ export interface CreateCircleInput {
 export interface UpdateCircleInput {
   name?: string;
   description?: string;
+  // 2026-07-16: サークルアイコン/背景画像の保存に対応。null を渡すと明示的に削除する。
+  iconImagePath?: string | null;
+  backgroundImagePath?: string | null;
 }
 
 export interface CreateMenuInput {
