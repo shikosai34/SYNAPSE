@@ -1,8 +1,21 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { Button } from "./ui/button";
 import { toast } from "sonner";
-import { Menu, X, ChevronDown, User, Bell, Shield, Calendar, Building2, Plus } from "lucide-react";
+import {
+  Menu,
+  X,
+  ChevronDown,
+  User,
+  Bell,
+  Shield,
+  Calendar,
+  Building2,
+  Plus,
+  Settings,
+  LogOut,
+  Compass,
+} from "lucide-react";
 import AccountModal from "./account-modal";
 import { PRODUCT_NAME } from "@fesflow/config";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -21,6 +34,26 @@ import { authClient } from "@/lib/auth-client";
 // 2026-07-07 単一ドメイン化: register の circle/event/sys はすべて同一オリジンの同一SPA。
 // 旧来のスタッフ/管理サブドメイン (staff./admin.) 分離とクロスドメイン遷移は撤去した。
 
+// 2026-07-16 モバイルでのヘッダー操作性改善:
+// これまで通知/スペース切替/アカウントの各ボタンはアイコンのみ(ラベルは sm: 以上でのみ表示)
+// だったため、スマホではアイコンの意味を推測するしかなかった。
+// 「ホバーで多段メニューにしてほしい」という要望が来たが、スマホにはホバーが存在しないため
+// そのまま実装すると開けなくなる。本質的な要望は「アイコンだけでは操作が分からない」ことなので、
+// 以下の方針で作り直す:
+//   - すべてのトリガーに常時ラベルを付ける (アイコンのみのボタンを廃止)
+//   - デスクトップ (hover: hover な環境) はホバーで開き、タッチ環境はタップで開閉する
+//   - 開閉状態は単一の activeMenu state に統一し、常に1つしか開かないようにする
+//   - 外側クリックは document 全体の mousedown 監視で判定する (フルスクリーンの透明backdrop
+//     を使うと、hover 判定(mouseleave)がbackdropに邪魔されて機能しなくなるため廃止した)
+type MenuKey = "notif" | "space" | "account" | "nav" | null;
+
+// ポインタがマウス相当(ホバー可能)かどうかを都度判定する。
+// useState化してしまうとリサイズ/デバイス切替を追随できないため、必要な瞬間に判定する軽量関数にしている。
+function supportsHover(): boolean {
+  if (typeof window === "undefined" || !window.matchMedia) return false;
+  return window.matchMedia("(hover: hover) and (pointer: fine)").matches;
+}
+
 export default function Header() {
   const navigate = useNavigate();
   const pathname = useLocation().pathname;
@@ -38,23 +71,66 @@ export default function Header() {
     [spaces]
   );
 
-  const [mobileOpen, setMobileOpen] = useState(false);
   const [profileModalOpen, setProfileModalOpen] = useState(false);
-  const [notifPopoverOpen, setNotifPopoverOpen] = useState(false);
-  const [spacePopoverOpen, setSpacePopoverOpen] = useState(false);
+  // 通知/スペース切替/アカウント/モバイルナビの4つのメニューは常に1つしか開かない (2026-07-16)
+  const [activeMenu, setActiveMenu] = useState<MenuKey>(null);
+  const notifOpen = activeMenu === "notif";
+  const spaceOpen = activeMenu === "space";
+  const accountOpen = activeMenu === "account";
+  const mobileNavOpen = activeMenu === "nav";
 
-  // Escape キーでポップオーバーを閉じる (外側クリック用バックドロップと併用)
+  const notifRef = useRef<HTMLDivElement>(null);
+  const spaceRef = useRef<HTMLDivElement>(null);
+  const accountRef = useRef<HTMLDivElement>(null);
+  const navRef = useRef<HTMLDivElement>(null);
+
+  // クリック(タップ)でのトグル。開閉の基本操作はこれで、タッチ環境ではこれが唯一の操作手段になる。
+  const toggleMenu = (key: Exclude<MenuKey, null>) => {
+    setActiveMenu((prev) => (prev === key ? null : key));
+  };
+
+  // ホバーで開く(デスクトップのみ)。タッチ環境では supportsHover() が false になるため無視される。
+  const handleHoverOpen = (key: Exclude<MenuKey, null>) => {
+    if (!supportsHover()) return;
+    setActiveMenu(key);
+  };
+  // ホバーで閉じる(デスクトップのみ)。パネルはトリガーの DOM 子要素として描画しているため、
+  // トリガー→パネルへカーソルを移動しても mouseleave は発火しない(ブラウザ標準のmouseenter/leave挙動)。
+  const handleHoverClose = (key: Exclude<MenuKey, null>) => {
+    if (!supportsHover()) return;
+    setActiveMenu((prev) => (prev === key ? null : prev));
+  };
+
+  // Escape キー / 外側クリックでメニューを閉じる。
+  // 以前はメニューごとに fixed inset-0 の透明backdropを敷いて外側クリックを検知していたが、
+  // 画面全体を覆うbackdropはDOM上「トリガーの子要素」になり、hoverによるmouseleave判定を
+  // 阻害してしまうため、document監視方式に統一した (2026-07-16)。
   useEffect(() => {
-    if (!notifPopoverOpen && !spacePopoverOpen) return;
+    if (!activeMenu) return;
+    const refByKey: Record<Exclude<MenuKey, null>, React.RefObject<HTMLDivElement | null>> = {
+      notif: notifRef,
+      space: spaceRef,
+      account: accountRef,
+      nav: navRef,
+    };
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        setNotifPopoverOpen(false);
-        setSpacePopoverOpen(false);
+      if (e.key === "Escape") setActiveMenu(null);
+    };
+    const onPointerDown = (e: Event) => {
+      const container = refByKey[activeMenu].current;
+      if (container && !container.contains(e.target as Node)) {
+        setActiveMenu(null);
       }
     };
     document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [notifPopoverOpen, spacePopoverOpen]);
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("touchstart", onPointerDown);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("touchstart", onPointerDown);
+    };
+  }, [activeMenu]);
 
   // ログインユーザーのアカウント情報を取得 (アバター画像用)
   const { data: me } = useQuery({
@@ -159,8 +235,7 @@ export default function Header() {
     queryClient.clear();
     toast.success("ログアウトしました");
     setProfileModalOpen(false);
-    setNotifPopoverOpen(false);
-    setMobileOpen(false);
+    setActiveMenu(null);
     navigate("/login");
   };
 
@@ -288,8 +363,7 @@ export default function Header() {
     }
 
     setProfileModalOpen(false);
-    setNotifPopoverOpen(false);
-    setMobileOpen(false);
+    setActiveMenu(null);
 
     if (!payload) return;
 
@@ -345,11 +419,6 @@ export default function Header() {
     return pathname.startsWith(to);
   };
 
-  const getRoleTag = () => {
-    if (!role) return roleBadge("visitor");
-    return roleBadge(role);
-  };
-
   return (
     <header className="sticky top-0 z-50 bg-background border-b-thick border-border text-foreground font-mono">
       <div className="flex items-center justify-between px-2 sm:px-4 py-2 max-w-7xl mx-auto gap-2 sm:gap-4">
@@ -368,7 +437,7 @@ export default function Header() {
           </span>
         </Link>
 
-        {/* デスクトップナビゲーション */}
+        {/* デスクトップナビゲーション (常時ラベル表示のためページリンクなのでそのまま維持) */}
         <nav className="hidden md:flex items-center gap-1 font-headline text-[13px] uppercase tracking-[1px]">
           {links.map(({ to, label }) => (
             <Link
@@ -389,46 +458,48 @@ export default function Header() {
         <div className="flex items-center gap-1 sm:gap-2 shrink-0">
           {isAuthenticated && !isLoading ? (
             <div className="flex items-center gap-1 sm:gap-2 relative">
-              {/* 通知ベルアイコン */}
-              <div className="relative">
+              {/* 通知ベルメニュー (デスクトップ:ホバー / タッチ:タップ 両対応) */}
+              <div
+                ref={notifRef}
+                className="relative"
+                onMouseEnter={() => handleHoverOpen("notif")}
+                onMouseLeave={() => handleHoverClose("notif")}
+              >
                 <button
-                  onClick={() => {
-                    setNotifPopoverOpen(!notifPopoverOpen);
-                    setProfileModalOpen(false);
-                    setSpacePopoverOpen(false);
-                  }}
-                  className="p-1.5 sm:p-2 border-thick border-border bg-background hover:bg-muted select-none cursor-pointer flex items-center justify-center relative h-8 w-8 sm:h-9 sm:w-9 rounded-none"
+                  onClick={() => toggleMenu("notif")}
+                  aria-haspopup="menu"
+                  aria-expanded={notifOpen}
+                  aria-label="お知らせ・通知メニューを開く"
+                  className="flex items-center justify-center gap-1 sm:gap-1.5 border-thick border-border bg-background hover:bg-muted select-none cursor-pointer h-8 sm:h-9 px-1.5 sm:px-2.5 rounded-none"
                 >
-                  <Bell className="h-4 w-4" />
-                  {/* 未読バッジ (2026-07-16): 個人宛通知(notification)は unread/read を持つため件数を出す。
-                      システムお知らせ(announcements)は全ユーザー公開で既読状態を持たないため、
-                      それしか無い場合は件数の代わりに "!" のみ表示する。 */}
-                  {((notifications && notifications.length > 0) ||
-                    (announcements && announcements.length > 0)) && (
-                    <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 flex items-center justify-center bg-destructive text-destructive-foreground text-[9px] font-black leading-none rounded-none border border-background">
-                      {notifications && notifications.length > 0
-                        ? notifications.length > 99
-                          ? "99+"
-                          : notifications.length
-                        : "!"}
-                    </span>
-                  )}
+                  <span className="relative flex items-center justify-center shrink-0">
+                    <Bell className="h-4 w-4" />
+                    {/* 未読バッジ (2026-07-16): 個人宛通知(notification)は unread/read を持つため件数を出す。
+                        システムお知らせ(announcements)は全ユーザー公開で既読状態を持たないため、
+                        それしか無い場合は件数の代わりに "!" のみ表示する。 */}
+                    {((notifications && notifications.length > 0) ||
+                      (announcements && announcements.length > 0)) && (
+                      <span className="absolute -top-1.5 -right-1.5 min-w-[16px] h-4 px-1 flex items-center justify-center bg-destructive text-destructive-foreground text-[9px] font-black leading-none rounded-none border border-background">
+                        {notifications && notifications.length > 0
+                          ? notifications.length > 99
+                            ? "99+"
+                            : notifications.length
+                          : "!"}
+                      </span>
+                    )}
+                  </span>
+                  {/* ラベルは常時表示 (アイコンのみだとスマホで意味が分からないため 2026-07-16) */}
+                  <span className="text-[10px] sm:text-[11px] font-bold uppercase tracking-wider">通知</span>
+                  <ChevronDown className="h-3 w-3 shrink-0 hidden sm:inline" />
                 </button>
 
                 {/* 通知ポップオーバー (StudioBlank デザインルール準拠のフラットスタイル) */}
-                {notifPopoverOpen && (
-                  <>
-                    {/* 外側クリックで閉じる透明バックドロップ */}
-                    <div
-                      className="fixed inset-0 z-40"
-                      aria-hidden
-                      onClick={() => setNotifPopoverOpen(false)}
-                    />
+                {notifOpen && (
                   <div className="absolute right-0 top-11 z-50 w-72 sm:w-80 border-thick border-border bg-background p-4 shadow-none rounded-none text-left">
                     <div className="flex items-center justify-between border-b border-border/20 pb-2 mb-3">
                       <span className="text-[11px] font-black uppercase tracking-wider">[お知らせ・通知]</span>
                       <button
-                        onClick={() => setNotifPopoverOpen(false)}
+                        onClick={() => setActiveMenu(null)}
                         className="text-[10px] underline hover:text-primary cursor-pointer"
                       >
                         閉じる
@@ -518,46 +589,44 @@ export default function Header() {
                         )}
                     </div>
                   </div>
-                  </>
                 )}
               </div>
 
-              {/* スペース切り替えボタン */}
-              <div className="relative">
+              {/* スペース切り替えメニュー (デスクトップ:ホバー / タッチ:タップ 両対応) */}
+              <div
+                ref={spaceRef}
+                className="relative"
+                onMouseEnter={() => handleHoverOpen("space")}
+                onMouseLeave={() => handleHoverClose("space")}
+              >
                 <button
-                  onClick={() => {
-                    setSpacePopoverOpen(!spacePopoverOpen);
-                    setNotifPopoverOpen(false);
-                    setProfileModalOpen(false);
-                  }}
-                  className="flex items-center justify-center gap-1 sm:gap-2 bg-muted border-thick border-border px-1.5 sm:px-3 py-1 sm:py-1.5 font-mono text-[11px] font-bold hover:bg-muted/80 select-none cursor-pointer h-8 w-8 sm:w-auto sm:h-9 rounded-none"
+                  onClick={() => toggleMenu("space")}
+                  aria-haspopup="menu"
+                  aria-expanded={spaceOpen}
+                  aria-label="スペース切り替えメニューを開く"
+                  className="flex items-center justify-center gap-1 sm:gap-1.5 bg-muted border-thick border-border px-1.5 sm:px-3 py-1 sm:py-1.5 font-mono text-[11px] font-bold hover:bg-muted/80 select-none cursor-pointer h-8 sm:h-9 rounded-none"
                 >
                   {pathname.startsWith("/sys") ? <Shield className="h-3.5 w-3.5 shrink-0" /> :
                    pathname.startsWith("/event") ? <Calendar className="h-3.5 w-3.5 shrink-0" /> :
                    <Building2 className="h-3.5 w-3.5 shrink-0" />}
+                  {/* ラベルは常時表示。狭幅では固定文言、sm以上で実際のスペース名も添える (2026-07-16) */}
+                  <span className="uppercase tracking-wider text-[10px] sm:hidden">スペース</span>
                   <span className="hidden sm:inline truncate max-w-[120px]">
                     {currentSpaceName}
                   </span>
                   <span className="bg-primary text-primary-foreground px-1 py-0.5 text-[8px] font-black scale-90 shrink-0 hidden sm:inline">
                     {currentSpaceRole}
                   </span>
-                  <ChevronDown className="h-3.5 w-3.5 shrink-0 hidden sm:inline" />
+                  <ChevronDown className="h-3.5 w-3.5 shrink-0" />
                 </button>
 
                 {/* スペース切り替えポップオーバー */}
-                {spacePopoverOpen && (
-                  <>
-                    {/* 外側クリックで閉じる透明バックドロップ */}
-                    <div
-                      className="fixed inset-0 z-40"
-                      aria-hidden
-                      onClick={() => setSpacePopoverOpen(false)}
-                    />
+                {spaceOpen && (
                   <div className="absolute right-0 top-11 z-50 w-72 sm:w-80 border-thick border-border bg-background p-4 shadow-none rounded-none text-left">
                     <div className="flex items-center justify-between border-b border-border/20 pb-2 mb-3">
                       <span className="text-[11px] font-black uppercase tracking-wider">[スペース切り替え]</span>
                       <button
-                        onClick={() => setSpacePopoverOpen(false)}
+                        onClick={() => setActiveMenu(null)}
                         className="text-[10px] underline hover:text-primary cursor-pointer"
                       >
                         閉じる
@@ -586,7 +655,6 @@ export default function Header() {
                                   key={space.id}
                                   onClick={() => {
                                     handleSwitchSpace(space);
-                                    setSpacePopoverOpen(false);
                                   }}
                                   className="w-full text-left p-2 hover:bg-primary hover:text-primary-foreground transition-all cursor-pointer rounded-none"
                                 >
@@ -611,7 +679,7 @@ export default function Header() {
                         ?join=1 で StaffOnboarding の選択画面を出し、所属があっても弾かれないようにする。 */}
                     <button
                       onClick={() => {
-                        setSpacePopoverOpen(false);
+                        setActiveMenu(null);
                         navigate("/onboarding?join=1");
                       }}
                       className="mt-3 w-full flex items-center justify-center gap-1.5 border-thick border-border p-2 text-[11px] font-black uppercase tracking-wider hover:bg-primary hover:text-primary-foreground transition-all cursor-pointer rounded-none"
@@ -620,29 +688,87 @@ export default function Header() {
                       招待コードで参加 / スペースを追加
                     </button>
                   </div>
-                  </>
                 )}
               </div>
 
-              {/* アカウント管理ボタン */}
-              <button
-                onClick={() => {
-                  setProfileModalOpen(true);
-                  setNotifPopoverOpen(false);
-                  setSpacePopoverOpen(false);
-                }}
-                className="flex items-center justify-center gap-1 sm:gap-2 bg-muted border-thick border-border px-1.5 sm:px-3 py-1 sm:py-1.5 font-mono text-[11px] font-bold hover:bg-muted/80 select-none cursor-pointer h-8 w-8 sm:w-auto sm:h-9 rounded-none"
+              {/* アカウントメニュー (デスクトップ:ホバー / タッチ:タップ 両対応)。
+                  以前はボタン1つでいきなり AccountModal を開いていたが、アイコン+シェブロンだけでは
+                  「押すと何が起きるか」がスマホで分からなかったため、ラベル付きの2段メニューにした
+                  (① アカウント設定を開く → AccountModal / ② ログアウト) (2026-07-16) */}
+              <div
+                ref={accountRef}
+                className="relative"
+                onMouseEnter={() => handleHoverOpen("account")}
+                onMouseLeave={() => handleHoverClose("account")}
               >
-                {me?.image ? (
-                  <img src={me.image} alt="Avatar" className="w-5 h-5 rounded-none border border-border object-cover shrink-0" />
-                ) : (
-                  <User className="h-3.5 w-3.5 shrink-0" />
+                <button
+                  onClick={() => toggleMenu("account")}
+                  aria-haspopup="menu"
+                  aria-expanded={accountOpen}
+                  aria-label="アカウントメニューを開く"
+                  className="flex items-center justify-center gap-1 sm:gap-1.5 bg-muted border-thick border-border px-1.5 sm:px-3 py-1 sm:py-1.5 font-mono text-[11px] font-bold hover:bg-muted/80 select-none cursor-pointer h-8 sm:h-9 rounded-none"
+                >
+                  {me?.image ? (
+                    <img src={me.image} alt="Avatar" className="w-5 h-5 rounded-none border border-border object-cover shrink-0" />
+                  ) : (
+                    <User className="h-3.5 w-3.5 shrink-0" />
+                  )}
+                  <span className="uppercase tracking-wider text-[10px] sm:hidden">アカウント</span>
+                  <span className="hidden sm:inline truncate max-w-[80px]">
+                    {userName || "アカウント"}
+                  </span>
+                  <ChevronDown className="h-3.5 w-3.5 shrink-0" />
+                </button>
+
+                {/* アカウントメニューパネル */}
+                {accountOpen && (
+                  <div className="absolute right-0 top-11 z-50 w-64 border-thick border-border bg-background p-4 shadow-none rounded-none text-left">
+                    <div className="flex items-center justify-between border-b border-border/20 pb-2 mb-3">
+                      <span className="text-[11px] font-black uppercase tracking-wider">[アカウント]</span>
+                      <button
+                        onClick={() => setActiveMenu(null)}
+                        className="text-[10px] underline hover:text-primary cursor-pointer"
+                      >
+                        閉じる
+                      </button>
+                    </div>
+
+                    <div className="flex items-center gap-2 mb-3 pb-3 border-b border-border/20">
+                      {me?.image ? (
+                        <img src={me.image} alt="Avatar" className="w-8 h-8 rounded-none border border-border object-cover shrink-0" />
+                      ) : (
+                        <div className="w-8 h-8 border border-border flex items-center justify-center shrink-0">
+                          <User className="h-4 w-4" />
+                        </div>
+                      )}
+                      <div className="min-w-0">
+                        <div className="text-xs font-bold truncate">{userName || "アカウント"}</div>
+                        <div className="text-[10px] text-muted-foreground truncate">{userEmail}</div>
+                      </div>
+                    </div>
+
+                    <div className="space-y-1">
+                      <button
+                        onClick={() => {
+                          setProfileModalOpen(true);
+                          setActiveMenu(null);
+                        }}
+                        className="w-full flex items-center gap-2 text-left p-2 hover:bg-primary hover:text-primary-foreground transition-all cursor-pointer rounded-none text-xs font-bold"
+                      >
+                        <Settings className="h-3.5 w-3.5 shrink-0" />
+                        アカウント設定を開く
+                      </button>
+                      <button
+                        onClick={handleLogout}
+                        className="w-full flex items-center gap-2 text-left p-2 hover:bg-destructive hover:text-destructive-foreground transition-all cursor-pointer rounded-none text-xs font-bold"
+                      >
+                        <LogOut className="h-3.5 w-3.5 shrink-0" />
+                        ログアウト
+                      </button>
+                    </div>
+                  </div>
                 )}
-                <span className="hidden sm:inline truncate max-w-[80px]">
-                  {userName || "アカウント"}
-                </span>
-                <ChevronDown className="h-3.5 w-3.5 shrink-0 hidden sm:inline" />
-              </button>
+              </div>
             </div>
           ) : (
             <Button
@@ -655,40 +781,46 @@ export default function Header() {
             </Button>
           )}
 
-          {/* ハンバーガーメニュー (モバイルのみ) */}
+          {/* ナビゲーションメニュー (モバイルのみ)。以前はアイコンのみのハンバーガーだったが、
+              「何のボタンか分からない」問題を解消するため常時ラベルを添えた (2026-07-16) */}
           {links.length > 0 && (
-            <button
-              className="md:hidden flex items-center justify-center w-8 h-8 sm:w-10 sm:h-10 border-thick border-border bg-background text-foreground hover:bg-primary hover:text-primary-foreground transition-all rounded-none"
-              onClick={() => setMobileOpen((prev) => !prev)}
-              aria-label={mobileOpen ? "メニューを閉じる" : "メニューを開く"}
-            >
-              {mobileOpen ? <X className="h-4 w-4 sm:h-5 sm:w-5" /> : <Menu className="h-4 w-4 sm:h-5 sm:w-5" />}
-            </button>
+            <div ref={navRef} className="relative md:hidden">
+              <button
+                className="flex items-center justify-center gap-1 h-8 px-1.5 border-thick border-border bg-background text-foreground hover:bg-primary hover:text-primary-foreground transition-all rounded-none"
+                onClick={() => toggleMenu("nav")}
+                aria-haspopup="menu"
+                aria-expanded={mobileNavOpen}
+                aria-label={mobileNavOpen ? "ナビゲーションメニューを閉じる" : "ナビゲーションメニューを開く"}
+              >
+                {mobileNavOpen ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
+                <span className="text-[10px] font-bold uppercase tracking-wider">メニュー</span>
+              </button>
+
+              {mobileNavOpen && (
+                <div className="absolute right-0 top-11 z-50 w-56 border-thick border-border bg-background shadow-none rounded-none">
+                  <nav className="flex flex-col">
+                    {links.map(({ to, label }) => (
+                      <Link
+                        key={to}
+                        to={to}
+                        onClick={() => setActiveMenu(null)}
+                        className={`flex items-center gap-2 px-4 py-3 border-b-thin border-border last:border-b-0 font-headline text-[13px] uppercase tracking-[1px] transition-all ${
+                          isActive(to)
+                            ? "bg-primary text-primary-foreground font-bold"
+                            : "bg-background text-foreground hover:bg-muted"
+                        }`}
+                      >
+                        <Compass className="h-3.5 w-3.5 shrink-0" />
+                        {label}
+                      </Link>
+                    ))}
+                  </nav>
+                </div>
+              )}
+            </div>
           )}
         </div>
       </div>
-
-      {/* モバイルドロワー */}
-      {mobileOpen && links.length > 0 && (
-        <div className="md:hidden bg-background border-t-thick border-border">
-          <nav className="flex flex-col">
-            {links.map(({ to, label }) => (
-              <Link
-                key={to}
-                to={to}
-                onClick={() => setMobileOpen(false)}
-                className={`px-4 py-4 border-b-thin border-border font-headline text-[14px] uppercase tracking-[1px] transition-all ${
-                  isActive(to)
-                    ? "bg-primary text-primary-foreground font-bold"
-                    : "bg-background text-foreground hover:bg-muted"
-                }`}
-              >
-                {label}
-              </Link>
-            ))}
-          </nav>
-        </div>
-      )}
 
       {/* ===== アカウント管理モーダル (プロフィール編集/メール変更/削除) ===== */}
       <AccountModal
