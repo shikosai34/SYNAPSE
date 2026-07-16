@@ -91,19 +91,27 @@ export function SettingsTab({ eventId, event }: SettingsTabProps) {
     onError: (e: any) => toast.error(e?.message || "保存に失敗しました"),
   });
 
-  const [form, setForm] = useState({
+  // 2026-07-16: 「基本情報・ロゴ」と「テーマカラー」は保存範囲が分かるよう別セクション・別ボタンに分離する
+  // (以前はページ最下部の1ボタンで両方まとめて送っており、保存範囲が不明瞭だった)。
+  // バックエンドの PUT /:id/theme は全フィールドが optional で部分更新に対応しているため、
+  // セクションごとに実際に変更されたフィールドだけを送ることができる。
+  const [basicForm, setBasicForm] = useState({
     eventName: "",
     description: "",
     startDate: "",
     endDate: "",
     logoUrl: "",
     hasPhysicalWristband: true,
-    ...DEFAULT_THEME,
   });
+  // 直近保存済みの値のスナップショット。現在値と比較して「未保存の変更」があるかを判定する。
+  const [basicSnapshot, setBasicSnapshot] = useState(basicForm);
+
+  const [themeForm, setThemeForm] = useState({ ...DEFAULT_THEME });
+  const [themeSnapshot, setThemeSnapshot] = useState(themeForm);
 
   useEffect(() => {
     if (event) {
-      setForm({
+      const nextBasic = {
         // 2026-07-06: DB 上のフィールドは eventName。念のため name も許容する。
         eventName: event.eventName || event.name || "",
         description: event.description || "",
@@ -111,6 +119,11 @@ export function SettingsTab({ eventId, event }: SettingsTabProps) {
         endDate: event.endDate ? String(event.endDate).slice(0, 10) : "",
         logoUrl: event.logoUrl || "",
         hasPhysicalWristband: event.hasPhysicalWristband !== undefined ? event.hasPhysicalWristband : true,
+      };
+      setBasicForm(nextBasic);
+      setBasicSnapshot(nextBasic);
+
+      const nextTheme = {
         primaryColor: event.primaryColor || DEFAULT_THEME.primaryColor,
         primaryTextColor: event.primaryTextColor || DEFAULT_THEME.primaryTextColor,
         accentColor: event.accentColor || DEFAULT_THEME.accentColor,
@@ -118,13 +131,19 @@ export function SettingsTab({ eventId, event }: SettingsTabProps) {
         backgroundColor: event.backgroundColor || DEFAULT_THEME.backgroundColor,
         textColor: event.textColor || DEFAULT_THEME.textColor,
         fontFamily: event.fontFamily || DEFAULT_THEME.fontFamily,
-      });
+      };
+      setThemeForm(nextTheme);
+      setThemeSnapshot(nextTheme);
     }
   }, [event]);
 
-  // 設定更新 API
-  const updateEventMutation = useMutation({
-    mutationFn: (data: typeof form) =>
+  // 未保存の変更があるかどうか (セクション単位)。素直に「変更がなければ保存ボタンを disabled にする」方式。
+  const isBasicDirty = JSON.stringify(basicForm) !== JSON.stringify(basicSnapshot);
+  const isThemeDirty = JSON.stringify(themeForm) !== JSON.stringify(themeSnapshot);
+
+  // 「基本情報・ロゴ」の保存。このボタンで送るのは基本情報+ロゴのフィールドのみ (テーマ色は送らない)。
+  const updateBasicMutation = useMutation({
+    mutationFn: (data: typeof basicForm) =>
       eventApi.updateTheme(eventId, {
         eventName: data.eventName,
         description: data.description,
@@ -132,6 +151,22 @@ export function SettingsTab({ eventId, event }: SettingsTabProps) {
         endDate: data.endDate || null,
         logoUrl: data.logoUrl || null,
         hasPhysicalWristband: data.hasPhysicalWristband,
+      }),
+    onSuccess: (_res, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["event", eventId] });
+      // 再取得を待たずにスナップショットを更新し、即座に「未保存」表示を消す。
+      setBasicSnapshot(variables);
+      toast.success("基本情報・ロゴを保存しました");
+    },
+    onError: (err: any) => {
+      toast.error(err.message || "保存に失敗しました");
+    },
+  });
+
+  // 「テーマカラー」の保存。このボタンで送るのは配色・フォントのフィールドのみ (基本情報は送らない)。
+  const updateThemeMutation = useMutation({
+    mutationFn: (data: typeof themeForm) =>
+      eventApi.updateTheme(eventId, {
         primaryColor: data.primaryColor,
         primaryTextColor: data.primaryTextColor,
         accentColor: data.accentColor,
@@ -140,12 +175,13 @@ export function SettingsTab({ eventId, event }: SettingsTabProps) {
         textColor: data.textColor,
         fontFamily: data.fontFamily,
       }),
-    onSuccess: () => {
+    onSuccess: (_res, variables) => {
       queryClient.invalidateQueries({ queryKey: ["event", eventId] });
-      toast.success("イベント設定を更新しました");
+      setThemeSnapshot(variables);
+      toast.success("テーマカラーを保存しました");
     },
     onError: (err: any) => {
-      toast.error(err.message || "設定の保存に失敗しました");
+      toast.error(err.message || "保存に失敗しました");
     },
   });
 
@@ -159,7 +195,7 @@ export function SettingsTab({ eventId, event }: SettingsTabProps) {
       const baseUrl = import.meta.env.VITE_API_URL || "http://localhost:8787";
       const fullUrl = res.path.startsWith("http") ? res.path : `${baseUrl}${res.path}`;
 
-      setForm((prev) => ({ ...prev, logoUrl: fullUrl }));
+      setBasicForm((prev) => ({ ...prev, logoUrl: fullUrl }));
       toast.success("画像をアップロードしました", { id: "logo-upload" });
     } catch (err: any) {
       console.error(err);
@@ -167,16 +203,20 @@ export function SettingsTab({ eventId, event }: SettingsTabProps) {
     }
   };
 
-  const handleSaveSettings = () => {
-    if (!form.eventName) {
+  const handleSaveBasic = () => {
+    if (!basicForm.eventName) {
       toast.error("イベント名は必須です");
       return;
     }
-    updateEventMutation.mutate(form);
+    updateBasicMutation.mutate(basicForm);
+  };
+
+  const handleSaveTheme = () => {
+    updateThemeMutation.mutate(themeForm);
   };
 
   const setColor = (key: keyof typeof DEFAULT_THEME, value: string) =>
-    setForm((prev) => ({ ...prev, [key]: value }));
+    setThemeForm((prev) => ({ ...prev, [key]: value }));
 
   return (
     <div className="space-y-6 font-mono text-foreground">
@@ -260,6 +300,9 @@ export function SettingsTab({ eventId, event }: SettingsTabProps) {
               </span>
             ))}
           </div>
+          {/* 2026-07-16: Input は w-full だが、flex の子要素は既定で min-width:auto のため
+              画面幅が狭いと縮まずページ全体が横スクロールしていた。min-w-0 を付けて
+              このInputだけが縮むようにし、ページ全体の横スクロールを防ぐ。 */}
           <div className="flex gap-2">
             <Input
               value={newPayment}
@@ -267,9 +310,9 @@ export function SettingsTab({ eventId, event }: SettingsTabProps) {
               onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), addPayment())}
               placeholder="例: PayPay / 金券"
               maxLength={30}
-              className="max-w-xs"
+              className="max-w-xs min-w-0"
             />
-            <Button type="button" variant="outline" onClick={addPayment}>
+            <Button type="button" variant="outline" onClick={addPayment} className="shrink-0">
               <Plus className="h-4 w-4 mr-1" /> 追加
             </Button>
           </div>
@@ -304,9 +347,13 @@ export function SettingsTab({ eventId, event }: SettingsTabProps) {
         </CardContent>
       </Card>
 
-      {/* 基本情報 + ロゴ */}
+      {/* 基本情報 + ロゴ (2026-07-16: このセクション専用の保存ボタンを末尾に配置。保存範囲を明示する) */}
       <Card className="rounded-none bg-background shadow-none">
         <CardContent className="pt-6 space-y-4">
+          <div className="flex items-center gap-2 border-b-thin border-border pb-2">
+            <Settings className="h-4 w-4" />
+            <h3 className="text-xs font-bold uppercase tracking-wider">基本情報・ロゴ</h3>
+          </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {/* 設定項目 */}
             <div className="space-y-4">
@@ -314,8 +361,8 @@ export function SettingsTab({ eventId, event }: SettingsTabProps) {
                 <Label htmlFor="settingsEventName" className="text-xs font-bold uppercase">イベント名 *</Label>
                 <Input
                   id="settingsEventName"
-                  value={form.eventName}
-                  onChange={(e) => setForm({ ...form, eventName: e.target.value })}
+                  value={basicForm.eventName}
+                  onChange={(e) => setBasicForm({ ...basicForm, eventName: e.target.value })}
                   className="border-thick border-border rounded-none focus-visible:ring-0 h-10 text-xs bg-background"
                 />
               </div>
@@ -323,29 +370,31 @@ export function SettingsTab({ eventId, event }: SettingsTabProps) {
                 <Label htmlFor="settingsDescription" className="text-xs font-bold uppercase">説明・概要</Label>
                 <Input
                   id="settingsDescription"
-                  value={form.description}
-                  onChange={(e) => setForm({ ...form, description: e.target.value })}
+                  value={basicForm.description}
+                  onChange={(e) => setBasicForm({ ...basicForm, description: e.target.value })}
                   className="border-thick border-border rounded-none focus-visible:ring-0 h-10 text-xs bg-background"
                 />
               </div>
+              {/* 2026-07-16: grid の子要素も flex 同様に既定 min-width:auto を持ち、
+                  date input の内容分だけ縮まなくなることがあるため min-w-0 を付ける。 */}
               <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1">
+                <div className="space-y-1 min-w-0">
                   <Label htmlFor="settingsStartDate" className="text-xs font-bold uppercase">開始日</Label>
                   <Input
                     id="settingsStartDate"
                     type="date"
-                    value={form.startDate}
-                    onChange={(e) => setForm({ ...form, startDate: e.target.value })}
+                    value={basicForm.startDate}
+                    onChange={(e) => setBasicForm({ ...basicForm, startDate: e.target.value })}
                     className="border-thick border-border rounded-none focus-visible:ring-0 h-10 text-xs bg-background font-mono"
                   />
                 </div>
-                <div className="space-y-1">
+                <div className="space-y-1 min-w-0">
                   <Label htmlFor="settingsEndDate" className="text-xs font-bold uppercase">終了日</Label>
                   <Input
                     id="settingsEndDate"
                     type="date"
-                    value={form.endDate}
-                    onChange={(e) => setForm({ ...form, endDate: e.target.value })}
+                    value={basicForm.endDate}
+                    onChange={(e) => setBasicForm({ ...basicForm, endDate: e.target.value })}
                     className="border-thick border-border rounded-none focus-visible:ring-0 h-10 text-xs bg-background font-mono"
                   />
                 </div>
@@ -356,8 +405,8 @@ export function SettingsTab({ eventId, event }: SettingsTabProps) {
                 <input
                   id="hasPhysicalWristband"
                   type="checkbox"
-                  checked={form.hasPhysicalWristband}
-                  onChange={(e) => setForm({ ...form, hasPhysicalWristband: e.target.checked })}
+                  checked={basicForm.hasPhysicalWristband}
+                  onChange={(e) => setBasicForm({ ...basicForm, hasPhysicalWristband: e.target.checked })}
                   className="h-4 w-4 border-thick border-border bg-background cursor-pointer focus:ring-0"
                 />
                 <div className="space-y-0.5">
@@ -373,15 +422,15 @@ export function SettingsTab({ eventId, event }: SettingsTabProps) {
             <div className="space-y-2 border-thick border-dashed border-border p-4 flex flex-col justify-center items-center bg-muted/20">
               <Label className="text-xs font-bold uppercase text-muted-foreground block text-center mb-2">イベント画像（ロゴ・背景用）</Label>
 
-              {form.logoUrl ? (
+              {basicForm.logoUrl ? (
                 <div className="space-y-2 text-center w-full">
                   <img
-                    src={form.logoUrl}
+                    src={basicForm.logoUrl}
                     alt="Event logo"
                     className="max-h-24 mx-auto block border-thick border-border bg-background"
                   />
                   <button
-                    onClick={() => setForm((prev) => ({ ...prev, logoUrl: "" }))}
+                    onClick={() => setBasicForm((prev) => ({ ...prev, logoUrl: "" }))}
                     className="text-[10px] font-bold text-destructive uppercase underline block mx-auto cursor-pointer"
                   >
                     画像を削除
@@ -413,6 +462,25 @@ export function SettingsTab({ eventId, event }: SettingsTabProps) {
               </div>
             </div>
           </div>
+
+          {/* このセクション (基本情報・ロゴ) だけを保存するボタン。テーマカラーは含まない。 */}
+          <div className="border-t-thick border-border pt-4 flex items-center justify-end gap-3">
+            {isBasicDirty && (
+              <span className="text-[10px] font-bold uppercase text-warning">未保存の変更があります</span>
+            )}
+            <Button
+              onClick={handleSaveBasic}
+              disabled={!basicForm.eventName || !isBasicDirty || updateBasicMutation.isPending}
+              className="border-thick border-primary bg-primary text-primary-foreground hover:bg-background hover:text-foreground h-10 text-xs font-bold rounded-none shadow-none px-4 flex items-center gap-1.5"
+            >
+              {updateBasicMutation.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Save className="h-4 w-4" />
+              )}
+              基本情報・ロゴを保存
+            </Button>
+          </div>
         </CardContent>
       </Card>
 
@@ -429,17 +497,17 @@ export function SettingsTab({ eventId, event }: SettingsTabProps) {
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <div className="space-y-3">
-              <ColorField label="メインカラー" value={form.primaryColor} onChange={(v) => setColor("primaryColor", v)} />
-              <ColorField label="メイン文字色" value={form.primaryTextColor} onChange={(v) => setColor("primaryTextColor", v)} />
-              <ColorField label="アクセントカラー" value={form.accentColor} onChange={(v) => setColor("accentColor", v)} />
-              <ColorField label="アクセント文字色" value={form.accentTextColor} onChange={(v) => setColor("accentTextColor", v)} />
-              <ColorField label="背景色" value={form.backgroundColor} onChange={(v) => setColor("backgroundColor", v)} />
-              <ColorField label="本文文字色" value={form.textColor} onChange={(v) => setColor("textColor", v)} />
+              <ColorField label="メインカラー" value={themeForm.primaryColor} onChange={(v) => setColor("primaryColor", v)} />
+              <ColorField label="メイン文字色" value={themeForm.primaryTextColor} onChange={(v) => setColor("primaryTextColor", v)} />
+              <ColorField label="アクセントカラー" value={themeForm.accentColor} onChange={(v) => setColor("accentColor", v)} />
+              <ColorField label="アクセント文字色" value={themeForm.accentTextColor} onChange={(v) => setColor("accentTextColor", v)} />
+              <ColorField label="背景色" value={themeForm.backgroundColor} onChange={(v) => setColor("backgroundColor", v)} />
+              <ColorField label="本文文字色" value={themeForm.textColor} onChange={(v) => setColor("textColor", v)} />
               <div className="space-y-1">
                 <Label className="text-[10px] font-bold uppercase text-muted-foreground">フォント</Label>
                 <select
-                  value={form.fontFamily}
-                  onChange={(e) => setForm({ ...form, fontFamily: e.target.value })}
+                  value={themeForm.fontFamily}
+                  onChange={(e) => setThemeForm({ ...themeForm, fontFamily: e.target.value })}
                   className="w-full border-thick border-border rounded-none h-9 text-xs bg-background px-2 focus-visible:ring-0 font-mono"
                 >
                   {FONT_OPTIONS.map((f) => (
@@ -449,32 +517,32 @@ export function SettingsTab({ eventId, event }: SettingsTabProps) {
               </div>
             </div>
 
-            {/* ライブプレビュー */}
+            {/* ライブプレビュー (イベント名・ロゴは「基本情報」セクションの現在値を参照するだけで、ここでは保存しない) */}
             <div className="space-y-2">
               <Label className="text-[10px] font-bold uppercase text-muted-foreground">プレビュー</Label>
               <div
                 className="border-thick border-border p-4 space-y-3"
-                style={{ backgroundColor: form.backgroundColor, color: form.textColor }}
+                style={{ backgroundColor: themeForm.backgroundColor, color: themeForm.textColor }}
               >
-                {form.logoUrl && (
-                  <img src={form.logoUrl} alt="" className="max-h-12 border-thick" style={{ borderColor: form.primaryColor }} />
+                {basicForm.logoUrl && (
+                  <img src={basicForm.logoUrl} alt="" className="max-h-12 border-thick" style={{ borderColor: themeForm.primaryColor }} />
                 )}
                 <div
                   className="p-3 font-bold uppercase text-sm"
-                  style={{ backgroundColor: form.primaryColor, color: form.primaryTextColor }}
+                  style={{ backgroundColor: themeForm.primaryColor, color: themeForm.primaryTextColor }}
                 >
-                  {form.eventName || "イベント名"}
+                  {basicForm.eventName || "イベント名"}
                 </div>
-                <p className="text-xs" style={{ color: form.textColor }}>
+                <p className="text-xs" style={{ color: themeForm.textColor }}>
                   本文サンプル。来場者向けメニュー画面ではこの配色が使われます。
                 </p>
                 <button
                   type="button"
                   className="px-3 py-2 text-xs font-bold uppercase border-thick"
                   style={{
-                    backgroundColor: form.accentColor,
-                    color: form.accentTextColor,
-                    borderColor: form.accentColor,
+                    backgroundColor: themeForm.accentColor,
+                    color: themeForm.accentTextColor,
+                    borderColor: themeForm.accentColor,
                   }}
                 >
                   アクセントボタン
@@ -483,18 +551,22 @@ export function SettingsTab({ eventId, event }: SettingsTabProps) {
             </div>
           </div>
 
-          <div className="border-t-thick border-border pt-4 flex justify-end">
+          {/* このセクション (テーマカラー) だけを保存するボタン。基本情報・ロゴは含まない。 */}
+          <div className="border-t-thick border-border pt-4 flex items-center justify-end gap-3">
+            {isThemeDirty && (
+              <span className="text-[10px] font-bold uppercase text-warning">未保存の変更があります</span>
+            )}
             <Button
-              onClick={handleSaveSettings}
-              disabled={!form.eventName || updateEventMutation.isPending}
+              onClick={handleSaveTheme}
+              disabled={!isThemeDirty || updateThemeMutation.isPending}
               className="border-thick border-primary bg-primary text-primary-foreground hover:bg-background hover:text-foreground h-10 text-xs font-bold rounded-none shadow-none px-4 flex items-center gap-1.5"
             >
-              {updateEventMutation.isPending ? (
+              {updateThemeMutation.isPending ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
                 <Save className="h-4 w-4" />
               )}
-              設定を保存する
+              テーマカラーを保存
             </Button>
           </div>
         </CardContent>

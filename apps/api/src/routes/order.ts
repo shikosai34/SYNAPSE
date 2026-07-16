@@ -16,9 +16,10 @@ import {
   wristband,
   type DB,
 } from "@fesflow/db";
-import { eq, and, or, desc, sql, inArray, gte } from "drizzle-orm";
+import { eq, and, or, desc, sql, inArray } from "drizzle-orm";
 import { ulid } from "ulidx";
 import { hasPermission } from "../utils/auth";
+import { decrementStockWithGuard } from "../utils/stock";
 import type { AppEnv } from "../types";
 
 const orderRoutes = new Hono<AppEnv>();
@@ -571,84 +572,19 @@ orderRoutes.post(
       // ドライバは transaction() 内で `BEGIN` を発行し、D1 がこれを拒否して例外→注文が全て 500 に
       // なっていた (POST /api/orders 500)。D1 は対話的トランザクションを提供しないため、
       // 従来どおり逐次実行＋ガード付きUPDATE＋ベストエフォート補償に戻す。
-      // 減算済み在庫のベストエフォート補償 (2026-07-15 にトッピング対応で共通化)。
-      // メニューは stockNeeded 全量、トッピングは実際に減算できた分 (decrementedToppings) のみ戻す。
-      // D1 は対話的トランザクション非対応のため完全なロールバック保証はない (既知の制約 M-5)。
-      const decrementedToppings: Array<[string, number]> = [];
-      const restoreStockBestEffort = async () => {
-        for (const [menuId, neededQty] of stockNeeded.entries()) {
-          try {
-            await db
-              .update(menu)
-              .set({ stockQuantity: sql`${menu.stockQuantity} + ${neededQty}` })
-              .where(eq(menu.id, menuId));
-            await db
-              .update(menu)
-              .set({ soldOut: false })
-              .where(and(eq(menu.id, menuId), gte(menu.stockQuantity, 1)));
-          } catch (restoreError) {
-            console.error("Stock restore error:", restoreError);
-          }
+      // 2026-07-16: この減算＋ベストエフォート補償ロジックは pre_order.ts の受取確定(claim)と
+      // 完全に同一だったため utils/stock.ts へ共通化した (片方だけ直す変更漏れ事故を防ぐため)。
+      // 必要数の集計 (stockNeeded / toppingStockNeeded、上記ループ) は order.ts 側の
+      // 独自チェック (在庫不足の早期検出) を含むため、そのままここに残す。
+      const { restoreStockBestEffort } = await decrementStockWithGuard(
+        db,
+        stockNeeded,
+        toppingStockNeeded,
+        {
+          getMenuName: (menuId) => menus.find((m) => m.id === menuId)?.name,
+          getToppingName: (toppingId) => toppings.find((t) => t.id === toppingId)?.name,
         }
-        for (const [toppingId, neededQty] of decrementedToppings) {
-          try {
-            await db
-              .update(topping)
-              .set({ stockQuantity: sql`${topping.stockQuantity} + ${neededQty}` })
-              .where(eq(topping.id, toppingId));
-            await db
-              .update(topping)
-              .set({ soldOut: false })
-              .where(and(eq(topping.id, toppingId), gte(topping.stockQuantity, 1)));
-          } catch (restoreError) {
-            console.error("Topping stock restore error:", restoreError);
-          }
-        }
-      };
-
-      for (const [menuId, neededQty] of stockNeeded.entries()) {
-        const result = await db
-          .update(menu)
-          .set({
-            stockQuantity: sql`${menu.stockQuantity} - ${neededQty}`,
-          })
-          .where(and(eq(menu.id, menuId), gte(menu.stockQuantity, neededQty)))
-          .returning({ stockQuantity: menu.stockQuantity });
-
-        if (result.length === 0) {
-          const menuItem = menus.find((m) => m.id === menuId);
-          apiError("BAD_REQUEST", `${menuItem?.name ?? menuId}の在庫が不足しています`);
-        }
-
-        // 減算の結果 在庫が0になった場合は soldOut も併せてセットする
-        if (result[0]!.stockQuantity <= 0) {
-          await db
-            .update(menu)
-            .set({ soldOut: true })
-            .where(eq(menu.id, menuId));
-        }
-      }
-
-      // トッピング在庫も同じガード付きUPDATEで減算する (2026-07-15)。
-      // メニュー在庫の減算後・注文レコード作成前に行う。ここでの不足(競合)時は
-      // 既に減らしたメニュー在庫も戻してから注文を中断する。
-      for (const [toppingId, neededQty] of toppingStockNeeded.entries()) {
-        const result = await db
-          .update(topping)
-          .set({ stockQuantity: sql`${topping.stockQuantity} - ${neededQty}` })
-          .where(and(eq(topping.id, toppingId), gte(topping.stockQuantity, neededQty)))
-          .returning({ stockQuantity: topping.stockQuantity });
-
-        if (result.length === 0) {
-          await restoreStockBestEffort();
-          const t = toppings.find((x) => x.id === toppingId);
-          apiError("BAD_REQUEST", `${t?.name ?? toppingId}の在庫が不足しています`);
-        }
-        decrementedToppings.push([toppingId, neededQty]);
-        if (result[0]!.stockQuantity <= 0) {
-          await db.update(topping).set({ soldOut: true }).where(eq(topping.id, toppingId));
-        }
-      }
+      );
       // 2026-07-06: 既知の制約 (M-5)。D1 はマルチステートメントの対話的トランザクションに
       // 対応していないため、この関数全体 (在庫減算 → order insert → orderItem/topping insert)
       // は単一のACIDトランザクションではなく逐次実行になっている。途中で失敗すると

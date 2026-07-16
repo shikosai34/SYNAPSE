@@ -83,6 +83,16 @@ export default function AccountModal({
       patchLocalAuth({ userName: name.trim() });
       queryClient.invalidateQueries({ queryKey: ["accountMe"] });
       queryClient.invalidateQueries({ queryKey: ["mySpaces"] });
+      // 2026-07-16: サーバ側 (account.ts PATCH /profile) は user.name 変更時に
+      // membership.userName も同一メールの全行へカスケード更新しているが、
+      // このモーダルは Header 内に常駐するオーバーレイでページをアンマウントしない
+      // ため、既にマウント済みのメンバー/スタッフ一覧クエリは自動で再フェッチされず
+      // 名前変更がリロードするまで画面に反映されなかった (不具合の実体)。
+      // membership.userName を表示している一覧系クエリを明示的に無効化する。
+      queryClient.invalidateQueries({ queryKey: ["members"] });
+      queryClient.invalidateQueries({ queryKey: ["circleMembers"] });
+      queryClient.invalidateQueries({ queryKey: ["circle-members"] });
+      queryClient.invalidateQueries({ queryKey: ["eventStaff"] });
       toast.success("プロフィールを更新しました");
     },
     onError: (e: any) => toast.error(e.message || "更新に失敗しました"),

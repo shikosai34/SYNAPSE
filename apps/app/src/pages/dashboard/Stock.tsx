@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { CircleAuthGuard } from "@/hooks/useCircleAuth";
+import { CircleAuthGuard, useAuth } from "@/hooks/useCircleAuth";
 import { menuApi, toppingApi, type Menu, type Topping } from "@/lib/api";
 import DashboardLayout from "@/components/DashboardLayout";
 import {
@@ -71,26 +71,19 @@ function StockQtyInput({
 // 在庫管理 (拡張機能)。2026-07-14 に大幅拡充: サマリ(品目/売切/僅少/在庫数/在庫金額)、
 // クイック増減(±1/±5/±10)、売切・再開のワンタップ、僅少しきい値(端末保存)、検索、要対応フィルタ。
 function StockManagementContent() {
-  const [circleId, setCircleId] = useState<string>("");
-  const [circleName, setCircleName] = useState<string>("サークルダッシュボード");
+  // 2026-07-16: circleId/circleName を useState+useEffect(mount時一度きり) で
+  // localStorage から固定読みしていたため、同一パス上でスペース切り替え後も
+  // 古いサークルの在庫画面のまま表示され続けていた。useAuth() (authChange 購読)
+  // に統一する。
+  const { circleId: authCircleId, circleName: authCircleName } = useAuth();
+  const circleId = authCircleId ?? "";
+  const circleName = authCircleName ?? "サークルダッシュボード";
   const queryClient = useQueryClient();
 
   const [search, setSearch] = useState("");
   const [onlyIssues, setOnlyIssues] = useState(false);
   // 僅少しきい値。サークル設定は circle:write が必要でスタッフが変更できないため、端末(localStorage)に保存する。
   const [lowThreshold, setLowThreshold] = useState<number>(DEFAULT_LOW);
-
-  useEffect(() => {
-    const storedCircleId = localStorage.getItem("circleId");
-    if (storedCircleId) setCircleId(storedCircleId);
-    const authStored = localStorage.getItem("circleAuth");
-    if (authStored) {
-      try {
-        const authInfo = JSON.parse(authStored);
-        if (authInfo.circleName) setCircleName(authInfo.circleName);
-      } catch (_) {}
-    }
-  }, []);
 
   // しきい値を circle 単位で端末保存
   useEffect(() => {

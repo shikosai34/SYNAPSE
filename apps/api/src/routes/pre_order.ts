@@ -22,6 +22,7 @@ import {
 import { eq, and, or, inArray, desc, sql } from "drizzle-orm";
 import { ulid } from "ulidx";
 import { hasPermission } from "../utils/auth";
+import { decrementStockWithGuard } from "../utils/stock";
 import type { AppEnv } from "../types";
 
 const preOrderRoutes = new Hono<AppEnv>();
@@ -420,6 +421,60 @@ preOrderRoutes.post(
               .where(inArray(preOrderItemTopping.preOrderItemId, itemIds))
           : [];
 
+      // 2026-07-16: 在庫減算のタイミングについて。事前オーダー「作成時」に在庫を予約する案も
+      // あったが、来場者が受け取りに来ない (No-show) ケースで在庫だけロックされ続け、他の
+      // 来場者が実際には残っている在庫を注文できなくなる問題がある。レジ直販 (order.ts) は
+      // 「注文=会計=実売」のタイミングで減算しており、事前オーダーにおける実売相当のタイミングは
+      // この受取確定 (claim) である。そのため受取確定時に減算する方針とした。
+      // 現在の topping スナップショット (preOrderItemTopping) には name/price のみで
+      // 現在庫数 (stockQuantity) が無いため、在庫チェック用に topping 本体を取得する。
+      const usedToppingIds = [...new Set(itemToppings.map((it) => it.toppingId))];
+      const usedToppings =
+        usedToppingIds.length > 0
+          ? await db.select().from(topping).where(inArray(topping.id, usedToppingIds))
+          : [];
+
+      // order.ts と同じ意味論: stockQuantity === 0 は無制限/未管理を意味し、チェック・減算を
+      // スキップする。stockQuantity > 0 のメニュー/トッピングのみ在庫管理対象として必要数を集計する。
+      const stockNeeded = new Map<string, number>();
+      const toppingStockNeeded = new Map<string, number>();
+      for (const item of items) {
+        const m = menus.find((menuItem) => menuItem.id === item.menuId);
+        // 参照先メニューが既に削除されている場合、後段の注文アイテム作成でもスキップされるため
+        // 在庫計算の対象からも除外する。
+        if (!m) continue;
+
+        if (m.stockQuantity > 0) {
+          stockNeeded.set(m.id, (stockNeeded.get(m.id) || 0) + item.quantity);
+        }
+
+        const toppingsForItem = itemToppings.filter((it) => it.preOrderItemId === item.id);
+        for (const t of toppingsForItem) {
+          const toppingRow = usedToppings.find((x) => x.id === t.toppingId);
+          if (toppingRow && toppingRow.stockQuantity > 0) {
+            toppingStockNeeded.set(
+              toppingRow.id,
+              (toppingStockNeeded.get(toppingRow.id) || 0) + item.quantity,
+            );
+          }
+        }
+      }
+
+      // 2026-07-16: D1 は対話的トランザクション非対応 (order.ts 参照。過去に db.transaction() で
+      // BEGIN が拒否され全注文が500になったリグレッションあり)。そのため order.ts と同じく
+      // 逐次実行＋ガード付きUPDATE (在庫不足なら0行更新)＋ベストエフォート補償で実装する。
+      // この減算＋補償ロジックは order.ts の POST / と完全に同一だったため utils/stock.ts へ
+      // 共通化した (片方だけ直す変更漏れ事故を防ぐため)。
+      const { restoreStockBestEffort } = await decrementStockWithGuard(
+        db,
+        stockNeeded,
+        toppingStockNeeded,
+        {
+          getMenuName: (menuId) => menus.find((m) => m.id === menuId)?.name,
+          getToppingName: (toppingId) => usedToppings.find((t) => t.id === toppingId)?.name,
+        }
+      );
+
       // 支払い方法の解決 (2026-07-14): 明示指定を優先し、無ければサークルの対応方法が
       // ちょうど1つのときだけそれを補完する (通常注文 order.ts と同じ挙動に揃える)。
       let resolvedPayment: string | undefined = paymentMethod?.trim() || undefined;
@@ -440,70 +495,83 @@ preOrderRoutes.post(
       const newOrderId = ulid();
       const orderNumber = await generateOrderNumber(db, po.circleId);
 
-      await db.insert(order).values({
-        id: newOrderId,
-        circleId: po.circleId,
-        cashierId,
-        userId: po.userId,
-        orderNumber,
-        peopleCount: 1,
-        totalPrice: po.totalPrice,
-        status: "preparing", // 受取確定と同時に調理開始
-        paymentMethod: resolvedPayment,
-        completed: false,
-      });
+      // 2026-07-16: 既知の制約 (order.ts M-5 と同様)。D1 はマルチステートメントの対話的
+      // トランザクションに対応していないため、在庫減算 → order insert → orderItem/topping insert
+      // → preOrder update は単一のACIDトランザクションではなく逐次実行になっている。
+      // 途中で失敗すると「在庫だけ減って注文レコードが残らない」等の不整合が理論上発生し得る。
+      // 以下は try/catch で囲み、失敗時に減算済み在庫を戻すベストエフォートの補償のみ行う
+      // (在庫減算そのものの失敗は上のガード付きUPDATEで既に処理済みなのでここでは対象外)。
+      try {
+        await db.insert(order).values({
+          id: newOrderId,
+          circleId: po.circleId,
+          cashierId,
+          userId: po.userId,
+          orderNumber,
+          peopleCount: 1,
+          totalPrice: po.totalPrice,
+          status: "preparing", // 受取確定と同時に調理開始
+          paymentMethod: resolvedPayment,
+          completed: false,
+        });
 
-      // 注文アイテムを作成
-      for (const item of items) {
-        const m = menus.find((menuItem) => menuItem.id === item.menuId);
-        if (m) {
-          const newOrderItemId = ulid();
-          await db.insert(orderItem).values({
-            id: newOrderItemId,
-            orderId: newOrderId,
-            menuId: m.id,
-            menuName: m.name,
-            menuPrice: m.price,
-            quantity: item.quantity,
-          });
+        // 注文アイテムを作成
+        for (const item of items) {
+          const m = menus.find((menuItem) => menuItem.id === item.menuId);
+          if (m) {
+            const newOrderItemId = ulid();
+            await db.insert(orderItem).values({
+              id: newOrderItemId,
+              orderId: newOrderId,
+              menuId: m.id,
+              menuName: m.name,
+              menuPrice: m.price,
+              quantity: item.quantity,
+            });
 
-          // 事前オーダーのトッピングを正規注文アイテムへスナップショットのまま引き継ぐ
-          const toppingsForItem = itemToppings.filter(
-            (it) => it.preOrderItemId === item.id
+            // 事前オーダーのトッピングを正規注文アイテムへスナップショットのまま引き継ぐ
+            const toppingsForItem = itemToppings.filter(
+              (it) => it.preOrderItemId === item.id
+            );
+            for (const t of toppingsForItem) {
+              await db.insert(orderItemTopping).values({
+                id: ulid(),
+                orderItemId: newOrderItemId,
+                toppingId: t.toppingId,
+                toppingName: t.toppingName,
+                toppingPrice: t.toppingPrice,
+              });
+            }
+          }
+        }
+
+        // 事前オーダーのステータス更新
+        await db
+          .update(preOrder)
+          .set({ status: "completed" })
+          .where(eq(preOrder.id, po.id));
+
+        // スタンプ付与
+        if (po.userId) {
+          const existingStamp = await db.select().from(userStamp).where(
+            and(
+              eq(userStamp.userId, po.userId),
+              eq(userStamp.circleId, po.circleId)
+            )
           );
-          for (const t of toppingsForItem) {
-            await db.insert(orderItemTopping).values({
+          if (existingStamp.length === 0) {
+            await db.insert(userStamp).values({
               id: ulid(),
-              orderItemId: newOrderItemId,
-              toppingId: t.toppingId,
-              toppingName: t.toppingName,
-              toppingPrice: t.toppingPrice,
+              userId: po.userId,
+              circleId: po.circleId,
             });
           }
         }
-      }
-
-      // 事前オーダーのステータス更新
-      await db
-        .update(preOrder)
-        .set({ status: "completed" })
-        .where(eq(preOrder.id, po.id));
-
-      // スタンプ付与
-      if (po.userId) {
-        const existingStamp = await db.select().from(userStamp).where(
-          and(
-            eq(userStamp.userId, po.userId),
-            eq(userStamp.circleId, po.circleId)
-          )
-        );
-        if (existingStamp.length === 0) {
-          await db.insert(userStamp).values({
-            id: ulid(),
-            userId: po.userId,
-            circleId: po.circleId,
-          });
-        }
+      } catch (innerError) {
+        // ベストエフォート補償: order/orderItem 作成が失敗した場合、既に減算済みの
+        // メニュー/トッピング在庫を可能な範囲で戻す。逐次実行のため完全なロールバックの保証はない (M-5)。
+        await restoreStockBestEffort();
+        throw innerError;
       }
 
       return c.json({ success: true, orderId: newOrderId, orderNumber });

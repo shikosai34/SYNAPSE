@@ -34,24 +34,18 @@ import {
 } from "@/components/ui/dropdown-menu";
 
 function CircleQrContent() {
-  const { circleId } = useAuth();
+  // 2026-07-16: circleName も circleId 同様、localStorage(circleAuth) を mount 時に
+  // 一度だけ読む独自 state だと、同一パス上でのスペース切り替え後に古いサークル名の
+  // ままになる。useAuth() (authChange 購読) から直接取得するよう統一する。
+  const { circleId, circleName: authCircleName } = useAuth();
+  const circleName = authCircleName ?? "サークルダッシュボード";
   const [origin, setOrigin] = useState("");
-  const [circleName, setCircleName] = useState<string>("サークルダッシュボード");
   const [isExporting, setIsExporting] = useState(false);
   const popRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (typeof window !== "undefined") {
       setOrigin(window.location.origin);
-    }
-    const authStored = localStorage.getItem("circleAuth");
-    if (authStored) {
-      try {
-        const authInfo = JSON.parse(authStored);
-        if (authInfo.circleName) {
-          setCircleName(authInfo.circleName);
-        }
-      } catch (_) {}
     }
   }, []);
 

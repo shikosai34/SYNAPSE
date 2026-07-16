@@ -1,5 +1,5 @@
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   CircleAuthGuard,
@@ -44,26 +44,17 @@ import {
 import { toast } from "sonner";
 
 function MembersContent() {
-  const { circleId, role, userEmail } = useAuth();
+  // 2026-07-16: circleName も circleId 同様、localStorage(circleAuth) を mount 時に
+  // 一度だけ読む独自 state だと、同一パス上でのスペース切り替え後に古いサークル名の
+  // ままになる。useAuth() (authChange 購読) から直接取得するよう統一する。
+  const { circleId, role, userEmail, circleName: authCircleName } = useAuth();
+  const circleName = authCircleName ?? "サークルダッシュボード";
   const queryClient = useQueryClient();
-  const [circleName, setCircleName] = useState<string>("サークルダッシュボード");
   const [showAddForm, setShowAddForm] = useState(false);
   const [showInviteForm, setShowInviteForm] = useState(false);
   const [copiedToken, setCopiedToken] = useState<string | null>(null);
 
   // 削除確認ダイアログ用ステート (メンバー除名 / 招待リンク削除)
-
-  useEffect(() => {
-    const authStored = localStorage.getItem("circleAuth");
-    if (authStored) {
-      try {
-        const authInfo = JSON.parse(authStored);
-        if (authInfo.circleName) {
-          setCircleName(authInfo.circleName);
-        }
-      } catch (_) {}
-    }
-  }, []);
 
   // フォーム状態
   // 2026-07-07 (Phase 3b): 独自PIN認証の廃止に伴い pin 欄を撤去。

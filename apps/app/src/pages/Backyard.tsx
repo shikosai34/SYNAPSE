@@ -1,7 +1,7 @@
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { CircleAuthGuard } from "@/hooks/useCircleAuth";
+import { CircleAuthGuard, useAuth } from "@/hooks/useCircleAuth";
 import { orderApi } from "@/lib/api";
 import {
   Card,
@@ -21,7 +21,11 @@ import { CheckCircle, Clock, Users, XCircle } from "lucide-react";
 import { SwipeableOrderStack } from "@/components/pos/SwipeableOrderStack";
 
 function BackyardPageContent() {
-  const [circleId, setCircleId] = useState<string>("");
+  // 2026-07-16: circleId を useState+useEffect(mount時一度きり) で固定していると、
+  // 同一パス上でスペース切り替え後も古いサークルの注文一覧のまま表示され続ける。
+  // useAuth() (authChange 購読で常に最新値) に統一する。
+  const { circleId: authCircleId } = useAuth();
+  const circleId = authCircleId ?? "";
   const [selectedStatus, setSelectedStatus] = useState<string | undefined>(
     "pending"
   );
@@ -30,13 +34,6 @@ function BackyardPageContent() {
     null
   );
   const queryClient = useQueryClient();
-
-  useEffect(() => {
-    const storedCircleId = localStorage.getItem("circleId");
-    if (storedCircleId) {
-      setCircleId(storedCircleId);
-    }
-  }, []);
 
   const {
     data: orders,

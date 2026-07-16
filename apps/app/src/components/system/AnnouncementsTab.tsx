@@ -9,6 +9,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Modal } from "@/components/ui/Modal";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { ErrorState } from "@/components/ui/ErrorState";
@@ -16,7 +17,7 @@ import { ToggleSwitch } from "@/components/ui/ToggleSwitch";
 import { OptionCard } from "@/components/ui/OptionCard";
 import { undoableDelete } from "@/lib/toast-undo";
 import { toast } from "sonner";
-import { Megaphone, Plus, Trash2, Info, AlertTriangle, OctagonAlert, Save, X } from "lucide-react";
+import { Megaphone, Plus, Trash2, Info, AlertTriangle, OctagonAlert, Save } from "lucide-react";
 
 const LEVELS: { value: AnnouncementLevel; label: string; description: string; icon: any }[] = [
   { value: "info", label: "お知らせ", description: "通常の案内", icon: Info },
@@ -105,28 +106,33 @@ export function AnnouncementsTab() {
           <Megaphone className="h-4 w-4" />
           お知らせ管理 {list ? `(${list.length})` : ""}
         </h2>
-        {!editing && (
-          <Button
-            onClick={() => setEditing({ data: { ...EMPTY } })}
-            className="rounded-none border-thick border-primary bg-primary text-primary-foreground hover:bg-background hover:text-foreground h-8 text-[11px] uppercase font-bold shadow-none px-3"
-          >
-            <Plus className="mr-1.5 h-3.5 w-3.5" />
-            新規作成
-          </Button>
-        )}
+        <Button
+          onClick={() => setEditing({ data: { ...EMPTY } })}
+          className="rounded-none border-thick border-primary bg-primary text-primary-foreground hover:bg-background hover:text-foreground h-8 text-[11px] uppercase font-bold shadow-none px-3"
+        >
+          <Plus className="mr-1.5 h-3.5 w-3.5" />
+          新規作成
+        </Button>
       </div>
 
-      {/* 作成/編集フォーム */}
-      {editing && (
-        <AnnouncementForm
-          value={editing.data}
-          onChange={(data) => setEditing((e) => (e ? { ...e, data } : e))}
-          onSave={saveEditing}
-          onCancel={() => setEditing(null)}
-          isPending={createM.isPending || updateM.isPending}
-          isEdit={!!editing.id}
-        />
-      )}
+      {/* 作成/編集フォーム (2026-07-16: 常設インライン入力 → ポップアップ(モーダル)化。
+          プロジェクト全体の「入力フォームはモーダルで行う」方針への統一) */}
+      <Modal
+        isOpen={!!editing}
+        onClose={() => setEditing(null)}
+        title={editing?.id ? "[お知らせを編集]" : "[新しいお知らせ]"}
+      >
+        {editing && (
+          <AnnouncementForm
+            value={editing.data}
+            onChange={(data) => setEditing((e) => (e ? { ...e, data } : e))}
+            onSave={saveEditing}
+            onCancel={() => setEditing(null)}
+            isPending={createM.isPending || updateM.isPending}
+            isEdit={!!editing.id}
+          />
+        )}
+      </Modal>
 
       {/* 一覧 */}
       {isLoading ? (
@@ -214,16 +220,7 @@ function AnnouncementForm({
   isEdit: boolean;
 }) {
   return (
-    <div className="border-thick border-primary p-4 space-y-4 bg-muted/20">
-      <div className="flex items-center justify-between border-b-thick border-border pb-2">
-        <h3 className="text-xs font-black uppercase tracking-wider">
-          {isEdit ? "お知らせを編集" : "新しいお知らせ"}
-        </h3>
-        <button onClick={onCancel} className="text-muted-foreground hover:text-foreground cursor-pointer">
-          <X className="h-4 w-4" />
-        </button>
-      </div>
-
+    <div className="space-y-4">
       <div className="space-y-2">
         <Label className="text-xs font-bold uppercase">タイトル *</Label>
         <Input

@@ -14,6 +14,8 @@ import {
   menu,
   notification,
   userStamp,
+  contractPayment,
+  eventAnnouncement,
 } from "@fesflow/db";
 import { eq, and, inArray, isNull, desc } from "drizzle-orm";
 import { ulid } from "ulidx";
@@ -124,6 +126,62 @@ eventRoutes.get("/:id/orders/live", async (c) => {
   return c.json(rows);
 });
 
+// 契約状況の照会 (2026-07-16)。オーナー(event_manager)が自分の契約を確認するための読み取り専用API。
+// 運営専用の contractNotes(運営メモ) と入金記録者(recordedBy) は返さない = テナントには非公開。
+// 変更は運営 (super_admin の契約管理) 側でのみ行うため、ここに更新系は置かない。
+eventRoutes.get("/:id/contract", async (c) => {
+  const db = c.get("db");
+  const eventId = c.req.param("id");
+
+  if (!(await hasPermission(c, null, "event:read", eventId))) {
+    apiError("FORBIDDEN", "契約状況を参照する権限がありません");
+  }
+
+  const rows = await db.select().from(event).where(eq(event.id, eventId));
+  if (rows.length === 0) {
+    apiError("NOT_FOUND", "イベントが見つかりません");
+  }
+  const e = rows[0]!;
+
+  // 上限に対する現在のサークル数 (論理削除は除外)。
+  const circles = await db
+    .select({ id: circle.id })
+    .from(circle)
+    .where(and(eq(circle.eventId, eventId), isNull(circle.deletedAt)));
+
+  const payments = await db
+    .select()
+    .from(contractPayment)
+    .where(eq(contractPayment.eventId, eventId))
+    .orderBy(desc(contractPayment.paidAt));
+
+  const paidTotal = payments.reduce((s, p) => s + p.amount, 0);
+
+  return c.json({
+    eventId: e.id,
+    eventName: e.eventName,
+    plan: e.plan,
+    billingStatus: e.billingStatus,
+    billingAmount: e.billingAmount,
+    nextBillingAt: e.nextBillingAt,
+    maxCircles: e.maxCircles,
+    circleCount: circles.length,
+    activatedAt: e.activatedAt,
+    suspendedAt: e.suspendedAt,
+    lifecycleStatus: e.lifecycleStatus,
+    paidTotal,
+    // 残額 (契約金額 - 入金合計)。マイナスにはしない。
+    outstanding: Math.max(0, (e.billingAmount ?? 0) - paidTotal),
+    payments: payments.map((p) => ({
+      id: p.id,
+      amount: p.amount,
+      method: p.method,
+      paidAt: p.paidAt,
+      note: p.note,
+    })),
+  });
+});
+
 // 開催ライフサイクル状態の変更 (2026-07-15)。event_manager(event:write)。
 // 注文可否 (live のみ可) や来場者/ダッシュボードの表示モードの正本になる。
 eventRoutes.put(
@@ -132,7 +190,9 @@ eventRoutes.put(
   async (c) => {
     const db = c.get("db");
     const eventId = c.req.param("id");
-    if (!(await hasPermission(c, null, "event:write", eventId))) {
+    // allowWhenClosed: 終了/保持中は閲覧のみモードで event:write が落ちるため、
+    // この経路だけゲートを外す (そうしないと「開催中」に戻せずロックアウトする)。
+    if (!(await hasPermission(c, null, "event:write", eventId, { allowWhenClosed: true }))) {
       apiError("FORBIDDEN", "イベントの状態を変更する権限がありません");
     }
     await db
@@ -266,6 +326,11 @@ eventRoutes.post(
     }
     const input = c.req.valid("json");
 
+    // 2026-07-16: 履歴テーブル(event_announcement)に senderEmail を残すためセッションを取得。
+    // hasPermission が既にセッション存在を前提にしているのでここでは非nullとして扱える。
+    const session = await getSession(c);
+    const senderEmail = session!.user.email.toLowerCase();
+
     const events = await db.select().from(event).where(eq(event.id, eventId));
     if (events.length === 0) apiError("NOT_FOUND", "イベントが見つかりません");
     const eventName = events[0]!.eventName;
@@ -309,9 +374,57 @@ eventRoutes.post(
       sent += 1;
     }
 
+    // 送信履歴を記録する (2026-07-16)。理由は eventAnnouncement テーブル定義のコメントを参照。
+    await db.insert(eventAnnouncement).values({
+      id: ulid(),
+      eventId,
+      title: input.title,
+      message: input.message,
+      senderEmail,
+      recipientCount: sent,
+      createdAt: new Date(),
+    });
+
     return c.json({ sent });
   }
 );
+
+// 一斉アナウンスの送信履歴一覧 (2026-07-16)。過去に送ったアナウンスを新しい順に返す。
+// event_manager (member:read) 権限。
+eventRoutes.get("/:id/announcements", async (c) => {
+  const db = c.get("db");
+  const eventId = c.req.param("id");
+  if (!(await hasPermission(c, null, "member:read", eventId))) {
+    apiError("FORBIDDEN", "このイベントのアナウンス履歴を見る権限がありません");
+  }
+
+  const rows = await db
+    .select()
+    .from(eventAnnouncement)
+    .where(eq(eventAnnouncement.eventId, eventId))
+    .orderBy(desc(eventAnnouncement.createdAt));
+
+  return c.json(rows);
+});
+
+// 一斉アナウンス履歴の削除 (2026-07-16)。
+// 注意: これは履歴ログの削除であり、既に配信済みの notification (受信者ごとの通知) は
+// 取り消さない。受信者は自身の通知センターに残ったまま既読/未読を管理できる
+// (event_announcement テーブル定義のコメントに設計理由を記載)。event_manager (member:write) 権限。
+eventRoutes.delete("/:id/announcements/:announcementId", async (c) => {
+  const db = c.get("db");
+  const eventId = c.req.param("id");
+  const announcementId = c.req.param("announcementId");
+  if (!(await hasPermission(c, null, "member:write", eventId))) {
+    apiError("FORBIDDEN", "このイベントのアナウンス履歴を削除する権限がありません");
+  }
+
+  await db
+    .delete(eventAnnouncement)
+    .where(and(eq(eventAnnouncement.id, announcementId), eq(eventAnnouncement.eventId, eventId)));
+
+  return c.json({ success: true });
+});
 
 // イベント横断の在庫/売り切れ一覧 (2026-07-12)
 // 全サークルのメニューを在庫状況付きで返す。フロントが売り切れ/在庫僅少を強調表示する。

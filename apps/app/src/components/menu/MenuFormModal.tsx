@@ -167,7 +167,7 @@ export function MenuFormModal({ circleId, isOpen, onClose, menu }: MenuFormModal
               このサークルは<strong className="text-foreground">在庫管理</strong>がONのため、売り切れは在庫数から自動判定されます。
               売切の切り替えは「在庫管理」から行ってください。
               <div className="mt-1.5 font-bold text-foreground">
-                現在: {form.soldOut ? "🔴 売り切れ" : "🟢 販売中"}
+                現在: {form.soldOut ? "売り切れ" : "販売中"}
               </div>
             </div>
           ) : (
@@ -185,7 +185,7 @@ export function MenuFormModal({ circleId, isOpen, onClose, menu }: MenuFormModal
                   : "border-success bg-success/10 text-success",
               )}
             >
-              {form.soldOut ? "🔴 売り切れ (タップで販売中に戻す)" : "🟢 販売中 (タップで売り切れにする)"}
+              {form.soldOut ? "売り切れ (タップで販売中に戻す)" : "販売中 (タップで売り切れにする)"}
             </button>
           )}
         </div>

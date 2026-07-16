@@ -1,4 +1,4 @@
-import { membership, circle } from "@fesflow/db";
+import { membership, circle, event } from "@fesflow/db";
 import { eq, and } from "drizzle-orm";
 import { ulid } from "ulidx";
 import { Context } from "hono";
@@ -87,15 +87,51 @@ export async function getAdminSession(c: Context<AppEnv>) {
   return session;
 }
 
+/**
+ * イベントが「閲覧のみモード」かを判定する (2026-07-16)。
+ * lifecycleStatus が ended/archived のイベントは終了済みなので、配下の変更操作を止めて
+ * データを凍結する (集計・エクスポートなどの参照系は従来どおり通す)。
+ */
+async function isEventReadOnly(
+  c: Context<AppEnv>,
+  circleId: string | null,
+  eventId?: string
+): Promise<boolean> {
+  const db = c.get("db");
+  let targetEventId = eventId;
+  if (!targetEventId && circleId) {
+    const cs = await db.select().from(circle).where(eq(circle.id, circleId));
+    targetEventId = cs[0]?.eventId;
+  }
+  // イベントを特定できない操作 (システム系など) はこのゲートの対象外。
+  if (!targetEventId) return false;
+  const ev = await db.select().from(event).where(eq(event.id, targetEventId));
+  const status = ev[0]?.lifecycleStatus;
+  return status === "ended" || status === "archived";
+}
+
 export async function hasPermission(
   c: Context<AppEnv>,
   circleId: string | null,
   requiredPermission: Permission,
-  eventId?: string
+  eventId?: string,
+  // 閲覧のみモードのゲートを外す (2026-07-16)。終了したイベントを「開催中」に戻す
+  // 操作 (lifecycle-status) 自体まで止めてしまうとロックアウトするため、その経路だけ true にする。
+  opts?: { allowWhenClosed?: boolean }
 ): Promise<boolean> {
   const db = c.get("db");
   const session = await getSession(c);
   if (!session || !session.user) return false;
+
+  // 閲覧のみモード (2026-07-16): 終了/保持中のイベント配下では変更操作を一律拒否する。
+  // なりすまし・正規ロールのどちらの経路より前に判定して、UIの導線に関わらずサーバで凍結する。
+  if (
+    !opts?.allowWhenClosed &&
+    /:(write|delete)$/.test(requiredPermission) &&
+    (await isEventReadOnly(c, circleId, eventId))
+  ) {
+    return false;
+  }
 
   // 2026-07-12 (Phase E): なりすまし中は「対象ロール×スコープ」として評価する。
   // これが super_admin がテナント内容に触れる唯一の経路 (それ以外は下で false になる)。

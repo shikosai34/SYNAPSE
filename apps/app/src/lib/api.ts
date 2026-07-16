@@ -93,6 +93,8 @@ export const eventApi = {
   // 開催ライフサイクル状態の変更 (event_manager event:write 権限)。
   setLifecycleStatus: (id: string, status: EventLifecycleStatus) =>
     fetchApi<{ success: boolean }>(`/api/festivals/${id}/lifecycle-status`, { method: "PUT", body: { status } }),
+  // 契約状況の照会 (オーナー向け・読み取り専用)。
+  contract: (id: string) => fetchApi<EventContract>(`/api/festivals/${id}/contract`),
   // 支払い方法の設定 (event_manager event:write 権限)。
   setPaymentMethods: (id: string, paymentMethods: string[]) =>
     fetchApi<{ success: boolean; paymentMethods: string[] }>(`/api/festivals/${id}/payment-methods`, {
@@ -106,6 +108,15 @@ export const eventApi = {
   // イベント内スタッフへの一斉アナウンス。event_manager (member:write) 権限が必要。
   announce: (id: string, data: { title: string; message: string }) =>
     fetchApi<{ sent: number }>(`/api/festivals/${id}/announce`, { method: "POST", body: data }),
+  // 過去に送信した一斉アナウンスの履歴 (2026-07-16)。event_manager (member:read) 権限。
+  announcements: (id: string) =>
+    fetchApi<EventAnnouncement[]>(`/api/festivals/${id}/announcements`),
+  // 履歴からの削除。配信済みの notification (受信者側) は取り消されない
+  // (履歴ログの削除であり配信取り消しではない設計。詳細は API 側コメント参照)。
+  deleteAnnouncement: (id: string, announcementId: string) =>
+    fetchApi<{ success: boolean }>(`/api/festivals/${id}/announcements/${announcementId}`, {
+      method: "DELETE",
+    }),
   create: (data: CreateEventInput) =>
     fetchApi<{ id: string }>("/api/festivals", { method: "POST", body: data }),
   updateTheme: (id: string, data: EventTheme) =>
@@ -442,6 +453,35 @@ export interface Event extends EventTheme {
 
 export type EventLifecycleStatus = "upcoming" | "live" | "ended" | "archived";
 
+// オーナー向け契約状況 (2026-07-16)。運営メモ・入金記録者はサーバ側で除外済み。
+export interface EventContract {
+  eventId: string;
+  eventName: string;
+  plan: string;
+  billingStatus: BillingStatus;
+  billingAmount: number;
+  nextBillingAt: string | null;
+  maxCircles: number;
+  circleCount: number;
+  activatedAt: string | null;
+  suspendedAt: string | null;
+  lifecycleStatus: EventLifecycleStatus;
+  paidTotal: number;
+  outstanding: number;
+  payments: { id: string; amount: number; method: string; paidAt: string; note: string | null }[];
+}
+
+// 一斉アナウンス送信履歴 (2026-07-16)。GET /api/festivals/:id/announcements。
+export interface EventAnnouncement {
+  id: string;
+  eventId: string;
+  title: string;
+  message: string;
+  senderEmail: string;
+  recipientCount: number;
+  createdAt: string;
+}
+
 // event.paymentMethods (JSON文字列) を配列にパースする。既定は ["現金"]。
 export function parseEventPaymentMethods(raw?: string | null): string[] {
   if (!raw) return ["現金"];
@@ -668,7 +708,6 @@ export type OrderStatus =
 export interface Order {
   id: string;
   circleId: string;
-  staffId: string | null;
   orderNumber: string;
   status: OrderStatus;
   totalPrice: number;
@@ -678,6 +717,9 @@ export interface Order {
   completedAt: Date | null;
   peopleCount: number;
   paymentMethod: string | null;
+  // レジ担当者 (order.cashier_id)。スタッフ向け一覧 (orderApi.list) にのみ含まれる想定で、
+  // 来場者向け履歴 API (orders/user/:code) は意図的にこの項目を返さない。
+  cashierId: string | null;
 }
 
 export interface OrderItemTopping {
@@ -821,6 +863,9 @@ export interface CreateCircleInput {
 export interface UpdateCircleInput {
   name?: string;
   description?: string;
+  // 2026-07-16: サークルアイコン/背景画像の保存に対応。null を渡すと明示的に削除する。
+  iconImagePath?: string | null;
+  backgroundImagePath?: string | null;
 }
 
 export interface CreateMenuInput {
@@ -883,7 +928,12 @@ export interface UpdateStaffInput {
 export interface CreateOrderInput {
   circleId: string;
   userId: string; // 2026-07-04: リストバンド/QR必須化のため追加
-  staffId?: string;
+  // レジ担当者の識別子 (現状はログイン中スタッフのメールアドレス)。
+  // DB には order.cashier_id として保存される。
+  // 2026-07-16: 以前あった未使用の `staffId?` はサーバ側が受け取っておらず
+  // (order テーブルに staff_id カラム自体が存在しない) 死んでいたフィールドだったため、
+  // 実際にサーバが受け取る cashierId に置き換えて撤去した。
+  cashierId?: string;
   peopleCount?: number;
   items: {
     menuId: string;

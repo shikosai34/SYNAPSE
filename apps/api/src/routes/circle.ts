@@ -15,7 +15,7 @@ import {
 } from "@fesflow/db";
 import { eq, and, isNull, lt, inArray } from "drizzle-orm";
 import { ulid } from "ulidx";
-import { getAdminSession, hasPermission } from "../utils/auth";
+import { hasPermission } from "../utils/auth";
 import { requireAuth } from "../middleware/auth";
 import type { AppEnv } from "../types";
 
@@ -367,22 +367,33 @@ circleRoutes.post(
 // 代表者付け替えロジックは撤去し、サークル名/説明の更新のみを扱う。
 // 代表者の付け替えは招待 (membership.ts の invite) やオーナー権限譲渡
 // (POST /:id/transfer-owner, 下記) 側に委ねる。
+// 2026-07-16: 権限チェックを getAdminSession (=super_admin 限定) から
+// hasPermission(circle:write) に変更。従来の実装だと実際にこの画面を使う
+// circle_manager/event_manager が「管理者権限が必要です」で弾かれ、ダッシュボードの
+// 「基本情報」保存ボタンが実質誰も使えない状態だった。同じサークル更新系の
+// PATCH /:id/settings, /:id/mods と揃える。合わせてアイコン/背景画像パスの
+// 更新にも対応する (サークル画像アップロードUI用。iconImagePath/backgroundImagePath は
+// circle テーブルに既存のカラムで、これまで更新するUI/APIが無く常に空だった)。
 circleRoutes.put(
   "/:id",
   zBody(
     z.object({
       name: z.string().min(1).optional(),
       description: z.string().optional(),
+      // null を許可し、画像の明示的な削除 (未設定に戻す) を表現できるようにする。
+      iconImagePath: z.string().nullable().optional(),
+      backgroundImagePath: z.string().nullable().optional(),
     })
   ),
   async (c) => {
     const db = c.get("db");
-    const session = await getAdminSession(c);
-    if (!session) {
-      apiError("FORBIDDEN", "管理者権限が必要です");
+    const id = c.req.param("id");
+
+    const allowed = await hasPermission(c, id, "circle:write");
+    if (!allowed) {
+      apiError("FORBIDDEN", "権限がありません");
     }
 
-    const id = c.req.param("id");
     const input = c.req.valid("json");
 
     // 対象サークルの存在確認
@@ -399,6 +410,10 @@ circleRoutes.put(
     if (input.name) updates.name = input.name;
     if (input.description !== undefined)
       updates.description = input.description;
+    if (input.iconImagePath !== undefined)
+      updates.iconImagePath = input.iconImagePath;
+    if (input.backgroundImagePath !== undefined)
+      updates.backgroundImagePath = input.backgroundImagePath;
 
     if (Object.keys(updates).length > 0) {
       await db.update(circle).set(updates).where(eq(circle.id, id));

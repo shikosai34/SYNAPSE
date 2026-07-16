@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { circleApi, orderApi, menuApi } from "@/lib/api";
 import { CircleAuthGuard, useAuth } from "@/hooks/useCircleAuth";
 import DashboardLayout from "@/components/DashboardLayout";
@@ -26,16 +26,12 @@ function downloadCsvFile(filename: string, headers: string[], rows: (string | nu
 }
 
 function CircleExportContent() {
-  const { circleName } = useAuth();
-  const [circleId, setCircleId] = useState<string>("");
+  // 2026-07-16: circleId を useState+useEffect(mount時一度きり) で固定していると、
+  // 同一パス上でスペース切り替え後も古いサークルのデータをエクスポートしてしまう。
+  // useAuth() は authChange 購読で常に最新値を返すため、これに統一する。
+  const { circleName, circleId: authCircleId } = useAuth();
+  const circleId = authCircleId ?? "";
   const [downloading, setDownloading] = useState<Record<string, boolean>>({});
-
-  useEffect(() => {
-    const storedCircleId = localStorage.getItem("circleId");
-    if (storedCircleId) {
-      setCircleId(storedCircleId);
-    }
-  }, []);
 
   const startDownload = (key: string) => {
     setDownloading((prev) => ({ ...prev, [key]: true }));

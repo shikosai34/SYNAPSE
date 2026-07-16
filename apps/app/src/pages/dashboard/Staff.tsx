@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   CircleAuthGuard,
@@ -32,27 +32,18 @@ import { StaffFormModal } from "@/components/staff/StaffFormModal";
 import { undoableDelete } from "@/lib/toast-undo";
 
 function StaffManagementContent() {
-  const { circleId } = useAuth();
+  // 2026-07-16: circleName も circleId 同様、localStorage(circleAuth) を mount 時に
+  // 一度だけ読む独自 state だと、同一パス上でのスペース切り替え後に古いサークル名の
+  // ままになる。useAuth() (authChange 購読) から直接取得するよう統一する。
+  const { circleId, circleName: authCircleName } = useAuth();
+  const circleName = authCircleName ?? "サークルダッシュボード";
   const queryClient = useQueryClient();
-  const [circleName, setCircleName] = useState<string>("サークルダッシュボード");
-  
+
   // モーダル用ステート
   const [isStaffModalOpen, setIsStaffModalOpen] = useState(false);
   const [selectedStaff, setSelectedStaff] = useState<Staff | null>(null);
 
   // 削除確認用ステート
-
-  useEffect(() => {
-    const authStored = localStorage.getItem("circleAuth");
-    if (authStored) {
-      try {
-        const authInfo = JSON.parse(authStored);
-        if (authInfo.circleName) {
-          setCircleName(authInfo.circleName);
-        }
-      } catch (_) {}
-    }
-  }, []);
 
   // スタッフ一覧取得
   const {
