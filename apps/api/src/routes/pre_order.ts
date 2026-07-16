@@ -19,9 +19,10 @@ import {
   event,
   type DB,
 } from "@fesflow/db";
-import { eq, and, or, inArray, desc, sql, gte } from "drizzle-orm";
+import { eq, and, or, inArray, desc, sql } from "drizzle-orm";
 import { ulid } from "ulidx";
 import { hasPermission } from "../utils/auth";
+import { decrementStockWithGuard } from "../utils/stock";
 import type { AppEnv } from "../types";
 
 const preOrderRoutes = new Hono<AppEnv>();
@@ -462,72 +463,17 @@ preOrderRoutes.post(
       // 2026-07-16: D1 は対話的トランザクション非対応 (order.ts 参照。過去に db.transaction() で
       // BEGIN が拒否され全注文が500になったリグレッションあり)。そのため order.ts と同じく
       // 逐次実行＋ガード付きUPDATE (在庫不足なら0行更新)＋ベストエフォート補償で実装する。
-      const decrementedToppings: Array<[string, number]> = [];
-      const restoreStockBestEffort = async () => {
-        for (const [menuId, neededQty] of stockNeeded.entries()) {
-          try {
-            await db
-              .update(menu)
-              .set({ stockQuantity: sql`${menu.stockQuantity} + ${neededQty}` })
-              .where(eq(menu.id, menuId));
-            await db
-              .update(menu)
-              .set({ soldOut: false })
-              .where(and(eq(menu.id, menuId), gte(menu.stockQuantity, 1)));
-          } catch (restoreError) {
-            console.error("Stock restore error:", restoreError);
-          }
+      // この減算＋補償ロジックは order.ts の POST / と完全に同一だったため utils/stock.ts へ
+      // 共通化した (片方だけ直す変更漏れ事故を防ぐため)。
+      const { restoreStockBestEffort } = await decrementStockWithGuard(
+        db,
+        stockNeeded,
+        toppingStockNeeded,
+        {
+          getMenuName: (menuId) => menus.find((m) => m.id === menuId)?.name,
+          getToppingName: (toppingId) => usedToppings.find((t) => t.id === toppingId)?.name,
         }
-        for (const [toppingId, neededQty] of decrementedToppings) {
-          try {
-            await db
-              .update(topping)
-              .set({ stockQuantity: sql`${topping.stockQuantity} + ${neededQty}` })
-              .where(eq(topping.id, toppingId));
-            await db
-              .update(topping)
-              .set({ soldOut: false })
-              .where(and(eq(topping.id, toppingId), gte(topping.stockQuantity, 1)));
-          } catch (restoreError) {
-            console.error("Topping stock restore error:", restoreError);
-          }
-        }
-      };
-
-      for (const [menuId, neededQty] of stockNeeded.entries()) {
-        const result = await db
-          .update(menu)
-          .set({ stockQuantity: sql`${menu.stockQuantity} - ${neededQty}` })
-          .where(and(eq(menu.id, menuId), gte(menu.stockQuantity, neededQty)))
-          .returning({ stockQuantity: menu.stockQuantity });
-
-        if (result.length === 0) {
-          const menuItem = menus.find((m) => m.id === menuId);
-          apiError("BAD_REQUEST", `${menuItem?.name ?? menuId}の在庫が不足しています`);
-        }
-
-        if (result[0]!.stockQuantity <= 0) {
-          await db.update(menu).set({ soldOut: true }).where(eq(menu.id, menuId));
-        }
-      }
-
-      for (const [toppingId, neededQty] of toppingStockNeeded.entries()) {
-        const result = await db
-          .update(topping)
-          .set({ stockQuantity: sql`${topping.stockQuantity} - ${neededQty}` })
-          .where(and(eq(topping.id, toppingId), gte(topping.stockQuantity, neededQty)))
-          .returning({ stockQuantity: topping.stockQuantity });
-
-        if (result.length === 0) {
-          await restoreStockBestEffort();
-          const t = usedToppings.find((x) => x.id === toppingId);
-          apiError("BAD_REQUEST", `${t?.name ?? toppingId}の在庫が不足しています`);
-        }
-        decrementedToppings.push([toppingId, neededQty]);
-        if (result[0]!.stockQuantity <= 0) {
-          await db.update(topping).set({ soldOut: true }).where(eq(topping.id, toppingId));
-        }
-      }
+      );
 
       // 支払い方法の解決 (2026-07-14): 明示指定を優先し、無ければサークルの対応方法が
       // ちょうど1つのときだけそれを補完する (通常注文 order.ts と同じ挙動に揃える)。
