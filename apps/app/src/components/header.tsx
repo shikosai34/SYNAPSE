@@ -6,6 +6,8 @@ import {
   Menu,
   X,
   ChevronDown,
+  ChevronRight,
+  ChevronLeft,
   User,
   Bell,
   Shield,
@@ -45,7 +47,18 @@ import { authClient } from "@/lib/auth-client";
 //   - 開閉状態は単一の activeMenu state に統一し、常に1つしか開かないようにする
 //   - 外側クリックは document 全体の mousedown 監視で判定する (フルスクリーンの透明backdrop
 //     を使うと、hover 判定(mouseleave)がbackdropに邪魔されて機能しなくなるため廃止した)
+//
+// 2026-07-16 (追記) モバイルは「3本線 → 通知/組織切り替え/アカウント → 中身」の2段階層に変更。
+// スマホでは通知/スペース切替/アカウントの3トリガーが横並びだと窮屈な上、それぞれ独立して
+// 開閉する作りは「今どれが開いているか」を見失いやすい。トップレベルのトリガーを3本線1つに
+// 集約し、その中を「通知/組織切り替え/アカウント」を並べた1段目 → タップした項目の中身を
+// 表示する2段目、という構造にする。デスクトップは今までどおり個別トリガー+ホバー/タップを
+// 維持する (md:hidden / hidden md:block で出し分け)。
+// 開閉の最上位は引き続き activeMenu (nav = 3本線) で1つだけ開く制御を継続し、3本線の中の
+// 「今どの項目を掘り下げているか」だけを別 state (mobileSection) で管理する。
 type MenuKey = "notif" | "space" | "account" | "nav" | null;
+// 3本線メニュー内の2段目 (null = 1段目の一覧表示)
+type MobileSection = "notif" | "space" | "account" | null;
 
 // ポインタがマウス相当(ホバー可能)かどうかを都度判定する。
 // useState化してしまうとリサイズ/デバイス切替を追随できないため、必要な瞬間に判定する軽量関数にしている。
@@ -78,6 +91,14 @@ export default function Header() {
   const spaceOpen = activeMenu === "space";
   const accountOpen = activeMenu === "account";
   const mobileNavOpen = activeMenu === "nav";
+
+  // モバイル3本線メニューの2段目 (通知/組織切り替え/アカウントのどれを掘り下げているか)。
+  // 一度に開く2段目は1つだけにするため単一 state にし、3本線自体が閉じたら
+  // 下の useEffect で自動的にリセットして「開くたびに1段目から」を保証する (2026-07-16)
+  const [mobileSection, setMobileSection] = useState<MobileSection>(null);
+  useEffect(() => {
+    if (activeMenu !== "nav") setMobileSection(null);
+  }, [activeMenu]);
 
   const notifRef = useRef<HTMLDivElement>(null);
   const spaceRef = useRef<HTMLDivElement>(null);
@@ -441,6 +462,205 @@ export default function Header() {
     return pathname.startsWith(to);
   };
 
+  // 未読バッジの判定ロジック (2026-07-16)。
+  // 3本線メニューに通知が格納されると未読に気づけなくなるため、3本線トリガー自身にも
+  // 同じバッジを出す必要がある。判定を1箇所に集約し、通知トリガー/3本線トリガー/
+  // モバイル1段目の「通知」行の3箇所で使い回す。
+  const hasUnreadNotif = Boolean(
+    (notifications && notifications.length > 0) || (announcements && announcements.length > 0)
+  );
+  const notifBadgeLabel =
+    notifications && notifications.length > 0
+      ? notifications.length > 99
+        ? "99+"
+        : notifications.length
+      : "!";
+
+  // 通知パネルの中身 (デスクトップのホバーパネル / モバイル3本線の2段目で共用) (2026-07-16)
+  const notifPanelBody = (
+    <div className="max-h-72 overflow-y-auto space-y-3">
+      {/* システムお知らせ (公開分) */}
+      {announcements && announcements.map((a) => {
+        const badge =
+          a.level === "critical"
+            ? "bg-destructive text-destructive-foreground"
+            : a.level === "warning"
+              ? "bg-warning text-black"
+              : "bg-primary text-primary-foreground";
+        return (
+          <div key={a.id} className="text-xs border-thick border-border p-3 bg-background space-y-1.5">
+            <div className="flex items-center justify-between gap-2">
+              <span className="font-headline font-bold truncate">{a.title}</span>
+              <span className={`px-1.5 py-0.5 text-[8px] font-black uppercase tracking-wider shrink-0 ${badge}`}>
+                お知らせ
+              </span>
+            </div>
+            {a.body && (
+              <p className="text-[11px] leading-[1.4] text-foreground/80 whitespace-pre-wrap">{a.body}</p>
+            )}
+            <div className="text-[9px] text-muted-foreground">
+              {new Date(a.createdAt).toLocaleDateString("ja-JP")}
+            </div>
+          </div>
+        );
+      })}
+
+      {/* 個人宛通知 */}
+      {notifications && notifications.length > 0 ? (
+        notifications.map((notif: any) => (
+          <div key={notif.id} className="text-xs border-thin border-border p-3 bg-muted/10 space-y-2">
+            <div className="font-bold flex items-center justify-between">
+              <span className="font-headline font-bold">{notif.title}</span>
+              <span className="text-[9px] text-muted-foreground">
+                {new Date(notif.createdAt).toLocaleDateString("ja-JP")}
+              </span>
+            </div>
+            <p className="text-[11px] leading-[1.4] text-foreground/80">{notif.message}</p>
+            {notif.type === "invite" ? (
+              <div className="flex gap-2 pt-1.5">
+                <Button
+                  size="sm"
+                  className="h-7 text-[10px] flex-1 rounded-none border-thin border-border bg-primary text-primary-foreground hover:bg-background hover:text-foreground"
+                  onClick={() => respondMutation.mutate({ notifId: notif.id, action: "accept" })}
+                  disabled={respondMutation.isPending}
+                >
+                  承認
+                </Button>
+                <Button
+                  size="sm"
+                  variant="destructive"
+                  className="h-7 text-[10px] flex-1 rounded-none bg-destructive text-destructive-foreground hover:bg-background hover:text-foreground"
+                  onClick={() => respondMutation.mutate({ notifId: notif.id, action: "decline" })}
+                  disabled={respondMutation.isPending}
+                >
+                  辞退
+                </Button>
+              </div>
+            ) : (
+              // invite 以外(announcement 等)は応答アクションが無いため、
+              // 既読にする専用ボタンを出す (2026-07-16 既読機能)
+              <div className="flex justify-end pt-1">
+                <button
+                  onClick={() => readMutation.mutate(notif.id)}
+                  disabled={readMutation.isPending}
+                  className="text-[10px] underline hover:text-primary cursor-pointer disabled:opacity-50"
+                >
+                  既読にする
+                </button>
+              </div>
+            )}
+          </div>
+        ))
+      ) : null}
+
+      {(!announcements || announcements.length === 0) &&
+        (!notifications || notifications.length === 0) && (
+          <div className="text-center py-6 text-muted-foreground text-xs">
+            お知らせ・通知はありません
+          </div>
+        )}
+    </div>
+  );
+
+  // スペース切り替えパネルの中身 (デスクトップのホバーパネル / モバイル3本線の2段目で共用) (2026-07-16)
+  const spacePanelBody = (
+    <>
+      <div className="max-h-72 overflow-y-auto space-y-3">
+        {availableSpaces.length > 0 ? (
+          ([
+            { type: "system", label: "システム", Icon: Shield },
+            { type: "event", label: "イベント", Icon: Calendar },
+            { type: "circle", label: "サークル", Icon: Building2 },
+          ] as const).map(({ type, label, Icon }) => {
+            const group = availableSpaces.filter((s) => s.type === type);
+            if (group.length === 0) return null;
+            return (
+              <div key={type} className="space-y-1">
+                {/* グループ見出し (システム / イベント / サークル) */}
+                <div className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-[1.5px] text-muted-foreground px-1 pb-1 border-b border-border/20">
+                  <Icon className="h-3 w-3" />
+                  {label}
+                  <span className="opacity-60">({group.length})</span>
+                </div>
+                {group.map((space) => (
+                  <button
+                    key={space.id}
+                    onClick={() => {
+                      handleSwitchSpace(space);
+                    }}
+                    className="w-full text-left p-2 hover:bg-primary hover:text-primary-foreground transition-all cursor-pointer rounded-none"
+                  >
+                    <div className="flex items-center gap-1.5 text-[9px] text-muted-foreground font-black uppercase tracking-wider">
+                      {roleLabel(space.role)}
+                    </div>
+                    <div className="text-xs font-bold truncate mt-0.5">{space.name}</div>
+                  </button>
+                ))}
+              </div>
+            );
+          })
+        ) : (
+          <div className="text-center py-6 text-muted-foreground text-xs">
+            利用可能なスペースがありません
+          </div>
+        )}
+      </div>
+
+      {/* 招待コードで参加 / スペースを追加 (2026-07-14 P0)。
+          ログイン済みユーザーが招待コードを入力できる唯一の導線。
+          ?join=1 で StaffOnboarding の選択画面を出し、所属があっても弾かれないようにする。 */}
+      <button
+        onClick={() => {
+          setActiveMenu(null);
+          navigate("/onboarding?join=1");
+        }}
+        className="mt-3 w-full flex items-center justify-center gap-1.5 border-thick border-border p-2 text-[11px] font-black uppercase tracking-wider hover:bg-primary hover:text-primary-foreground transition-all cursor-pointer rounded-none"
+      >
+        <Plus className="h-3.5 w-3.5" />
+        招待コードで参加 / スペースを追加
+      </button>
+    </>
+  );
+
+  // アカウントパネルの中身 (デスクトップのホバーパネル / モバイル3本線の2段目で共用) (2026-07-16)
+  const accountPanelBody = (
+    <>
+      <div className="flex items-center gap-2 mb-3 pb-3 border-b border-border/20">
+        {me?.image ? (
+          <img src={me.image} alt="Avatar" className="w-8 h-8 rounded-none border border-border object-cover shrink-0" />
+        ) : (
+          <div className="w-8 h-8 border border-border flex items-center justify-center shrink-0">
+            <User className="h-4 w-4" />
+          </div>
+        )}
+        <div className="min-w-0">
+          <div className="text-xs font-bold truncate">{userName || "アカウント"}</div>
+          <div className="text-[10px] text-muted-foreground truncate">{userEmail}</div>
+        </div>
+      </div>
+
+      <div className="space-y-1">
+        <button
+          onClick={() => {
+            setProfileModalOpen(true);
+            setActiveMenu(null);
+          }}
+          className="w-full flex items-center gap-2 text-left p-2 hover:bg-primary hover:text-primary-foreground transition-all cursor-pointer rounded-none text-xs font-bold"
+        >
+          <Settings className="h-3.5 w-3.5 shrink-0" />
+          アカウント設定を開く
+        </button>
+        <button
+          onClick={handleLogout}
+          className="w-full flex items-center gap-2 text-left p-2 hover:bg-destructive hover:text-destructive-foreground transition-all cursor-pointer rounded-none text-xs font-bold"
+        >
+          <LogOut className="h-3.5 w-3.5 shrink-0" />
+          ログアウト
+        </button>
+      </div>
+    </>
+  );
+
   return (
     <header className="sticky top-0 z-50 bg-background border-b-thick border-border text-foreground font-mono">
       <div className="flex items-center justify-between px-2 sm:px-4 py-2 max-w-7xl mx-auto gap-2 sm:gap-4">
@@ -480,10 +700,11 @@ export default function Header() {
         <div className="flex items-center gap-1 sm:gap-2 shrink-0">
           {isAuthenticated && !isLoading ? (
             <div className="flex items-center gap-1 sm:gap-2 relative">
-              {/* 通知ベルメニュー (デスクトップ:ホバー / タッチ:タップ 両対応) */}
+              {/* 通知ベルメニュー (デスクトップのみ:ホバー / タッチ:タップ 両対応。
+                  モバイル(md未満)は3本線メニューへ集約するためここでは非表示にする 2026-07-16) */}
               <div
                 ref={notifRef}
-                className="relative"
+                className="relative hidden md:block"
                 onMouseEnter={() => handleHoverOpen("notif")}
                 onMouseLeave={() => handleHoverClose("notif")}
               >
@@ -498,15 +719,11 @@ export default function Header() {
                     <Bell className="h-4 w-4" />
                     {/* 未読バッジ (2026-07-16): 個人宛通知(notification)は unread/read を持つため件数を出す。
                         システムお知らせ(announcements)は全ユーザー公開で既読状態を持たないため、
-                        それしか無い場合は件数の代わりに "!" のみ表示する。 */}
-                    {((notifications && notifications.length > 0) ||
-                      (announcements && announcements.length > 0)) && (
+                        それしか無い場合は件数の代わりに "!" のみ表示する。判定は hasUnreadNotif/
+                        notifBadgeLabel に集約し、3本線トリガー側のバッジとロジックを共有する。 */}
+                    {hasUnreadNotif && (
                       <span className="absolute -top-1.5 -right-1.5 min-w-[16px] h-4 px-1 flex items-center justify-center bg-destructive text-destructive-foreground text-[9px] font-black leading-none rounded-none border border-background">
-                        {notifications && notifications.length > 0
-                          ? notifications.length > 99
-                            ? "99+"
-                            : notifications.length
-                          : "!"}
+                        {notifBadgeLabel}
                       </span>
                     )}
                   </span>
@@ -534,97 +751,17 @@ export default function Header() {
                       </button>
                     </div>
 
-                    <div className="max-h-72 overflow-y-auto space-y-3">
-                      {/* システムお知らせ (公開分) */}
-                      {announcements && announcements.map((a) => {
-                        const badge =
-                          a.level === "critical"
-                            ? "bg-destructive text-destructive-foreground"
-                            : a.level === "warning"
-                              ? "bg-warning text-black"
-                              : "bg-primary text-primary-foreground";
-                        return (
-                          <div key={a.id} className="text-xs border-thick border-border p-3 bg-background space-y-1.5">
-                            <div className="flex items-center justify-between gap-2">
-                              <span className="font-headline font-bold truncate">{a.title}</span>
-                              <span className={`px-1.5 py-0.5 text-[8px] font-black uppercase tracking-wider shrink-0 ${badge}`}>
-                                お知らせ
-                              </span>
-                            </div>
-                            {a.body && (
-                              <p className="text-[11px] leading-[1.4] text-foreground/80 whitespace-pre-wrap">{a.body}</p>
-                            )}
-                            <div className="text-[9px] text-muted-foreground">
-                              {new Date(a.createdAt).toLocaleDateString("ja-JP")}
-                            </div>
-                          </div>
-                        );
-                      })}
-
-                      {/* 個人宛通知 */}
-                      {notifications && notifications.length > 0 ? (
-                        notifications.map((notif: any) => (
-                          <div key={notif.id} className="text-xs border-thin border-border p-3 bg-muted/10 space-y-2">
-                            <div className="font-bold flex items-center justify-between">
-                              <span className="font-headline font-bold">{notif.title}</span>
-                              <span className="text-[9px] text-muted-foreground">
-                                {new Date(notif.createdAt).toLocaleDateString("ja-JP")}
-                              </span>
-                            </div>
-                            <p className="text-[11px] leading-[1.4] text-foreground/80">{notif.message}</p>
-                            {notif.type === "invite" ? (
-                              <div className="flex gap-2 pt-1.5">
-                                <Button
-                                  size="sm"
-                                  className="h-7 text-[10px] flex-1 rounded-none border-thin border-border bg-primary text-primary-foreground hover:bg-background hover:text-foreground"
-                                  onClick={() => respondMutation.mutate({ notifId: notif.id, action: "accept" })}
-                                  disabled={respondMutation.isPending}
-                                >
-                                  承認
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  variant="destructive"
-                                  className="h-7 text-[10px] flex-1 rounded-none bg-destructive text-destructive-foreground hover:bg-background hover:text-foreground"
-                                  onClick={() => respondMutation.mutate({ notifId: notif.id, action: "decline" })}
-                                  disabled={respondMutation.isPending}
-                                >
-                                  辞退
-                                </Button>
-                              </div>
-                            ) : (
-                              // invite 以外(announcement 等)は応答アクションが無いため、
-                              // 既読にする専用ボタンを出す (2026-07-16 既読機能)
-                              <div className="flex justify-end pt-1">
-                                <button
-                                  onClick={() => readMutation.mutate(notif.id)}
-                                  disabled={readMutation.isPending}
-                                  className="text-[10px] underline hover:text-primary cursor-pointer disabled:opacity-50"
-                                >
-                                  既読にする
-                                </button>
-                              </div>
-                            )}
-                          </div>
-                        ))
-                      ) : null}
-
-                      {(!announcements || announcements.length === 0) &&
-                        (!notifications || notifications.length === 0) && (
-                          <div className="text-center py-6 text-muted-foreground text-xs">
-                            お知らせ・通知はありません
-                          </div>
-                        )}
-                    </div>
+                    {notifPanelBody}
                   </div>
                   </div>
                 )}
               </div>
 
-              {/* スペース切り替えメニュー (デスクトップ:ホバー / タッチ:タップ 両対応) */}
+              {/* スペース切り替えメニュー (デスクトップのみ:ホバー / タッチ:タップ 両対応。
+                  モバイルは3本線メニューへ集約 2026-07-16) */}
               <div
                 ref={spaceRef}
-                className="relative"
+                className="relative hidden md:block"
                 onMouseEnter={() => handleHoverOpen("space")}
                 onMouseLeave={() => handleHoverClose("space")}
               >
@@ -665,72 +802,20 @@ export default function Header() {
                       </button>
                     </div>
 
-                    <div className="max-h-72 overflow-y-auto space-y-3">
-                      {availableSpaces.length > 0 ? (
-                        ([
-                          { type: "system", label: "システム", Icon: Shield },
-                          { type: "event", label: "イベント", Icon: Calendar },
-                          { type: "circle", label: "サークル", Icon: Building2 },
-                        ] as const).map(({ type, label, Icon }) => {
-                          const group = availableSpaces.filter((s) => s.type === type);
-                          if (group.length === 0) return null;
-                          return (
-                            <div key={type} className="space-y-1">
-                              {/* グループ見出し (システム / イベント / サークル) */}
-                              <div className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-[1.5px] text-muted-foreground px-1 pb-1 border-b border-border/20">
-                                <Icon className="h-3 w-3" />
-                                {label}
-                                <span className="opacity-60">({group.length})</span>
-                              </div>
-                              {group.map((space) => (
-                                <button
-                                  key={space.id}
-                                  onClick={() => {
-                                    handleSwitchSpace(space);
-                                  }}
-                                  className="w-full text-left p-2 hover:bg-primary hover:text-primary-foreground transition-all cursor-pointer rounded-none"
-                                >
-                                  <div className="flex items-center gap-1.5 text-[9px] text-muted-foreground font-black uppercase tracking-wider">
-                                    {roleLabel(space.role)}
-                                  </div>
-                                  <div className="text-xs font-bold truncate mt-0.5">{space.name}</div>
-                                </button>
-                              ))}
-                            </div>
-                          );
-                        })
-                      ) : (
-                        <div className="text-center py-6 text-muted-foreground text-xs">
-                          利用可能なスペースがありません
-                        </div>
-                      )}
-                    </div>
-
-                    {/* 招待コードで参加 / スペースを追加 (2026-07-14 P0)。
-                        ログイン済みユーザーが招待コードを入力できる唯一の導線。
-                        ?join=1 で StaffOnboarding の選択画面を出し、所属があっても弾かれないようにする。 */}
-                    <button
-                      onClick={() => {
-                        setActiveMenu(null);
-                        navigate("/onboarding?join=1");
-                      }}
-                      className="mt-3 w-full flex items-center justify-center gap-1.5 border-thick border-border p-2 text-[11px] font-black uppercase tracking-wider hover:bg-primary hover:text-primary-foreground transition-all cursor-pointer rounded-none"
-                    >
-                      <Plus className="h-3.5 w-3.5" />
-                      招待コードで参加 / スペースを追加
-                    </button>
+                    {spacePanelBody}
                   </div>
                   </div>
                 )}
               </div>
 
-              {/* アカウントメニュー (デスクトップ:ホバー / タッチ:タップ 両対応)。
+              {/* アカウントメニュー (デスクトップのみ:ホバー / タッチ:タップ 両対応。
+                  モバイルは3本線メニューへ集約 2026-07-16)。
                   以前はボタン1つでいきなり AccountModal を開いていたが、アイコン+シェブロンだけでは
                   「押すと何が起きるか」がスマホで分からなかったため、ラベル付きの2段メニューにした
                   (① アカウント設定を開く → AccountModal / ② ログアウト) (2026-07-16) */}
               <div
                 ref={accountRef}
-                className="relative"
+                className="relative hidden md:block"
                 onMouseEnter={() => handleHoverOpen("account")}
                 onMouseLeave={() => handleHoverClose("account")}
               >
@@ -768,40 +853,157 @@ export default function Header() {
                       </button>
                     </div>
 
-                    <div className="flex items-center gap-2 mb-3 pb-3 border-b border-border/20">
-                      {me?.image ? (
-                        <img src={me.image} alt="Avatar" className="w-8 h-8 rounded-none border border-border object-cover shrink-0" />
-                      ) : (
-                        <div className="w-8 h-8 border border-border flex items-center justify-center shrink-0">
-                          <User className="h-4 w-4" />
-                        </div>
-                      )}
-                      <div className="min-w-0">
-                        <div className="text-xs font-bold truncate">{userName || "アカウント"}</div>
-                        <div className="text-[10px] text-muted-foreground truncate">{userEmail}</div>
-                      </div>
-                    </div>
-
-                    <div className="space-y-1">
-                      <button
-                        onClick={() => {
-                          setProfileModalOpen(true);
-                          setActiveMenu(null);
-                        }}
-                        className="w-full flex items-center gap-2 text-left p-2 hover:bg-primary hover:text-primary-foreground transition-all cursor-pointer rounded-none text-xs font-bold"
-                      >
-                        <Settings className="h-3.5 w-3.5 shrink-0" />
-                        アカウント設定を開く
-                      </button>
-                      <button
-                        onClick={handleLogout}
-                        className="w-full flex items-center gap-2 text-left p-2 hover:bg-destructive hover:text-destructive-foreground transition-all cursor-pointer rounded-none text-xs font-bold"
-                      >
-                        <LogOut className="h-3.5 w-3.5 shrink-0" />
-                        ログアウト
-                      </button>
-                    </div>
+                    {accountPanelBody}
                   </div>
+                  </div>
+                )}
+              </div>
+
+              {/* 3本線メニュー (モバイル(md未満)のみ)。「3本線 → 通知/組織切り替え/アカウント →
+                  中身」の2段階層に集約する (2026-07-16 要望対応)。
+                  デスクトップの各トリガー横並びはスマホだと窮屈な上、それぞれ独立して開閉する
+                  作りは今どれが開いているか見失いやすいため、トップレベルを3本線1つにし、
+                  1段目に「通知/組織切り替え/アカウント/ナビゲーションリンク」を縦に並べ、
+                  1段目の項目をタップすると2段目 (中身) を表示する構成にした。
+                  2段目の中身は notifPanelBody/spacePanelBody/accountPanelBody を再利用し、
+                  デスクトップのホバーパネルと実装・挙動 (既読化・招待応答・スペース切替・
+                  ログアウト等) を完全に共有する。開閉の最上位は既存の activeMenu ("nav") を
+                  そのまま使うため、外側クリック/Esc/1つしか開かない制御はそのまま効く。
+                  「一度に開く2段目は1つだけ」は mobileSection (単一 state) で保証し、
+                  3本線が閉じるたびに useEffect (mobileSection のリセット) で1段目に戻す。 */}
+              <div ref={navRef} className="relative md:hidden">
+                <button
+                  onClick={() => toggleMenu("nav")}
+                  aria-haspopup="menu"
+                  aria-expanded={mobileNavOpen}
+                  aria-label={mobileNavOpen ? "メニューを閉じる" : "メニューを開く"}
+                  className="flex items-center justify-center gap-1.5 h-8 px-2 border-thick border-border bg-background text-foreground hover:bg-primary hover:text-primary-foreground transition-all rounded-none"
+                >
+                  <span className="relative flex items-center justify-center shrink-0">
+                    {mobileNavOpen ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
+                    {/* 3本線に通知メニューを格納すると未読に気づけなくなるため、
+                        通知トリガーと同じ hasUnreadNotif/notifBadgeLabel をここでも表示する (2026-07-16) */}
+                    {hasUnreadNotif && (
+                      <span className="absolute -top-1.5 -right-1.5 min-w-[16px] h-4 px-1 flex items-center justify-center bg-destructive text-destructive-foreground text-[9px] font-black leading-none rounded-none border border-background">
+                        {notifBadgeLabel}
+                      </span>
+                    )}
+                  </span>
+                  <span className="text-[10px] font-bold uppercase tracking-wider">メニュー</span>
+                </button>
+
+                {mobileNavOpen && (
+                  <div className="absolute right-0 top-full pt-2 z-50 w-72 max-w-[90vw]">
+                    <div className="border-thick border-border bg-background shadow-none rounded-none text-left max-h-[calc(100vh-5rem)] overflow-y-auto">
+                      {mobileSection === null ? (
+                        <>
+                          {/* 1段目: 通知/組織切り替え/アカウント + ナビゲーションリンク */}
+                          <div className="flex items-center justify-between border-b-thin border-border px-4 py-2.5">
+                            <span className="text-[11px] font-black uppercase tracking-wider">[メニュー]</span>
+                            <button
+                              onClick={() => setActiveMenu(null)}
+                              className="text-[10px] underline hover:text-primary cursor-pointer"
+                            >
+                              閉じる
+                            </button>
+                          </div>
+                          <nav className="flex flex-col">
+                            <button
+                              onClick={() => setMobileSection("notif")}
+                              className="flex items-center justify-between gap-2 px-4 py-3 border-b-thin border-border font-headline text-[13px] uppercase tracking-[1px] hover:bg-muted transition-all"
+                            >
+                              <span className="flex items-center gap-2">
+                                <span className="relative flex items-center justify-center shrink-0">
+                                  <Bell className="h-3.5 w-3.5" />
+                                  {hasUnreadNotif && (
+                                    <span className="absolute -top-1.5 -right-1.5 min-w-[14px] h-3.5 px-1 flex items-center justify-center bg-destructive text-destructive-foreground text-[8px] font-black leading-none rounded-none border border-background">
+                                      {notifBadgeLabel}
+                                    </span>
+                                  )}
+                                </span>
+                                通知
+                              </span>
+                              <ChevronRight className="h-3.5 w-3.5 shrink-0" />
+                            </button>
+
+                            <button
+                              onClick={() => setMobileSection("space")}
+                              className="flex items-center justify-between gap-2 px-4 py-3 border-b-thin border-border font-headline text-[13px] uppercase tracking-[1px] hover:bg-muted transition-all"
+                            >
+                              <span className="flex items-center gap-2">
+                                {pathname.startsWith("/sys") ? <Shield className="h-3.5 w-3.5 shrink-0" /> :
+                                 pathname.startsWith("/event") ? <Calendar className="h-3.5 w-3.5 shrink-0" /> :
+                                 <Building2 className="h-3.5 w-3.5 shrink-0" />}
+                                組織切り替え
+                              </span>
+                              <ChevronRight className="h-3.5 w-3.5 shrink-0" />
+                            </button>
+
+                            <button
+                              onClick={() => setMobileSection("account")}
+                              className="flex items-center justify-between gap-2 px-4 py-3 border-b-thin border-border font-headline text-[13px] uppercase tracking-[1px] hover:bg-muted transition-all"
+                            >
+                              <span className="flex items-center gap-2">
+                                {me?.image ? (
+                                  <img src={me.image} alt="Avatar" className="w-4 h-4 rounded-none border border-border object-cover shrink-0" />
+                                ) : (
+                                  <User className="h-3.5 w-3.5 shrink-0" />
+                                )}
+                                アカウント
+                              </span>
+                              <ChevronRight className="h-3.5 w-3.5 shrink-0" />
+                            </button>
+
+                            {/* ナビゲーションリンクはその場で画面遷移するだけなので2段目を持たない */}
+                            {links.map(({ to, label }) => (
+                              <Link
+                                key={to}
+                                to={to}
+                                onClick={() => setActiveMenu(null)}
+                                className={`flex items-center gap-2 px-4 py-3 border-b-thin border-border last:border-b-0 font-headline text-[13px] uppercase tracking-[1px] transition-all ${
+                                  isActive(to)
+                                    ? "bg-primary text-primary-foreground font-bold"
+                                    : "bg-background text-foreground hover:bg-muted"
+                                }`}
+                              >
+                                <Compass className="h-3.5 w-3.5 shrink-0" />
+                                {label}
+                              </Link>
+                            ))}
+                          </nav>
+                        </>
+                      ) : (
+                        <>
+                          {/* 2段目: 1段目でタップした項目の中身。「戻る」で1段目へ、「閉じる」で
+                              3本線メニュー全体を閉じる、の2導線を常設する (2026-07-16) */}
+                          <div className="flex items-center justify-between border-b-thin border-border px-3 py-2.5 gap-2">
+                            <button
+                              onClick={() => setMobileSection(null)}
+                              className="flex items-center gap-0.5 text-[10px] underline hover:text-primary cursor-pointer shrink-0"
+                            >
+                              <ChevronLeft className="h-3 w-3" />
+                              戻る
+                            </button>
+                            <span className="text-[11px] font-black uppercase tracking-wider truncate">
+                              {mobileSection === "notif" && "[お知らせ・通知]"}
+                              {mobileSection === "space" && "[組織切り替え]"}
+                              {mobileSection === "account" && "[アカウント]"}
+                            </span>
+                            <button
+                              onClick={() => setActiveMenu(null)}
+                              className="text-[10px] underline hover:text-primary cursor-pointer shrink-0"
+                            >
+                              閉じる
+                            </button>
+                          </div>
+                          <div className="p-4">
+                            {mobileSection === "notif" && notifPanelBody}
+                            {mobileSection === "space" && spacePanelBody}
+                            {mobileSection === "account" && accountPanelBody}
+                          </div>
+                        </>
+                      )}
+                    </div>
                   </div>
                 )}
               </div>
@@ -815,45 +1017,6 @@ export default function Header() {
             >
               ログイン
             </Button>
-          )}
-
-          {/* ナビゲーションメニュー (モバイルのみ)。以前はアイコンのみのハンバーガーだったが、
-              「何のボタンか分からない」問題を解消するため常時ラベルを添えた (2026-07-16) */}
-          {links.length > 0 && (
-            <div ref={navRef} className="relative md:hidden">
-              <button
-                className="flex items-center justify-center gap-1 h-8 px-1.5 border-thick border-border bg-background text-foreground hover:bg-primary hover:text-primary-foreground transition-all rounded-none"
-                onClick={() => toggleMenu("nav")}
-                aria-haspopup="menu"
-                aria-expanded={mobileNavOpen}
-                aria-label={mobileNavOpen ? "ナビゲーションメニューを閉じる" : "ナビゲーションメニューを開く"}
-              >
-                {mobileNavOpen ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
-                <span className="text-[10px] font-bold uppercase tracking-wider">メニュー</span>
-              </button>
-
-              {mobileNavOpen && (
-                <div className="absolute right-0 top-11 z-50 w-56 border-thick border-border bg-background shadow-none rounded-none">
-                  <nav className="flex flex-col">
-                    {links.map(({ to, label }) => (
-                      <Link
-                        key={to}
-                        to={to}
-                        onClick={() => setActiveMenu(null)}
-                        className={`flex items-center gap-2 px-4 py-3 border-b-thin border-border last:border-b-0 font-headline text-[13px] uppercase tracking-[1px] transition-all ${
-                          isActive(to)
-                            ? "bg-primary text-primary-foreground font-bold"
-                            : "bg-background text-foreground hover:bg-muted"
-                        }`}
-                      >
-                        <Compass className="h-3.5 w-3.5 shrink-0" />
-                        {label}
-                      </Link>
-                    ))}
-                  </nav>
-                </div>
-              )}
-            </div>
           )}
         </div>
       </div>
