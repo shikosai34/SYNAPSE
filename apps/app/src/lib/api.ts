@@ -177,10 +177,14 @@ export const menuApi = {
     }),
   delete: (id: string) =>
     fetchApi<{ success: boolean }>(`/api/menus/${id}`, { method: "DELETE" }),
-  updateStock: (id: string, stock: number | null) =>
+  // 在庫の絶対値更新 (在庫>0 で soldOut は自動解除される)。
+  // サーバ (menu.ts の PATCH /:id/stock) は stockQuantity を要求する。
+  // 以前は { stock } を送っており zBody のバリデーションで常に 400 になっていた。
+  // トッピング側と引数名・意味論を揃えておく。
+  updateStock: (id: string, stockQuantity: number) =>
     fetchApi<{ success: boolean }>(`/api/menus/${id}/stock`, {
       method: "PATCH",
-      body: { stock },
+      body: { stockQuantity },
     }),
 };
 
