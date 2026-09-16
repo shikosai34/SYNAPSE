@@ -8,6 +8,7 @@ import {
   text,
   integer,
   index,
+  uniqueIndex,
 } from "drizzle-orm/sqlite-core";
 import { circle } from "./core";
 import { menu, topping } from "./menu";
@@ -98,6 +99,121 @@ export const orderItemTopping = sqliteTable(
   ]
 );
 
+// クーポンテーブル (2026-09-16, issue #50)
+// サークルが自分たちで「知り合い限定」の割引を作れるようにする機能。
+// URL(slug、ランダムな長い文字列で実質的に推測不能)と合言葉の2要素で配布範囲を絞り、
+// 合言葉が漏れた場合の被害は maxRedemptions (使用上限回数) で頭数分に抑える設計。
+// 小規模イベント運用の割り切りとして、合言葉は平文比較で開始する (issue #50 スコープ外)。
+export const coupon = sqliteTable(
+  "coupon",
+  {
+    id: text("id").primaryKey().$defaultFn(() => ulid()),
+    circleId: text("circle_id")
+      .notNull()
+      .references(() => circle.id, { onDelete: "cascade" }),
+    title: text("title").notNull(), // サークル管理画面用のラベル (例: "友達限定500円引き")
+    slug: text("slug").notNull().unique(), // 配布URLに使うランダム文字列
+    passphrase: text("passphrase").notNull(), // URLと合わせて口頭ではなくテキストで伝える想定の合言葉
+    // 割引の種類 (2026-09-16 フィードバック対応)。
+    // menu_discount: 対象メニュー(couponMenu)の小計から discountAmount 円引く。
+    // free_topping: 対象トッピング(couponTopping)を freeUnits 個(null=無制限)まで無料にする。
+    kind: text("kind").notNull().default("menu_discount"), // menu_discount / free_topping
+    // 固定額引き (円)。menu_discount のときのみ使用。free_topping ではトッピングの実価格を
+    // 都度参照するため使わない (値上げ/値下げしても常に「そのトッピング分」が引かれるように)。
+    discountAmount: integer("discount_amount"),
+    // free_topping のときのみ使用。無料にする個数の上限。null = 対象トッピングを全部無料にする
+    // (「自由度を無限にする」フィードバック対応。0円引き乱用を防ぐ上限はサークル自身が設定する)。
+    freeUnits: integer("free_units"),
+    // 使用上限回数。null = 無制限 (2026-09-16 フィードバック対応)。漏洩時の被害を抑えたい
+    // サークルは数値を設定し、身内向けで実害を気にしないサークルは無制限のままにできる。
+    maxRedemptions: integer("max_redemptions"),
+    redeemedCount: integer("redeemed_count").notNull().default(0),
+    expiresAt: integer("expires_at", { mode: "timestamp_ms" }), // 任意
+    status: text("status").notNull().default("active"), // active / disabled
+    createdAt: integer("created_at", { mode: "timestamp_ms" })
+      .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+      .notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" })
+      .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  (table) => [
+    index("coupon_circleId_idx").on(table.circleId),
+    index("coupon_slug_idx").on(table.slug),
+  ]
+);
+
+// クーポンの適用対象メニュー (2026-09-16, issue #50 フィードバック対応, kind=menu_discount 用)。
+// 「カート全体からいくら引く」ではなく「特定のメニューを買ったときだけ効く」割引にするため、
+// menu_topping と同じ形の中間テーブルで対象メニューを指定する。割引額はこの対象メニューの
+// 小計 (数量×単価、トッピング込み) にのみ適用し、それ以外のメニューには影響しない。
+export const couponMenu = sqliteTable(
+  "coupon_menu",
+  {
+    id: text("id").primaryKey().$defaultFn(() => ulid()),
+    couponId: text("coupon_id")
+      .notNull()
+      .references(() => coupon.id, { onDelete: "cascade" }),
+    menuId: text("menu_id")
+      .notNull()
+      .references(() => menu.id, { onDelete: "cascade" }),
+  },
+  (table) => [
+    index("coupon_menu_couponId_idx").on(table.couponId),
+    index("coupon_menu_menuId_idx").on(table.menuId),
+    uniqueIndex("coupon_menu_coupon_menu_unique").on(table.couponId, table.menuId),
+  ]
+);
+
+// クーポンの適用対象トッピング (2026-09-16, kind=free_topping 用)。couponMenu と同じ形。
+export const couponTopping = sqliteTable(
+  "coupon_topping",
+  {
+    id: text("id").primaryKey().$defaultFn(() => ulid()),
+    couponId: text("coupon_id")
+      .notNull()
+      .references(() => coupon.id, { onDelete: "cascade" }),
+    toppingId: text("topping_id")
+      .notNull()
+      .references(() => topping.id, { onDelete: "cascade" }),
+  },
+  (table) => [
+    index("coupon_topping_couponId_idx").on(table.couponId),
+    index("coupon_topping_toppingId_idx").on(table.toppingId),
+    uniqueIndex("coupon_topping_coupon_topping_unique").on(table.couponId, table.toppingId),
+  ]
+);
+
+// クーポン使用履歴テーブル。(couponId, eventUserId) のユニーク制約で「1人1回まで」を強制する。
+export const couponRedemption = sqliteTable(
+  "coupon_redemption",
+  {
+    id: text("id").primaryKey().$defaultFn(() => ulid()),
+    couponId: text("coupon_id")
+      .notNull()
+      .references(() => coupon.id, { onDelete: "cascade" }),
+    eventUserId: text("event_user_id")
+      .notNull()
+      .references(() => eventUser.id, { onDelete: "cascade" }),
+    preOrderId: text("pre_order_id")
+      .notNull()
+      .references(() => preOrder.id, { onDelete: "cascade" }),
+    discountApplied: integer("discount_applied").notNull(),
+    createdAt: integer("created_at", { mode: "timestamp_ms" })
+      .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+      .notNull(),
+  },
+  (table) => [
+    index("coupon_redemption_couponId_idx").on(table.couponId),
+    index("coupon_redemption_eventUserId_idx").on(table.eventUserId),
+    uniqueIndex("coupon_redemption_coupon_user_unique").on(
+      table.couponId,
+      table.eventUserId
+    ),
+  ]
+);
+
 // 事前オーダーテーブル
 export const preOrder = sqliteTable(
   "pre_order",
@@ -111,6 +227,11 @@ export const preOrder = sqliteTable(
       .references(() => circle.id, { onDelete: "cascade" }),
     totalPrice: integer("total_price").notNull(),
     status: text("status").notNull().default("pending"), // pending / checked_in / completed / cancelled
+    // クーポン適用 (2026-09-16, issue #50)。適用が無ければ両方 null。
+    // couponId は集計・監査用の参照、discountAmount は「作成時点でいくら引かれたか」の
+    // スナップショット (後でクーポン自体の割引額が変わっても過去の注文は変わらないようにする)。
+    couponId: text("coupon_id").references(() => coupon.id),
+    discountAmount: integer("discount_amount"),
     createdAt: integer("created_at", { mode: "timestamp_ms" })
       .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
       .notNull(),

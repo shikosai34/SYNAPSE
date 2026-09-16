@@ -52,6 +52,8 @@ export const ROLE_PERMISSIONS = {
     "member:read",
     "member:write",
     "member:delete",
+    "coupon:read",
+    "coupon:write",
   ],
   [ROLES.EVENT_MANAGER]: [
     "event:read",
@@ -74,6 +76,8 @@ export const ROLE_PERMISSIONS = {
     "member:read",
     "member:write",
     "member:delete",
+    "coupon:read",
+    "coupon:write",
   ],
   [ROLES.CIRCLE_MANAGER]: [
     "circle:read",
@@ -91,6 +95,10 @@ export const ROLE_PERMISSIONS = {
     "sales:read",
     "member:read",
     "member:write",
+    // クーポン(割引)の作成はメニュー編集と同程度の重み付けのため、menu:write と同じく
+    // circle_manager 以上に限定する (circle_staff には付与しない)。
+    "coupon:read",
+    "coupon:write",
   ],
   [ROLES.CIRCLE_STAFF]: [
     "circle:read",

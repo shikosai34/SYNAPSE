@@ -15,6 +15,10 @@ import {
   preOrder,
   preOrderItem,
   preOrderItemTopping,
+  coupon,
+  couponMenu,
+  couponTopping,
+  couponRedemption,
 } from "./order";
 import {
   eventUser,
@@ -45,6 +49,7 @@ export const circleRelations = relations(circle, ({ one, many }) => ({
   numberedTickets: many(numberedTicket),
   reviews: many(review),
   userStamps: many(userStamp),
+  coupons: many(coupon),
 }));
 
 export const staffRelations = relations(staff, ({ one }) => ({
@@ -85,6 +90,7 @@ export const menuRelations = relations(menu, ({ one, many }) => ({
   menuToppings: many(menuTopping),
   orderItems: many(orderItem),
   preOrderItems: many(preOrderItem),
+  couponMenus: many(couponMenu),
 }));
 
 export const toppingRelations = relations(topping, ({ one, many }) => ({
@@ -95,6 +101,7 @@ export const toppingRelations = relations(topping, ({ one, many }) => ({
   menuToppings: many(menuTopping),
   orderItemToppings: many(orderItemTopping),
   preOrderItemToppings: many(preOrderItemTopping),
+  couponToppings: many(couponTopping),
 }));
 
 export const menuToppingRelations = relations(menuTopping, ({ one }) => ({
@@ -152,6 +159,10 @@ export const preOrderRelations = relations(preOrder, ({ one, many }) => ({
     fields: [preOrder.circleId],
     references: [circle.id],
   }),
+  coupon: one(coupon, {
+    fields: [preOrder.couponId],
+    references: [coupon.id],
+  }),
   items: many(preOrderItem),
 }));
 
@@ -180,6 +191,55 @@ export const preOrderItemToppingRelations = relations(
     }),
   })
 );
+
+// --- coupon (issue #50) ---
+export const couponRelations = relations(coupon, ({ one, many }) => ({
+  circle: one(circle, {
+    fields: [coupon.circleId],
+    references: [circle.id],
+  }),
+  redemptions: many(couponRedemption),
+  preOrders: many(preOrder),
+  couponMenus: many(couponMenu),
+  couponToppings: many(couponTopping),
+}));
+
+export const couponMenuRelations = relations(couponMenu, ({ one }) => ({
+  coupon: one(coupon, {
+    fields: [couponMenu.couponId],
+    references: [coupon.id],
+  }),
+  menu: one(menu, {
+    fields: [couponMenu.menuId],
+    references: [menu.id],
+  }),
+}));
+
+export const couponToppingRelations = relations(couponTopping, ({ one }) => ({
+  coupon: one(coupon, {
+    fields: [couponTopping.couponId],
+    references: [coupon.id],
+  }),
+  topping: one(topping, {
+    fields: [couponTopping.toppingId],
+    references: [topping.id],
+  }),
+}));
+
+export const couponRedemptionRelations = relations(couponRedemption, ({ one }) => ({
+  coupon: one(coupon, {
+    fields: [couponRedemption.couponId],
+    references: [coupon.id],
+  }),
+  user: one(eventUser, {
+    fields: [couponRedemption.eventUserId],
+    references: [eventUser.id],
+  }),
+  preOrder: one(preOrder, {
+    fields: [couponRedemption.preOrderId],
+    references: [preOrder.id],
+  }),
+}));
 
 // --- visitor ---
 export const eventUserRelations = relations(eventUser, ({ one, many }) => ({

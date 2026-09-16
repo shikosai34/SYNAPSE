@@ -5,6 +5,7 @@ import { ModSandbox } from "@/components/ModSandbox";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { eventApi, circleApi, menuApi, preOrderApi, orderApi, type MenuWithToppings, type Topping } from "@/lib/api";
 import { useVisitor } from "@/hooks/useVisitor";
+import { getCouponsForCircle, removeCouponForCircle, type StoredCoupon } from "@/lib/coupon-storage";
 import { cn } from "@/lib/utils";
 import {
   Card,
@@ -22,7 +23,7 @@ import { ErrorState } from "@/components/ui/ErrorState";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { toast } from "sonner";
 import { EventTheme } from "@/components/EventTheme";
-import { ShoppingCart, Plus, Minus, CheckCircle, UtensilsCrossed } from "lucide-react";
+import { ShoppingCart, Plus, Minus, CheckCircle, UtensilsCrossed, Ticket, X } from "lucide-react";
 
 // 2026-07-13: 来場者モバイルオーダーもトッピング対応にするため、レジ (Register.tsx) と同じく
 // カートを「行 (line)」単位で持つ。同じメニューでもトッピング構成が違えば別行になる。
@@ -47,13 +48,21 @@ const lineKey = (menuId: string, toppingIds: string[]) =>
 const lineSubtotal = (line: CartLine) =>
   (line.menuPrice + line.toppings.reduce((s, t) => s + t.toppingPrice, 0)) * line.quantity;
 
-// メニューカード。カート追加前にトッピングを選択できるようローカル選択状態を持つ。
-// Register.tsx の MenuCard と同じ思想 (追加後は既定トッピングへリセット)。
+// メニューカード。トッピング選択と、このメニュー/トッピングに関係するクーポンを
+// カード内に直接(モーダルなしで)順番に表示する (2026-09-16)。
+// モーダル案は「操作が一段挟まって見えにくい」というフィードバックで撤回し、
+// 代わりにボタン/選択肢そのものを大きく・強調を強くして見やすさを確保する方針にした。
 function VisitorMenuCard({
   menu,
+  relevantCoupons,
+  enabledCouponSlugs,
+  onToggleCoupon,
   onAdd,
 }: {
   menu: MenuWithToppings;
+  relevantCoupons: StoredCoupon[];
+  enabledCouponSlugs: Set<string>;
+  onToggleCoupon: (slug: string) => void;
   onAdd: (menu: MenuWithToppings, toppings: CartTopping[]) => void;
 }) {
   // 既定トッピング: menu.defaultToppingIds のうち、このメニューに紐づく売切れでないもの。
@@ -71,7 +80,6 @@ function VisitorMenuCard({
 
   const [selected, setSelected] = useState<Set<string>>(defaultIds);
 
-  // メニュー(既定トッピング)が変わったら選択状態を作り直す
   useEffect(() => {
     setSelected(defaultIds());
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -85,9 +93,23 @@ function VisitorMenuCard({
     });
 
   const availableToppings = menu.toppings ?? [];
+
+  // 「使う」がONのfree_toppingクーポンについて、選択中のトッピングのうち無料になる分を
+  // 特定する (2026-09-16)。「使うを押したのにトッピングが無料に見えない」という
+  // フィードバック対応: トグルするだけでなく、対象トッピングのボタン自体に「無料」と
+  // 表示して反映を目に見えるようにする。freeUnits の上限も考慮する (このカード内での近似計算。
+  // 最終的な確定額はカート全体の状態から computeCouponDiscount 相当のロジックで算出される)。
+  const freeToppingIds = new Set<string>();
+  for (const c of relevantCoupons) {
+    if (c.kind !== "free_topping" || !enabledCouponSlugs.has(c.slug)) continue;
+    const matchingSelected = availableToppings.filter((t) => selected.has(t.id) && c.toppingIds.includes(t.id));
+    const freeCount = c.freeUnits ?? matchingSelected.length;
+    matchingSelected.slice(0, freeCount).forEach((t) => freeToppingIds.add(t.id));
+  }
+
   const selectedExtra = availableToppings
     .filter((t) => selected.has(t.id))
-    .reduce((s, t) => s + t.price, 0);
+    .reduce((s, t) => s + (freeToppingIds.has(t.id) ? 0 : t.price), 0);
 
   const handleAdd = () => {
     const chosen: CartTopping[] = availableToppings
@@ -121,22 +143,27 @@ function VisitorMenuCard({
           )}
         </div>
       </CardHeader>
-      <CardContent>
-        <CardTitle className="mb-sp-2">{menu.name}</CardTitle>
-        <p className="text-[24px] font-headline mb-sp-2">¥{menu.price.toLocaleString()}</p>
-        {menu.description && (
-          <CardDescription className="mb-sp-2">{menu.description}</CardDescription>
-        )}
+      <CardContent className="space-y-sp-3">
+        <div>
+          <CardTitle className="mb-sp-1">{menu.name}</CardTitle>
+          <p className="text-[26px] font-headline leading-none">
+            ¥{(menu.price + selectedExtra).toLocaleString()}
+          </p>
+          {menu.description && (
+            <CardDescription className="mt-sp-1">{menu.description}</CardDescription>
+          )}
+        </div>
 
-        {/* カート追加前のトッピング選択 (このメニューに紐づくトッピングのみ) */}
+        {/* トッピング選択: ボタンを大きく・太枠にして選択状態がひと目で分かるようにする */}
         {availableToppings.length > 0 && (
-          <div className="space-y-1.5 mt-sp-2">
-            <p className="text-[10px] font-mono font-bold uppercase tracking-wider text-muted-foreground">
-              トッピング (追加前に選択)
+          <div className="space-y-1.5">
+            <p className="text-xs font-mono font-black uppercase tracking-wider text-foreground">
+              トッピングを選ぶ
             </p>
-            <div className="flex flex-wrap gap-1">
+            <div className="flex flex-wrap gap-2">
               {availableToppings.map((t) => {
                 const on = selected.has(t.id);
+                const isFree = on && freeToppingIds.has(t.id);
                 return (
                   <button
                     key={t.id}
@@ -144,23 +171,81 @@ function VisitorMenuCard({
                     disabled={t.soldOut || menu.soldOut}
                     onClick={() => toggle(t.id)}
                     className={cn(
-                      "flex items-center gap-1 border-thin px-1.5 py-0.5 text-[11px] sm:text-xs font-bold rounded-none transition-all disabled:opacity-40 disabled:cursor-not-allowed",
-                      on
-                        ? "border-primary bg-primary text-primary-foreground"
-                        : "border-border bg-background hover:bg-muted"
+                      "flex items-center gap-1.5 border-thick px-3 py-2 text-sm font-bold rounded-none transition-all disabled:opacity-40 disabled:cursor-not-allowed",
+                      isFree
+                        ? "border-success bg-success text-white"
+                        : on
+                          ? "border-primary bg-primary text-primary-foreground"
+                          : "border-border bg-background hover:bg-muted"
                     )}
                   >
                     {t.imagePath && (
-                      <img src={t.imagePath} alt="" className="h-4 w-4 object-cover border-thin border-current shrink-0" />
+                      <img src={t.imagePath} alt="" className="h-5 w-5 object-cover border-thin border-current shrink-0" />
                     )}
-                    <span className="truncate max-w-[90px]">{t.name}</span>
-                    <span className={on ? "opacity-80" : "text-muted-foreground"}>
-                      {t.price >= 0 ? `+¥${t.price}` : `-¥${Math.abs(t.price)}`}
-                    </span>
+                    <span className="truncate max-w-[110px]">{t.name}</span>
+                    {isFree ? (
+                      <span className="flex items-center gap-1">
+                        <span className="line-through opacity-70">¥{t.price}</span>
+                        <span>無料</span>
+                      </span>
+                    ) : (
+                      <span className={on ? "opacity-90" : "text-muted-foreground"}>
+                        {t.price >= 0 ? `+¥${t.price}` : `-¥${Math.abs(t.price)}`}
+                      </span>
+                    )}
                   </button>
                 );
               })}
             </div>
+          </div>
+        )}
+
+        {/* この商品/選んだトッピングに関係するクーポン (2026-09-16)。トッピング選択のすぐ下に
+            置くことで「どのトッピングを選んだら使えるか」が分かるようにする。 */}
+        {relevantCoupons.length > 0 && (
+          <div className="space-y-1.5">
+            <p className="text-xs font-mono font-black uppercase tracking-wider text-foreground">
+              使えるクーポン
+            </p>
+            {relevantCoupons.map((c) => {
+              const enabled = enabledCouponSlugs.has(c.slug);
+              const toppingMatches = c.kind === "free_topping" && c.toppingIds.some((id) => selected.has(id));
+              return (
+                <div
+                  key={c.slug}
+                  className={cn(
+                    "flex items-center justify-between gap-3 border-thick p-2.5 transition-colors",
+                    enabled ? "border-primary bg-primary/10" : "border-border bg-background"
+                  )}
+                >
+                  <div className="min-w-0">
+                    <p className="flex items-center gap-1.5 text-sm font-black">
+                      <Ticket className="h-4 w-4 shrink-0" />
+                      {c.title}
+                    </p>
+                    <p className="text-[11px] text-muted-foreground mt-0.5">
+                      {c.kind === "free_topping"
+                        ? toppingMatches
+                          ? "選択中のトッピングが無料になります"
+                          : "対象トッピングを選ぶと無料になります"
+                        : `¥${c.discountAmount?.toLocaleString()}引き`}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => onToggleCoupon(c.slug)}
+                    className={cn(
+                      "border-thick px-4 py-2 text-sm font-black uppercase shrink-0 transition-all",
+                      enabled
+                        ? "border-primary bg-primary text-primary-foreground"
+                        : "border-border bg-background hover:bg-muted"
+                    )}
+                  >
+                    {enabled ? "使う中" : "使う"}
+                  </button>
+                </div>
+              );
+            })}
           </div>
         )}
       </CardContent>
@@ -169,10 +254,10 @@ function VisitorMenuCard({
         <Button
           onClick={handleAdd}
           disabled={menu.soldOut}
-          className="w-full h-12 border-thick border-border bg-primary font-mono text-base font-bold uppercase text-primary-foreground rounded-none hover:bg-background hover:text-foreground transition-colors"
+          className="w-full h-14 border-thick border-border bg-primary font-mono text-lg font-black uppercase text-primary-foreground rounded-none hover:bg-background hover:text-foreground transition-colors"
         >
           <ShoppingCart className="mr-2 h-5 w-5" />
-          カートに追加{selectedExtra !== 0 && ` (¥${(menu.price + selectedExtra).toLocaleString()})`}
+          カートに追加
         </Button>
       </CardFooter>
     </Card>
@@ -192,6 +277,24 @@ function MenuPageContent() {
     circleIdParam
   );
   const [cart, setCart] = useState<CartLine[]>([]);
+  // クーポン適用 (2026-09-16, issue #50)。/visitor/coupon/:slug で合言葉検証済みのものは
+  // localStorage (coupon-storage.ts) に複数枚まとめて保存されているので、このサークルの分を
+  // 一覧で読み込む (以前は1枚しか保存/表示できず「クーポンが1つしか出ない」不具合になっていた)。
+  // 検証済みでも自動では適用せず、客が「クーポン」欄で明示的に選んだものだけ (enabledCouponSlugs) 使う。
+  const [appliedCoupons, setAppliedCoupons] = useState<StoredCoupon[]>([]);
+  const [enabledCouponSlugs, setEnabledCouponSlugs] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    setAppliedCoupons(selectedCircleId ? getCouponsForCircle(selectedCircleId) : []);
+    setEnabledCouponSlugs(new Set());
+  }, [selectedCircleId]);
+
+  const toggleCoupon = (slug: string) =>
+    setEnabledCouponSlugs((prev) => {
+      const next = new Set(prev);
+      next.has(slug) ? next.delete(slug) : next.add(slug);
+      return next;
+    });
 
 
 
@@ -260,11 +363,23 @@ function MenuPageContent() {
           quantity: line.quantity,
           toppingIds: line.toppings.map((t) => t.toppingId),
         })),
+        // applicableCoupons (客が明示的に「使う」を選んでおり、かつ対象商品がカートにあるものだけ) を
+        // 送る。verify 済みというだけで自動送信すると「自動で適用しないで」に反する。
+        coupons: applicableCoupons.map((c) => ({ slug: c.slug, passphrase: c.passphrase })),
       });
     },
     onSuccess: () => {
       toast.success("事前オーダーを送信しました！店頭でマイQRを提示してください。");
       setCart([]);
+      // クーポンは1人1回までなので、実際に使った (applicableCoupons に含まれる) 分だけ端末側の
+      // キャッシュを消す。使わなかったクーポンはまだ枠が残っているので、次の注文のために残しておく。
+      if (selectedCircleId && applicableCoupons.length > 0) {
+        for (const c of applicableCoupons) {
+          removeCouponForCircle(selectedCircleId, c.slug);
+        }
+        setAppliedCoupons((prev) => prev.filter((c) => !applicableCoupons.some((a) => a.slug === c.slug)));
+        setEnabledCouponSlugs(new Set());
+      }
       // 送信直後は注文履歴に遷移し、事前オーダーの状態を確認できるようにする (2026-07-11 履歴を /orders に分離)
       navigate("/visitor/orders");
     },
@@ -340,6 +455,15 @@ function MenuPageContent() {
       ];
     });
   };
+
+  // このメニューに関係するクーポン (2026-09-16)。menu_discount はこのメニューが対象のもの、
+  // free_topping はこのメニューに紐づくトッピングのどれかが対象のもの。
+  const relevantCouponsForMenu = (menu: MenuWithToppings) =>
+    appliedCoupons.filter((c) =>
+      c.kind === "menu_discount"
+        ? c.menuIds.includes(menu.id)
+        : (menu.toppings ?? []).some((t) => c.toppingIds.includes(t.id))
+    );
 
   const updateLineQuantity = (lineId: string, delta: number) => {
     setCart((prev) =>
@@ -420,6 +544,41 @@ function MenuPageContent() {
       return false;
     }
   };
+
+  // クーポン適用は事前オーダー(preOrderApi)経由のみ対応 (issue #50 スコープ外: COD直販/レジ)。
+  // COD (代引き) モッドが有効なサークルでは orderApi.create に割引を渡す経路が無いため、
+  // 誤って「割引されると見せて実際は反映されない」ことがないよう表示自体を出さない。
+  // 2026-09-16 フィードバック対応: (1) kind に応じて menu_discount (対象メニューの小計から
+  // 定額引き) / free_topping (対象トッピングを freeUnits 個まで無料) を計算する。
+  // サーバ側 (utils/coupon.ts computeCouponDiscount) と同じロジック。(2) 検証済みでも
+  // 自動では適用せず、enabledCouponSlugs (「クーポン」欄でのユーザーの明示選択) に
+  // 含まれるものだけ有効にする。(3) 複数枚を検証済みの場合は全部リストに出し、
+  // 選んだ分だけ同時に適用できる (以前は1枚しか保存/表示できなかった不具合の修正)。
+  const potentialDiscountFor = (c: StoredCoupon): number => {
+    if (c.kind === "free_topping") {
+      const unitPrices: number[] = [];
+      for (const line of cart) {
+        for (const t of line.toppings) {
+          if (c.toppingIds.includes(t.toppingId)) {
+            for (let i = 0; i < line.quantity; i++) unitPrices.push(t.toppingPrice);
+          }
+        }
+      }
+      unitPrices.sort((a, b) => b - a);
+      const freeCount = c.freeUnits ?? unitPrices.length;
+      return unitPrices.slice(0, Math.max(0, freeCount)).reduce((sum, p) => sum + p, 0);
+    }
+    const eligibleSubtotal = cart
+      .filter((l) => c.menuIds.includes(l.menuId))
+      .reduce((sum, l) => sum + lineSubtotal(l), 0);
+    return Math.min(c.discountAmount ?? 0, eligibleSubtotal);
+  };
+  // 実際に効くクーポン = 明示的にONにしていて、かつ対象商品がカートにある (割引>0) もの。
+  const applicableCoupons = isPreOrderEnabled()
+    ? []
+    : appliedCoupons.filter((c) => enabledCouponSlugs.has(c.slug) && potentialDiscountFor(c) > 0);
+  const couponDiscount = applicableCoupons.reduce((sum, c) => sum + potentialDiscountFor(c), 0);
+  const getDiscountedTotal = () => Math.max(0, getTotalPrice() - couponDiscount);
 
   // 外部モッド用グローバルAPIの公開
   useEffect(() => {
@@ -602,7 +761,8 @@ function MenuPageContent() {
         </div>
       )}
 
-      {/* メニュー一覧 */}
+      {/* メニュー一覧。常設のクーポンセクションは置かず、各カードの中でトッピング選択の
+          すぐ下に関係するクーポンを出す (2026-09-16、モーダル案は撤回してカード内に戻した)。 */}
       <div>
         <h2 className="text-[24px] sm:text-[32px] font-headline uppercase tracking-tight mb-sp-3 leading-[1.1]">
           メニューを選択して事前注文
@@ -610,7 +770,14 @@ function MenuPageContent() {
         {menus && menus.length > 0 ? (
           <div className="grid gap-sp-3 sm:grid-cols-2 lg:grid-cols-3">
             {menus.map((menu) => (
-              <VisitorMenuCard key={menu.id} menu={menu} onAdd={addLine} />
+              <VisitorMenuCard
+                key={menu.id}
+                menu={menu}
+                relevantCoupons={isPreOrderEnabled() ? [] : relevantCouponsForMenu(menu)}
+                enabledCouponSlugs={enabledCouponSlugs}
+                onToggleCoupon={toggleCoupon}
+                onAdd={addLine}
+              />
             ))}
           </div>
         ) : (
@@ -627,14 +794,31 @@ function MenuPageContent() {
                 <span className="bg-background text-foreground px-2 py-0.5 font-mono text-xs font-bold uppercase tracking-widest">
                   {getTotalCount()}点
                 </span>
-                <span className="font-mono text-xl sm:text-2xl font-black">
-                  ¥{getTotalPrice().toLocaleString()}
-                </span>
+                {applicableCoupons.length > 0 ? (
+                  <span className="flex items-baseline gap-1.5">
+                    <span className="font-mono text-xs line-through text-primary-foreground/60">
+                      ¥{getTotalPrice().toLocaleString()}
+                    </span>
+                    <span className="font-mono text-xl sm:text-2xl font-black">
+                      ¥{getDiscountedTotal().toLocaleString()}
+                    </span>
+                  </span>
+                ) : (
+                  <span className="font-mono text-xl sm:text-2xl font-black">
+                    ¥{getTotalPrice().toLocaleString()}
+                  </span>
+                )}
               </div>
               <p className="text-[10px] sm:text-xs text-primary-foreground/80 font-mono hidden sm:block">
                 事前に注文を予約し、レジでスムーズに会計できます。
               </p>
             </div>
+            {applicableCoupons.length > 0 && (
+              <div className="flex items-center gap-1.5 bg-background text-foreground px-2 py-1 text-[11px] font-bold w-fit flex-wrap">
+                <Ticket className="h-3.5 w-3.5 shrink-0" />
+                {applicableCoupons.map((c) => `「${c.title}」`).join(" + ")} 適用中 (¥{couponDiscount.toLocaleString()}引き)
+              </div>
+            )}
             <Button
               onClick={() => setIsCartOpen(true)}
               className="w-full h-14 border-thick border-border bg-background px-4 sm:px-8 font-mono text-base sm:text-lg font-black uppercase text-foreground rounded-none hover:bg-primary hover:text-primary-foreground transition-all shadow-none active:translate-y-1"
@@ -719,9 +903,28 @@ function MenuPageContent() {
         </div>
 
         <div className="border-t-thick border-border pt-3 space-y-2">
+          {applicableCoupons.map((c) => (
+            <div key={c.slug} className="flex items-center justify-between text-xs">
+              <span className="flex items-center gap-1.5 font-bold">
+                <Ticket className="h-3.5 w-3.5 shrink-0" />
+                「{c.title}」
+              </span>
+              <span className="flex items-center gap-2">
+                <span className="font-bold text-success">-¥{potentialDiscountFor(c).toLocaleString()}</span>
+                <button
+                  type="button"
+                  onClick={() => toggleCoupon(c.slug)}
+                  aria-label="クーポンの適用をやめる"
+                  className="text-muted-foreground hover:text-foreground"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </span>
+            </div>
+          ))}
           <div className="flex justify-between font-black text-lg text-foreground">
             <span>合計金額:</span>
-            <span>¥{getTotalPrice().toLocaleString()}</span>
+            <span>¥{getDiscountedTotal().toLocaleString()}</span>
           </div>
           <p className="text-[11px] text-muted-foreground leading-normal">
             {isPreOrderEnabled()

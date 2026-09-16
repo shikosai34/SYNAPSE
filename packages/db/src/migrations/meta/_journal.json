@@ -120,6 +120,34 @@
       "when": 1784136254229,
       "tag": "0016_hot_bulldozer",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "6",
+      "when": 1789526905644,
+      "tag": "0017_add_coupon",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "6",
+      "when": 1789528134018,
+      "tag": "0018_add_coupon_menu",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "6",
+      "when": 1789533982470,
+      "tag": "0019_coupon_kind_free_topping",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "6",
+      "when": 1789534996457,
+      "tag": "0020_coupon_unlimited_redemptions",
+      "breakpoints": true
     }
   ]
 }
