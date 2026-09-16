@@ -56,6 +56,8 @@ export const ROLE_PERMISSIONS = {
     "member:read",
     "member:write",
     "member:delete",
+    "coupon:read",
+    "coupon:write",
   ],
   [ROLES.SYSTEM_MANAGER]: [
     "system:read",
@@ -94,6 +96,8 @@ export const ROLE_PERMISSIONS = {
     "member:read",
     "member:write",
     "member:delete",
+    "coupon:read",
+    "coupon:write",
   ],
   [ROLES.EVENT_STAFF]: [
     "event:read",
@@ -117,6 +121,8 @@ export const ROLE_PERMISSIONS = {
     "sales:read",
     "member:read",
     "member:write",
+    "coupon:read",
+    "coupon:write",
   ],
   [ROLES.CIRCLE_STAFF]: [
     "circle:read",
@@ -154,6 +160,8 @@ export const PERMISSION_NAMES: Record<string, string> = {
   "member:read": "メンバー閲覧",
   "member:write": "メンバー編集",
   "member:delete": "メンバー削除",
+  "coupon:read": "クーポン閲覧",
+  "coupon:write": "クーポン編集",
 };
 
 // 認証情報の型

@@ -10,6 +10,7 @@ import wristbandRoutes from "./wristband";
 import preOrderRoutes from "./pre_order";
 import accountRoutes from "./account";
 import lotteryRoutes from "./lottery";
+import couponRoutes from "./coupon";
 import { systemRoutes, adminRoutes } from "./system";
 
 export {
@@ -25,6 +26,7 @@ export {
   preOrderRoutes,
   accountRoutes,
   lotteryRoutes,
+  couponRoutes,
   systemRoutes,
   adminRoutes,
 };

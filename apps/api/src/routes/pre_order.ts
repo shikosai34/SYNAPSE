@@ -17,12 +17,20 @@ import {
   userStamp,
   circle,
   event,
+  couponRedemption,
   type DB,
 } from "@fesflow/db";
 import { eq, and, or, inArray, desc, sql } from "drizzle-orm";
 import { ulid } from "ulidx";
 import { hasPermission } from "../utils/auth";
 import { decrementStockWithGuard } from "../utils/stock";
+import {
+  checkCouponEligibility,
+  computeCouponDiscount,
+  getCouponMenuIds,
+  getCouponToppingIds,
+  redeemCouponWithGuard,
+} from "../utils/coupon";
 import type { AppEnv } from "../types";
 
 const preOrderRoutes = new Hono<AppEnv>();
@@ -75,12 +83,27 @@ preOrderRoutes.post(
           toppingIds: z.array(z.string()).optional(),
         })
       ),
+      // クーポン適用 (2026-09-16, issue #50)。来場者側は /coupon/:slug で事前に合言葉検証済みでも、
+      // ここで slug+passphrase を再送させて改めてサーバ側で検証する (合言葉検証だけの verify エンドポイントは
+      // 消費しないプレビューのため、実際の消費・使用回数+1はここでのみ行う)。
+      // 複数枚同時適用に対応 (2026-09-16 フィードバック対応: 来場者は複数の合言葉を検証済みの
+      // ことがあるため)。対象が重ならなければ (例: メニューA向けの金額引き + トッピングB無料)
+      // 両方同時に効かせて問題ない。
+      coupons: z
+        .array(
+          z.object({
+            slug: z.string().min(1),
+            passphrase: z.string().min(1),
+          })
+        )
+        .max(10)
+        .optional(),
     })
   ),
   async (c) => {
     const db = c.get("db");
     try {
-      const { userId, circleId, items } = c.req.valid("json");
+      const { userId, circleId, items, coupons: couponInputs = [] } = c.req.valid("json");
       const preOrderId = ulid();
 
       // 2026-07-04: 新規スマホユーザーの外部キーエラー回避のため、サークルの eventId を取得し、
@@ -166,11 +189,13 @@ preOrderRoutes.post(
           : [];
 
       let totalPrice = 0;
-      // トッピングも一緒に保持し、後段でスナップショット挿入する
+      // トッピングも一緒に保持し、後段でスナップショット挿入する。subtotal はクーポンの
+      // 対象メニュー限定割引 (2026-09-16, issue #50 フィードバック対応) の算出に使う。
       const itemList: {
         id: string;
         menuId: string;
         quantity: number;
+        subtotal: number;
         toppings: { id: string; name: string; price: number }[];
       }[] = [];
 
@@ -213,11 +238,13 @@ preOrderRoutes.post(
         }
 
         const toppingTotal = itemToppings.reduce((sum, t) => sum + t.price, 0);
-        totalPrice += (m.price + toppingTotal) * item.quantity;
+        const itemSubtotal = (m.price + toppingTotal) * item.quantity;
+        totalPrice += itemSubtotal;
         itemList.push({
           id: ulid(),
           menuId: item.menuId,
           quantity: item.quantity,
+          subtotal: itemSubtotal,
           toppings: itemToppings.map((t) => ({
             id: t.id,
             name: t.name,
@@ -226,35 +253,103 @@ preOrderRoutes.post(
         });
       }
 
-      // 事前オーダー挿入
-      await db.insert(preOrder).values({
-        id: preOrderId,
-        userId,
-        circleId,
-        totalPrice,
-        status: "pending",
-      });
-
-      // 事前オーダーアイテム + トッピング挿入
-      for (const item of itemList) {
-        await db.insert(preOrderItem).values({
-          id: item.id,
-          preOrderId,
-          menuId: item.menuId,
-          quantity: item.quantity,
+      // クーポン適用 (2026-09-16, issue #50)。指定があれば再検証した上で消費する。
+      // 「検証 (checkCouponEligibility) → 使用回数をアトミックに+1 (redeemCouponWithGuard)」の
+      // 2段階にしているのは在庫減算 (utils/stock.ts) と同じレースコンディション対策で、
+      // 検証後に別リクエストが先に枠を使い切った場合はガード付きUPDATEの方で最終的に弾かれる。
+      // 2026-09-16 フィードバック対応: (1) kind (menu_discount / free_topping) に応じて対象が
+      // メニューかトッピングかを切り替え、computeCouponDiscount に計算を委ねる。(2) 複数枚
+      // 同時適用に対応。まず全クーポンを検証・計算してから消費するのは、途中の1枚が
+      // 「対象商品なし」で弾かれた場合に、別の1枚だけ消費済みという半端な状態を避けるため。
+      if (new Set(couponInputs.map((i) => i.slug)).size !== couponInputs.length) {
+        apiError("BAD_REQUEST", "同じクーポンが複数回指定されています");
+      }
+      const validatedCoupons: { id: string; title: string; discount: number }[] = [];
+      for (const input of couponInputs) {
+        const cp = await checkCouponEligibility(db, {
+          slug: input.slug,
+          passphrase: input.passphrase,
+          eventUserId: userId,
+          circleId,
         });
-        for (const t of item.toppings) {
-          await db.insert(preOrderItemTopping).values({
-            id: ulid(),
-            preOrderItemId: item.id,
-            toppingId: t.id,
-            toppingName: t.name,
-            toppingPrice: t.price,
-          });
+        const targetIds =
+          cp.kind === "free_topping"
+            ? await getCouponToppingIds(db, cp.id)
+            : await getCouponMenuIds(db, cp.id);
+        const computedDiscount = computeCouponDiscount(cp, targetIds, itemList);
+        if (computedDiscount <= 0) {
+          apiError(
+            "BAD_REQUEST",
+            cp.kind === "free_topping"
+              ? `クーポン「${cp.title}」の対象トッピングがカートに含まれていません`
+              : `クーポン「${cp.title}」の対象メニューがカートに含まれていません`
+          );
         }
+        validatedCoupons.push({ id: cp.id, title: cp.title, discount: computedDiscount });
       }
 
-      return c.json({ id: preOrderId, totalPrice }, 201);
+      // 2026-07-16 / 2026-09-16: D1 は対話的トランザクション非対応 (claim 同様の既知の制約)。
+      // クーポン消費 (ガード付きUPDATE) の後に以下が失敗すると「枠だけ消費されて事前オーダーが
+      // 残らない」不整合が起こり得るため、ベストエフォートで消費を戻してから再 throw する。
+      const couponRollbacks: (() => Promise<void>)[] = [];
+      let discountAmount = 0;
+      try {
+        for (const vc of validatedCoupons) {
+          const { rollback } = await redeemCouponWithGuard(db, vc.id);
+          couponRollbacks.push(rollback);
+          discountAmount += vc.discount;
+        }
+        const finalTotalPrice = Math.max(0, totalPrice - discountAmount);
+        // preOrder.couponId は単一クーポン向けの補助列。複数枚適用時は特定できないため null にし、
+        // 正本は coupon_redemption (preOrderId で複数行を引ける) とする。
+        const couponId = validatedCoupons.length === 1 ? validatedCoupons[0]!.id : null;
+
+        // 事前オーダー挿入
+        await db.insert(preOrder).values({
+          id: preOrderId,
+          userId,
+          circleId,
+          totalPrice: finalTotalPrice,
+          status: "pending",
+          couponId,
+          discountAmount: discountAmount > 0 ? discountAmount : undefined,
+        });
+
+        // 事前オーダーアイテム + トッピング挿入
+        for (const item of itemList) {
+          await db.insert(preOrderItem).values({
+            id: item.id,
+            preOrderId,
+            menuId: item.menuId,
+            quantity: item.quantity,
+          });
+          for (const t of item.toppings) {
+            await db.insert(preOrderItemTopping).values({
+              id: ulid(),
+              preOrderItemId: item.id,
+              toppingId: t.id,
+              toppingName: t.name,
+              toppingPrice: t.price,
+            });
+          }
+        }
+
+        // クーポン使用履歴 (1人1回まで制約の実体でもある)。適用した分だけ1行ずつ記録する。
+        for (const vc of validatedCoupons) {
+          await db.insert(couponRedemption).values({
+            id: ulid(),
+            couponId: vc.id,
+            eventUserId: userId,
+            preOrderId,
+            discountApplied: vc.discount,
+          });
+        }
+
+        return c.json({ id: preOrderId, totalPrice: finalTotalPrice }, 201);
+      } catch (innerError) {
+        for (const rollback of couponRollbacks) await rollback();
+        throw innerError;
+      }
     } catch (error) {
       // Phase4: apiError/AppError による意図的な 4xx (NOT_FOUND/BAD_REQUEST/FORBIDDEN 等) を
       // ここで握りつぶして 500 に丸めないよう、AppError はそのまま再 throw して onError に委ねる。

@@ -157,6 +157,7 @@ export default function DashboardLayout({
         { title: "売上管理", href: "/circle/dashboard/sales", icon: TrendingUp },
         { title: "統計・分析", href: "/circle/dashboard/analytics", icon: BarChart3 },
         { title: "データエクスポート", href: "/circle/dashboard/export", icon: Download },
+        { title: "クーポン管理", href: "/circle/dashboard/coupons", icon: Ticket },
       ],
     },
     {
