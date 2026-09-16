@@ -1135,7 +1135,86 @@ export interface CreatePreOrderInput {
     // 2026-07-13: 来場者モバイルオーダーのトッピング対応。省略時はトッピング無し。
     toppingIds?: string[];
   }>;
+  // クーポン適用 (2026-09-16, issue #50)。/coupon/:slug で検証済みでもサーバ側で再検証する。
+  // 複数枚同時適用に対応 (対象が重ならなければ併用できる)。
+  coupons?: { slug: string; passphrase: string }[];
 }
+
+// クーポン API (issue #50)
+// クーポンの種類 (2026-09-16 フィードバック対応)。
+// menu_discount: 対象メニューの小計から discountAmount 円引く。
+// free_topping: 対象トッピングを freeUnits 個 (null=無制限) まで無料にする。
+export type CouponKind = "menu_discount" | "free_topping";
+
+export interface Coupon {
+  id: string;
+  circleId: string;
+  title: string;
+  slug: string;
+  passphrase: string;
+  kind: CouponKind;
+  discountAmount: number | null; // menu_discount のみ
+  freeUnits: number | null; // free_topping のみ。null = 無制限
+  maxRedemptions: number | null; // 使用上限回数。null = 無制限
+  redeemedCount: number;
+  expiresAt: string | null;
+  status: "active" | "disabled";
+  createdAt: string;
+  updatedAt: string;
+  menuIds: string[]; // menu_discount の対象
+  toppingIds: string[]; // free_topping の対象
+}
+
+export type CreateCouponInput =
+  | {
+      kind: "menu_discount";
+      title: string;
+      passphrase: string;
+      discountAmount: number;
+      maxRedemptions?: number; // 未指定 = 使用回数無制限
+      expiresAt?: string;
+      menuIds: string[];
+    }
+  | {
+      kind: "free_topping";
+      title: string;
+      passphrase: string;
+      freeUnits?: number; // 未指定 = 対象トッピングを個数上限なく全部無料にする
+      maxRedemptions?: number; // 未指定 = 使用回数無制限
+      expiresAt?: string;
+      toppingIds: string[];
+    };
+
+export interface CouponVerifyResult {
+  couponId: string;
+  circleId: string;
+  title: string;
+  kind: CouponKind;
+  discountAmount: number | null;
+  freeUnits: number | null;
+  menuIds: string[];
+  toppingIds: string[];
+}
+
+export const couponApi = {
+  listByCircle: (circleId: string) =>
+    fetchApi<Coupon[]>(`/api/coupons/circle/${circleId}`),
+  create: (circleId: string, data: CreateCouponInput) =>
+    fetchApi<Coupon>(`/api/coupons/circle/${circleId}`, {
+      method: "POST",
+      body: data,
+    }),
+  disable: (id: string) =>
+    fetchApi<{ success: boolean }>(`/api/coupons/${id}/disable`, {
+      method: "POST",
+    }),
+  // 認証不要 (来場者の合言葉入力ページから直接呼ぶ)。消費はしないプレビュー検証。
+  verify: (data: { slug: string; passphrase: string; eventUserId: string }) =>
+    fetchApi<CouponVerifyResult>("/api/coupons/verify", {
+      method: "POST",
+      body: data,
+    }),
+};
 
 export const preOrderApi = {
   create: (data: CreatePreOrderInput) =>

@@ -37,6 +37,7 @@ const pageImports = {
 	DashboardStock: () => import("@/pages/dashboard/Stock"),
 	DashboardAnalytics: () => import("@/pages/dashboard/Analytics"),
 	DashboardExport: () => import("@/pages/dashboard/Export"),
+	DashboardCoupons: () => import("@/pages/dashboard/Coupons"),
 	StaffOnboarding: () => import("@/pages/StaffOnboarding"),
 	Placeholder: () => import("@/pages/Placeholder"),
 
@@ -49,6 +50,7 @@ const pageImports = {
 	MyPage: () => import("@/pages/MyPage"),
 	Orders: () => import("@/pages/Orders"),
 	EventMenu: () => import("@/pages/EventMenu"),
+	CouponRedeem: () => import("@/pages/CouponRedeem"),
 };
 
 // Lazy コンポーネント定義
@@ -70,6 +72,7 @@ const DashboardStaff = lazy(pageImports.DashboardStaff);
 const DashboardStock = lazy(pageImports.DashboardStock);
 const DashboardAnalytics = lazy(pageImports.DashboardAnalytics);
 const DashboardExport = lazy(pageImports.DashboardExport);
+const DashboardCoupons = lazy(pageImports.DashboardCoupons);
 const Placeholder = lazy(pageImports.Placeholder);
 
 const Branding = lazy(pageImports.Branding);
@@ -81,6 +84,7 @@ const Menu = lazy(pageImports.Menu);
 const MyPage = lazy(pageImports.MyPage);
 const Orders = lazy(pageImports.Orders);
 const EventMenu = lazy(pageImports.EventMenu);
+const CouponRedeem = lazy(pageImports.CouponRedeem);
 
 // スタッフ用画面のプリロード関数
 // 2026-07-15: スタッフ画面の読み込み開始時に、オフライン下での操作（タブ切り替え等）で ChunkLoadError が起きるのを防ぐため、
@@ -89,8 +93,8 @@ export function preloadStaffPages() {
 	const staffKeys: (keyof typeof pageImports)[] = [
 		"Home", "Login", "Register", "Backyard", "Checkin", "Invite", "Admin", 
 		"EventDashboard", "DashboardIndex", "DashboardCircle", "DashboardMembers", 
-		"DashboardMenu", "DashboardQr", "DashboardSales", "DashboardStaff", 
-		"DashboardStock", "DashboardAnalytics", "DashboardExport", "StaffOnboarding", "Placeholder"
+		"DashboardMenu", "DashboardQr", "DashboardSales", "DashboardStaff",
+		"DashboardStock", "DashboardAnalytics", "DashboardExport", "DashboardCoupons", "StaffOnboarding", "Placeholder"
 	];
 	
 	staffKeys.forEach((key) => {
@@ -201,6 +205,11 @@ export default function App() {
 					<Route path="/visitor/events" element={<EventMenu />} />
 					<Route path="/visitor/events/:eventId" element={<EventMenu />} />
 					<Route path="/visitor/menu" element={<Menu />} />
+
+					{/* クーポン合言葉入力ページ (issue #50)。オンボーディング必須ゲートは掛けない
+					    (ニックネーム未入力でも合言葉検証自体はできて良いため。入場(userId)の有無は
+					    ページ内で判定する、Menu.tsx の未入場ハンドリングと同じ方針)。 */}
+					<Route path="/visitor/coupon/:slug" element={<CouponRedeem />} />
 
 					{/* URL 統一対応 (pretty URL も /visitor 配下) */}
 					<Route path="/visitor/:eventName" element={<EventMenu />} />
@@ -335,6 +344,14 @@ export default function App() {
 						element={
 							<CircleAuthGuard>
 								<DashboardStock />
+							</CircleAuthGuard>
+						}
+					/>
+					<Route
+						path="/circle/dashboard/coupons"
+						element={
+							<CircleAuthGuard>
+								<DashboardCoupons />
 							</CircleAuthGuard>
 						}
 					/>
