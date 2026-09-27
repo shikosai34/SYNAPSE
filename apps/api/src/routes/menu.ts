@@ -105,6 +105,7 @@ menuRoutes.post(
       imagePath: z.string().optional(),
       additionalInfo: z.string().optional(),
       stockQuantity: z.number().min(0).optional(),
+      inventoryEnabled: z.boolean().optional(),
       soldOut: z.boolean().optional(),
       toppingIds: z.array(z.string()).optional(),
       // 既定トッピング (レジで自動適用)
@@ -131,7 +132,10 @@ menuRoutes.post(
       imagePath: input.imagePath ?? "",
       additionalInfo: input.additionalInfo,
       stockQuantity: input.stockQuantity ?? 0,
-      soldOut: input.soldOut ?? false,
+      inventoryEnabled: input.inventoryEnabled ?? false,
+      soldOut: input.inventoryEnabled === true && (input.stockQuantity ?? 0) <= 0
+        ? true
+        : input.soldOut ?? false,
       defaultToppingIds: JSON.stringify(input.defaultToppingIds ?? []),
     });
 
@@ -161,6 +165,7 @@ menuRoutes.put(
       imagePath: z.string().optional(),
       additionalInfo: z.string().optional(),
       stockQuantity: z.number().min(0).optional(),
+      inventoryEnabled: z.boolean().optional(),
       soldOut: z.boolean().optional(),
       toppingIds: z.array(z.string()).optional(),
       defaultToppingIds: z.array(z.string()).optional(),
@@ -190,9 +195,34 @@ menuRoutes.put(
       updates.additionalInfo = input.additionalInfo;
     if (input.stockQuantity !== undefined)
       updates.stockQuantity = input.stockQuantity;
+    if (input.inventoryEnabled !== undefined)
+      updates.inventoryEnabled = input.inventoryEnabled;
     if (input.soldOut !== undefined) updates.soldOut = input.soldOut;
     if (input.defaultToppingIds !== undefined)
       updates.defaultToppingIds = JSON.stringify(input.defaultToppingIds);
+
+    // 2026-09-27: ON商品は残数0なら必ず売切だが、残数がある場合は運営者の手動売切を
+    // 尊重する。管理開始や在庫補充時だけ在庫起因の売切を解除し、説明編集では状態を変えない。
+    const inventoryEnabled = input.inventoryEnabled ?? existingMenu[0]!.inventoryEnabled;
+    const stockQuantity = input.stockQuantity ?? existingMenu[0]!.stockQuantity;
+    if (inventoryEnabled) {
+      if (stockQuantity <= 0) {
+        updates.soldOut = true;
+      } else if (
+        (input.inventoryEnabled === true && !existingMenu[0]!.inventoryEnabled) ||
+        (input.stockQuantity !== undefined && stockQuantity > existingMenu[0]!.stockQuantity)
+      ) {
+        updates.soldOut = false;
+      }
+    } else if (
+      input.inventoryEnabled === false &&
+      existingMenu[0]!.inventoryEnabled &&
+      stockQuantity <= 0
+    ) {
+      // 2026-09-27: 在庫ONが0個で自動設定した売切は、管理をOFFに戻した時に解除する。
+      // 在庫が残っている場合は手動売切の可能性があるため状態を維持する。
+      updates.soldOut = false;
+    }
 
     if (Object.keys(updates).length > 0) {
       await db.update(menu).set(updates).where(eq(menu.id, id));
@@ -217,6 +247,36 @@ menuRoutes.put(
 
     return c.json({ success: true });
   }
+);
+
+// 2026-09-27: 在庫管理の開始/停止 (Stock画面からの操作)。在庫を編集できる既存stock:write権限で
+// 商品単位のopt-inも行えるよう、メニュー編集権限のない在庫担当者にも専用導線を提供する。
+menuRoutes.patch(
+  "/:id/inventory",
+  zBody(z.object({ inventoryEnabled: z.boolean() })),
+  async (c) => {
+    const db = c.get("db");
+    const id = c.req.param("id");
+    const { inventoryEnabled } = c.req.valid("json");
+    const existing = await db.select().from(menu).where(eq(menu.id, id));
+    if (existing.length === 0) apiError("NOT_FOUND", "見つかりません");
+    if (!(await hasPermission(c, existing[0]!.circleId, "stock:write"))) {
+      apiError("FORBIDDEN", "権限がありません");
+    }
+
+    const updates: Partial<typeof menu.$inferSelect> = { inventoryEnabled };
+    if (inventoryEnabled && existing[0]!.stockQuantity <= 0) {
+      updates.soldOut = true;
+    } else if (inventoryEnabled && !existing[0]!.inventoryEnabled) {
+      // 2026-09-27: 正数在庫で管理を開始する時だけ初期状態を販売中にする。
+      updates.soldOut = false;
+    } else if (existing[0]!.inventoryEnabled && existing[0]!.stockQuantity <= 0) {
+      // ON中の0在庫からOFFへ戻す時だけ、自動売切を解除する。
+      updates.soldOut = false;
+    }
+    await db.update(menu).set(updates).where(eq(menu.id, id));
+    return c.json({ success: true });
+  },
 );
 
 // メニュー削除
@@ -260,14 +320,19 @@ menuRoutes.patch(
       apiError("FORBIDDEN", "権限がありません");
     }
 
-    // 2026-07-06 (L-4): 在庫補充時にsoldOutを戻さない非対称を是正。
-    // 注文フロー(order.ts)は在庫が0になるとsoldOut=trueにするため、補充時(stockQuantity>0)は
-    // soldOut=falseも併せて更新し「売切」表示を解除する。stockQuantity===0の場合は
-    // 0=無制限/未管理の意味も持つ既存挙動を尊重し、soldOutには触れない。
+    // 2026-09-27: ON商品の残数0は売切として可視化し、補充時は表示も自動解除する。
+    // OFF商品の既存手動売切状態は在庫数変更で変えない。
+    const inventoryEnabled = existingMenu[0]!.inventoryEnabled;
     const stockUpdate: Partial<typeof menu.$inferSelect> = {
       stockQuantity: input.stockQuantity,
     };
-    if (input.stockQuantity > 0) {
+    if (inventoryEnabled) {
+      stockUpdate.soldOut = input.stockQuantity <= 0;
+    } else if (input.stockQuantity > 0) {
+      // 2026-07-06 (L-4): 在庫補充時にsoldOutを戻さない非対称を是正。
+      // 注文フロー(order.ts)は在庫が0になるとsoldOut=trueにするため、補充時(stockQuantity>0)は
+      // soldOut=falseも併せて更新し「売切」表示を解除する。stockQuantity===0の場合は
+      // 0=無制限/未管理の意味も持つ既存挙動を尊重し、soldOutには触れない。
       stockUpdate.soldOut = false;
     }
 

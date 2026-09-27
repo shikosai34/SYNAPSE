@@ -110,7 +110,7 @@ export default function DashboardLayout({
   const { circleId: authCircleId } = useAuth();
   const circleId = type === "circle" ? (authCircleId ?? "") : "";
 
-  // 拡張機能(在庫/スタッフ)のON/OFF判定のためサークル設定を取得
+  // 2026-09-27: スタッフ管理の表示判定のためサークル設定を取得。在庫管理は組み込み機能とする。
   const { data: circle } = useQuery({
     queryKey: ["circle", circleId],
     queryFn: () => circleApi.get(circleId),
@@ -133,7 +133,7 @@ export default function DashboardLayout({
   // サークル管理のメニュー項目 (カテゴリ分け, 2026-07-16)
   // 「運営」= 日常的に開く画面、「商品・在庫」= 出す物の管理、
   // 「売上・分析」= お金と数字、「管理」= サークル自体の設定・人。
-  // 在庫管理/スタッフ管理は拡張機能のON/OFFで出し分けるため、該当グループの配列末尾に条件付きで足す。
+  // 2026-09-27: 在庫管理は組み込み機能、スタッフ管理は従来どおり拡張機能として表示を切り替える。
   const circleGroups: MenuGroup[] = [
     {
       label: "運営",
@@ -146,9 +146,7 @@ export default function DashboardLayout({
       label: "商品・在庫",
       items: [
         { title: "メニュー管理", href: "/circle/dashboard/menu", icon: UtensilsCrossed },
-        ...(circleSettings.extensions.stock
-          ? [{ title: "在庫管理", href: "/circle/dashboard/stock", icon: Package }]
-          : []),
+        { title: "在庫管理", href: "/circle/dashboard/stock", icon: Package },
       ],
     },
     {

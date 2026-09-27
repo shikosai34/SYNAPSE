@@ -143,6 +143,13 @@ function StockManagementContent() {
     onError: (e: any) => toast.error(e?.message || "在庫の更新に失敗しました"),
   });
 
+  // 2026-09-27: 在庫一覧からも商品ごとの管理を開始できるようにする。
+  const enableMenuInventory = useMutation({
+    mutationFn: (m: Menu) => menuApi.setInventoryEnabled(m.id, true),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["menus", circleId] }),
+    onError: (e: any) => toast.error(e?.message || "在庫管理の開始に失敗しました"),
+  });
+
   // 売切/再開の明示切替 (在庫数に依らず soldOut を直接操作)
   const toggleSoldOut = useMutation({
     mutationFn: (m: Menu) => menuApi.update(m.id, { soldOut: !m.soldOut }),
@@ -170,13 +177,14 @@ function StockManagementContent() {
     let soldOut = 0;
     let low = 0;
     for (const m of list) {
+      if (!m.inventoryEnabled) continue;
       const q = m.stockQuantity ?? 0;
       units += q;
       value += q * m.price;
       if (m.soldOut) soldOut += 1;
       else if (q <= lowThreshold) low += 1;
     }
-    return { total: list.length, units, value, soldOut, low };
+    return { total: list.filter((m) => m.inventoryEnabled).length, units, value, soldOut, low };
   }, [menus, lowThreshold]);
 
   // 並べ替え(売切→僅少→通常, 同レベルは名前順) + 検索/要対応フィルタ
@@ -187,9 +195,9 @@ function StockManagementContent() {
       list = list.filter((m) => m.name.toLowerCase().includes(q));
     }
     if (onlyIssues) {
-      list = list.filter((m) => m.soldOut || (m.stockQuantity ?? 0) <= lowThreshold);
+      list = list.filter((m) => m.inventoryEnabled && (m.soldOut || (m.stockQuantity ?? 0) <= lowThreshold));
     }
-    const rank = (m: Menu) => (m.soldOut ? 0 : (m.stockQuantity ?? 0) <= lowThreshold ? 1 : 2);
+    const rank = (m: Menu) => !m.inventoryEnabled ? 3 : m.soldOut ? 0 : (m.stockQuantity ?? 0) <= lowThreshold ? 1 : 2;
     return [...list].sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name, "ja"));
   }, [menus, search, onlyIssues, lowThreshold]);
 
@@ -292,7 +300,7 @@ function StockManagementContent() {
               <div className="divide-y divide-border">
                 {shown.map((m) => {
                   const q = m.stockQuantity ?? 0;
-                  const level = m.soldOut ? "out" : q <= lowThreshold ? "low" : "ok";
+                  const level = !m.inventoryEnabled ? "unmanaged" : m.soldOut ? "out" : q <= lowThreshold ? "low" : "ok";
                   const pending = isRowPending(m.id);
                   return (
                     <div
@@ -317,7 +325,9 @@ function StockManagementContent() {
 
                       {/* 状態バッジ */}
                       <div className="shrink-0 w-16 text-right tabular-nums">
-                        {level === "out" ? (
+                        {!m.inventoryEnabled ? (
+                          <span className="text-muted-foreground">未管理</span>
+                        ) : level === "out" ? (
                           <span className="text-error font-bold">売切</span>
                         ) : level === "low" ? (
                           <span className="text-warning font-bold flex items-center justify-end gap-1"><AlertTriangle className="h-3 w-3" />残{q}</span>
@@ -327,7 +337,16 @@ function StockManagementContent() {
                       </div>
 
                       {/* クイック増減 */}
-                      <div className="flex items-center gap-1 shrink-0">
+                      {!m.inventoryEnabled ? (
+                        <button
+                          type="button"
+                          disabled={enableMenuInventory.isPending && enableMenuInventory.variables?.id === m.id}
+                          onClick={() => enableMenuInventory.mutate(m)}
+                          className="border-thick border-primary bg-primary px-3 h-8 text-[10px] font-bold uppercase text-primary-foreground hover:bg-background hover:text-foreground disabled:opacity-40"
+                        >
+                          在庫管理を開始
+                        </button>
+                      ) : <div className="flex items-center gap-1 shrink-0">
                         {[-10, -5, -1].map((d) => (
                           <button key={d} type="button" disabled={pending || q + d < 0} onClick={() => adjust(m, d)}
                             className="border-thick border-border h-7 w-8 text-[10px] font-bold hover:bg-destructive hover:text-white disabled:opacity-30">
@@ -347,12 +366,14 @@ function StockManagementContent() {
                             +{d}
                           </button>
                         ))}
-                      </div>
+                      </div>}
 
                       {/* 売切 / 再開 */}
-                      <button
+                      {m.inventoryEnabled && <button
                         type="button"
-                        disabled={pending}
+                        disabled={pending || (m.soldOut && q <= 0)}
+                        aria-label={m.soldOut && q <= 0 ? "在庫が0です。先に在庫を補充してください" : undefined}
+                        title={m.soldOut && q <= 0 ? "在庫を補充すると販売を再開できます" : undefined}
                         onClick={() => toggleSoldOut.mutate(m)}
                         className={`shrink-0 border-thick h-7 px-2 text-[10px] font-bold uppercase flex items-center gap-1 disabled:opacity-40 ${
                           m.soldOut
@@ -360,8 +381,8 @@ function StockManagementContent() {
                             : "border-destructive text-destructive hover:bg-destructive hover:text-white"
                         }`}
                       >
-                        {m.soldOut ? (<><RotateCcw className="h-3 w-3" />再開</>) : (<><XCircle className="h-3 w-3" />売切</>)}
-                      </button>
+                        {m.soldOut ? (q <= 0 ? <>在庫を補充</> : <><RotateCcw className="h-3 w-3" />再開</>) : (<><XCircle className="h-3 w-3" />売切</>)}
+                      </button>}
                     </div>
                   );
                 })}

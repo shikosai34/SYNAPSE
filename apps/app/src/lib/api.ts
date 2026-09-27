@@ -180,6 +180,11 @@ export const menuApi = {
       method: "PATCH",
       body: { stockQuantity },
     }),
+  setInventoryEnabled: (id: string, inventoryEnabled: boolean) =>
+    fetchApi<{ success: boolean }>(`/api/menus/${id}/inventory`, {
+      method: "PATCH",
+      body: { inventoryEnabled },
+    }),
 };
 
 // Topping API
@@ -668,6 +673,7 @@ export interface Menu {
   description: string | null;
   imagePath: string | null;
   stockQuantity: number | null;
+  inventoryEnabled: boolean;
   soldOut: boolean;
   /** 既定トッピングID配列を JSON 文字列で保持 (例: '["t1","t2"]') */
   defaultToppingIds?: string;
@@ -874,6 +880,7 @@ export interface CreateMenuInput {
   imagePath?: string;
   imageUrl?: string;
   stockQuantity?: number;
+  inventoryEnabled?: boolean;
   stock?: number;
   isAvailable?: boolean;
   soldOut?: boolean;
@@ -888,6 +895,7 @@ export interface UpdateMenuInput {
   imagePath?: string | null;
   imageUrl?: string;
   stockQuantity?: number | null;
+  inventoryEnabled?: boolean;
   stock?: number | null;
   isAvailable?: boolean;
   soldOut?: boolean;

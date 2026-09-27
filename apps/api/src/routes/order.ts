@@ -476,7 +476,7 @@ orderRoutes.post(
         quantity: number;
         toppingIds?: string[];
       }[] = [];
-      // 在庫管理対象(stockQuantity > 0)のメニューごとの必要数を集計する
+      // 商品ごとに在庫管理が有効なメニューの必要数を集計する。数量0も在庫切れとして扱う。
       const stockNeeded = new Map<string, number>();
       // トッピングも同様に在庫管理する (2026-07-15)。1つのトッピングが複数アイテムに
       // 跨って選択され得るため、必要数はアイテム横断で合算する。
@@ -536,9 +536,9 @@ orderRoutes.post(
           }
         }
 
-        // 2026-07-05: 在庫が管理されているメニュー(stockQuantity > 0)のみ在庫チェック対象とする。
-        // stockQuantity === 0 は在庫無制限/未管理を意味し、チェック・減算をスキップする。
-        if (menuItem.stockQuantity > 0) {
+        // 2026-09-27: 在庫を商品単位の opt-in にする。ONなら数量0も在庫切れなので
+        // ガードと減算対象に含め、OFFの商品は残数にかかわらず在庫を消費しない。
+        if (menuItem.inventoryEnabled) {
           const alreadyNeeded = stockNeeded.get(menuItem.id) || 0;
           const totalNeeded = alreadyNeeded + item.quantity;
           stockNeeded.set(menuItem.id, totalNeeded);

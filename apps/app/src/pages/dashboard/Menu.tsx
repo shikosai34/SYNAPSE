@@ -73,7 +73,8 @@ function MenuManagementContent() {
     queryFn: () => circleApi.get(circleId),
     enabled: !!circleId,
   });
-  const stockManaged = parseCircleSettings(circleData?.settings).extensions.stock;
+  // 2026-09-27: Keep the legacy circle switch only for topping stock; menu inventory is per-product.
+  const toppingStockManaged = parseCircleSettings(circleData?.settings).extensions.stock;
 
   // カードから売切をワンタップで切り替える (在庫管理OFF時のみ) (2026-07-14)
   const toggleSoldOut = useMutation({
@@ -223,7 +224,9 @@ function MenuManagementContent() {
                   <CardContent className="p-4 space-y-3">
                     <div>
                       <CardTitle className="text-sm font-bold truncate uppercase">{menu.name}</CardTitle>
-                      <p className="text-xs text-muted-foreground font-mono mt-0.5">ID: {menu.id}</p>
+                      {menu.inventoryEnabled && (
+                        <p className="text-[10px] text-muted-foreground font-mono mt-0.5">在庫管理中 · 残{menu.stockQuantity ?? 0}</p>
+                      )}
                     </div>
 
                     <div className="flex justify-between items-center">
@@ -231,7 +234,7 @@ function MenuManagementContent() {
                         ¥{menu.price.toLocaleString()}
                       </span>
                       {/* 販売状態: 在庫管理OFFならワンタップ切替、ONなら在庫連動で読み取り専用 (2026-07-14) */}
-                      {stockManaged ? (
+                      {menu.inventoryEnabled ? (
                         <span className={`text-[10px] font-bold font-mono px-2 py-1 border-thick ${menu.soldOut ? "border-destructive text-destructive" : "border-success text-success"}`} title="在庫管理で自動制御">
                           {menu.soldOut ? "売り切れ" : "販売中"}<span className="text-muted-foreground">(在庫連動)</span>
                         </span>
@@ -355,7 +358,7 @@ function MenuManagementContent() {
                       +¥{topping.price.toLocaleString()}
                     </span>
                     {/* 販売状態: 在庫管理OFFならワンタップ切替、ONなら在庫連動で読み取り専用 (2026-07-15) */}
-                    {stockManaged ? (
+                    {toppingStockManaged ? (
                       <span className={`text-[9px] font-bold font-mono px-1.5 py-1 border-thick ${topping.soldOut ? "border-destructive text-destructive" : "border-success text-success"}`} title="在庫管理で自動制御">
                         {topping.soldOut ? "売切" : "販売中"}<span className="text-muted-foreground">(在庫連動)</span>
                       </span>
