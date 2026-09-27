@@ -9,6 +9,7 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { Building2, Plus, Edit, Trash2, Users, Settings2 } from "lucide-react";
 import { toast } from "sonner";
+import { readAuthContext, writeAuthContext } from "@/lib/auth-context";
 
 // モーダル
 import { CircleFormModal } from "./CircleFormModal";
@@ -76,24 +77,12 @@ export function CirclesTab({
 
   // サークル管理画面へ切り替え
   const handleSwitchToCircle = (circle: any) => {
-    const authStored = localStorage.getItem("circleAuth");
-    if (authStored) {
-      try {
-        const authInfo = JSON.parse(authStored);
-        localStorage.setItem(
-          "circleAuth",
-          JSON.stringify({
-            ...authInfo,
-            circleId: circle.id,
-            circleName: circle.name,
-            role: "circle_manager",
-          })
-        );
-        localStorage.setItem("circleId", circle.id);
-        toast.success(`「${circle.name}」のダッシュボードに切り替えました`);
-        navigate("/circle/dashboard");
-      } catch (_) {}
-    }
+    // 2026-09-27: イベント内のサークル選択も現在のタブだけに反映し、別タブの作業先を保つ。
+    const authInfo = readAuthContext<Record<string, unknown>>();
+    if (!authInfo) return;
+    writeAuthContext({ ...authInfo, circleId: circle.id, circleName: circle.name, role: "circle_manager" });
+    toast.success(`「${circle.name}」のダッシュボードに切り替えました`);
+    navigate("/circle/dashboard");
   };
 
   const uniqueCircles = circles

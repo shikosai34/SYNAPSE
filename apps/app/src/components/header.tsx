@@ -44,6 +44,7 @@ import { authClient } from "@/lib/auth-client";
 // 以下の方針で作り直す:
 //   - すべてのトリガーに常時ラベルを付ける (アイコンのみのボタンを廃止)
 //   - デスクトップ (hover: hover な環境) はホバーで開き、タッチ環境はタップで開閉する
+//   - 2026-09-27: スペース切替だけは意図しない展開を避けるため、全環境でクリック/タップに統一する
 //   - 開閉状態は単一の activeMenu state に統一し、常に1つしか開かないようにする
 //   - 外側クリックは document 全体の mousedown 監視で判定する (フルスクリーンの透明backdrop
 //     を使うと、hover 判定(mouseleave)がbackdropに邪魔されて機能しなくなるため廃止した)
@@ -271,7 +272,7 @@ export default function Header() {
     // ログインし直せなくなる。よって better-auth 側も必ず signOut する。
     // (2026-07-09 ログアウト後に再ログインできない不具合を修正)
     clearAuthInfo();
-    localStorage.removeItem("circleName");
+    window.sessionStorage.removeItem("circleName");
     localStorage.removeItem("eventName");
     await authClient.signOut();
     // useSession のキャッシュや mySpaces 等の残存クエリを掃除してから遷移する
@@ -762,9 +763,8 @@ export default function Header() {
               <div
                 ref={spaceRef}
                 className="relative hidden md:block"
-                onMouseEnter={() => handleHoverOpen("space")}
-                onMouseLeave={() => handleHoverClose("space")}
               >
+                {/* 2026-09-27 Issue #26: スペース一覧は意図したクリックで開閉し、ポインター通過では勝手に展開しない。 */}
                 <button
                   onClick={() => toggleMenu("space")}
                   aria-haspopup="menu"

@@ -1,5 +1,6 @@
 
 import { useNavigate } from "react-router-dom";
+import { AUTH_CONTEXT_KEY, clearAuthContext, readAuthContext, readLegacyCircleId, writeAuthContext } from "@/lib/auth-context";
 import { useEffect, useState, useCallback } from "react";
 import Loader from "@/components/loader";
 import { useQuery } from "@tanstack/react-query";
@@ -181,20 +182,12 @@ interface AuthInfo {
 }
 
 
-// LocalStorageのキー
-const AUTH_STORAGE_KEY = "circleAuth";
+const AUTH_STORAGE_KEY = AUTH_CONTEXT_KEY;
 
 // 認証情報を保存
 export function saveAuthInfo(info: AuthInfo) {
   if (typeof window !== "undefined") {
-    localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(info));
-    // 後方互換性のため circleId も保存
-    if (info.circleId) {
-      localStorage.setItem("circleId", info.circleId);
-    }
-    if (info.circleName) {
-      localStorage.setItem("circleName", info.circleName);
-    }
+    writeAuthContext(info);
     window.dispatchEvent(new Event("authChange"));
   }
 }
@@ -203,21 +196,14 @@ export function saveAuthInfo(info: AuthInfo) {
 export function getAuthInfo(): AuthInfo | null {
   if (typeof window === "undefined") return null;
 
-  const stored = localStorage.getItem(AUTH_STORAGE_KEY);
+  const stored = readAuthContext<AuthInfo>();
   if (stored) {
-    try {
-      const parsed = JSON.parse(stored);
-      if (!parsed.circleName) {
-        parsed.circleName = localStorage.getItem("circleName") || null;
-      }
-      return parsed;
-    } catch {
-      return null;
-    }
+    if (!stored.circleName) stored.circleName = window.sessionStorage.getItem("circleName") || null;
+    return stored;
   }
 
   // 後方互換性: 古い形式からの移行
-  const circleId = localStorage.getItem("circleId");
+  const circleId = readLegacyCircleId();
   if (circleId) {
     return {
       circleId,
@@ -235,9 +221,7 @@ export function getAuthInfo(): AuthInfo | null {
 // 認証情報をクリア
 export function clearAuthInfo() {
   if (typeof window !== "undefined") {
-    localStorage.removeItem(AUTH_STORAGE_KEY);
-    localStorage.removeItem("circleId");
-    localStorage.removeItem("circleName");
+    clearAuthContext();
     window.dispatchEvent(new Event("authChange"));
   }
 }
@@ -644,7 +628,7 @@ export async function resolveActiveSpaceAfterAuth(
       circleName: circleMembership.circle?.name || null,
     });
     if (circleMembership.circle) {
-      localStorage.setItem("circleName", circleMembership.circle.name);
+      window.sessionStorage.setItem("circleName", circleMembership.circle.name);
     }
     return { path: "/circle/dashboard", kind: "circle", membership: circleMembership };
   }

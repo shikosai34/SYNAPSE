@@ -1,4 +1,5 @@
 import { apiErrorFromResponse, networkApiError } from "./api-error";
+import { readAuthContext } from "./auth-context";
 
 function getApiBaseUrl(): string {
   let url = import.meta.env.VITE_API_URL || "https://localhost:8787";
@@ -32,16 +33,9 @@ async function fetchApi<T>(
     ...headers,
   };
 
-  // ローカルストレージのアクティブメンバーシップIDをヘッダーに注入 (2026-07-04 SaaS権限隔離対応)
-  const authStored = localStorage.getItem("circleAuth");
-  if (authStored) {
-    try {
-      const authInfo = JSON.parse(authStored);
-      if (authInfo.membershipId) {
-        headersObj["X-Active-Membership-Id"] = authInfo.membershipId;
-      }
-    } catch (_) {}
-  }
+  // タブ別コンテキストからアクティブメンバーシップIDを注入 (2026-07-04 SaaS権限隔離対応、2026-09-27 タブ間分離)
+  const authInfo = readAuthContext<{ membershipId?: string | null }>();
+  if (authInfo?.membershipId) headersObj["X-Active-Membership-Id"] = authInfo.membershipId;
 
   const config: RequestInit = {
     method,

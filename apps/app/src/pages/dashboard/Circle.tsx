@@ -165,7 +165,7 @@ function CircleSettingsContent() {
     },
     onSuccess: (_res, variables) => {
       toast.success("サークル情報を更新しました");
-      localStorage.setItem("circleName", form.name);
+      window.sessionStorage.setItem("circleName", form.name);
       queryClient.invalidateQueries({ queryKey: ["circle", circleId] });
       // 再取得を待たずにスナップショットを更新し、即座に「未保存」表示を消す。
       // iconImagePath/backgroundImagePath は削除時に null を送るため、null は
