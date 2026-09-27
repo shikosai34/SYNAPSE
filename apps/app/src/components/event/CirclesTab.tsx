@@ -14,7 +14,7 @@ import { toast } from "sonner";
 import { CircleFormModal } from "./CircleFormModal";
 import { CircleManageModal } from "./CircleManageModal";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
-import { getAuthInfo, saveAuthInfo } from "@/hooks/useCircleAuth";
+import { getAuthInfo, saveAuthInfo, useAuth } from "@/hooks/useCircleAuth";
 
 interface CirclesTabProps {
   eventId: string;
@@ -36,6 +36,7 @@ export function CirclesTab({
 }: CirclesTabProps) {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const { role: effectiveRole, eventId: effectiveEventId } = useAuth();
 
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [selectedCircle, setSelectedCircle] = useState<any | null>(null);
@@ -78,7 +79,7 @@ export function CirclesTab({
   // サークル管理画面へ切り替え
   const handleSwitchToCircle = (circle: any) => {
     const authInfo = getAuthInfo();
-    if (!authInfo || authInfo.role !== "event_manager" || authInfo.eventId !== eventId) return;
+    if (!authInfo || effectiveRole !== "event_manager" || effectiveEventId !== eventId) return;
     // イベント管理者のサークル切替でも、権限の正本はイベント所属に保つ。
     // eventId と circleId の組み合わせでサーバーが同一イベント内か検証し、フロントも
     // role を circle_manager に偽装しない (2026-09-27 ドメイン境界修正)。

@@ -7,6 +7,7 @@ import { adminApi, membershipApi } from "@/lib/api";
 import { authClient } from "@/lib/auth-client";
 import { hasRolePermission, permissionsForRole, PERMISSION_NAMES, ROLES, type Permission, type RoleType } from "@fesflow/config";
 import { ROLE_LABELS } from "@/lib/roles";
+import { isUnauthorizedSessionError } from "@/lib/session-error";
 
 // ロールの日本語名
 export const ROLE_NAMES: Record<RoleType, string> = {
@@ -157,7 +158,7 @@ export function useAuth() {
   const [isLoading, setIsLoading] = useState(true);
   const [authInfoLoaded, setAuthInfoLoaded] = useState(false);
   const [activeSpaceChecked, setActiveSpaceChecked] = useState(false);
-  const { data: spaces, isLoading: spacesLoading, isError: spacesError, sessionPending, sessionError, retrySession } = useMySpaces();
+  const { data: spaces, isLoading: spacesLoading, isError: spacesError, sessionPending, sessionError, sessionFetchError, retrySession } = useMySpaces();
 
   useEffect(() => {
     const info = getAuthInfo();
@@ -194,6 +195,13 @@ export function useAuth() {
     }
     if (spacesLoading || sessionPending) {
       setActiveSpaceChecked(false);
+      return;
+    }
+    if (isUnauthorizedSessionError(sessionFetchError)) {
+      if (getAuthInfo()?.membershipId === authInfo.membershipId) clearAuthInfo();
+      setAuthInfo(null);
+      setActiveSpaceChecked(true);
+      navigate("/login", { replace: true });
       return;
     }
     // 一覧取得エラーは所属失効の証拠ではない。保存済み選択を維持し、権限UIは閉じて再試行を出す。
@@ -242,7 +250,7 @@ export function useAuth() {
       }
     }
     setActiveSpaceChecked(true);
-  }, [authInfo, authInfoLoaded, navigate, sessionError, sessionPending, spaces, spacesError, spacesLoading]);
+  }, [authInfo, authInfoLoaded, navigate, sessionError, sessionFetchError, sessionPending, spaces, spacesError, spacesLoading]);
 
   const impersonationQuery = useQuery({
     queryKey: ["impersonation-status"],
@@ -290,7 +298,8 @@ export function useAuth() {
   const impersonation = isLocalImpersonation && impersonationQuery.data?.active ? impersonationQuery.data : null;
   const impersonationVerificationFailed =
     isLocalImpersonation && impersonationQuery.isError;
-  const authorityUnverified = spacesError || (Boolean(authInfo?.membershipId) && sessionError) || impersonationVerificationFailed;
+  const sessionIsUnauthorized = isUnauthorizedSessionError(sessionFetchError);
+  const authorityUnverified = spacesError || (Boolean(authInfo?.membershipId) && sessionError && !sessionIsUnauthorized) || impersonationVerificationFailed;
   const effectiveRole = authorityUnverified
     ? null
     : (impersonation?.role as RoleType | null) ?? authInfo?.role ?? null;
@@ -607,7 +616,7 @@ export function useMySpaces() {
     enabled: !!email,
     refetchOnWindowFocus: true,
   });
-  return { ...query, sessionPending, sessionError: !!sessionError, retrySession };
+  return { ...query, sessionPending, sessionError: !!sessionError, sessionFetchError: sessionError, retrySession };
 }
 
 // サインイン/サインアップ直後に所属(memberships)を解決し、アクティブスペースを

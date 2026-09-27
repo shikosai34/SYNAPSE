@@ -5,6 +5,7 @@ import {
   hasRolePermission,
   permissionsForRole,
 } from "../../../packages/config/src/authorization";
+import { isUnauthorizedSessionError } from "../src/lib/session-error";
 
 describe("shared authorization domains", () => {
   test("keeps the canonical role permission sets unchanged", () => {
@@ -67,5 +68,14 @@ describe("shared authorization domains", () => {
       expect(permissionsForRole(role)).toEqual([]);
       expect(hasRolePermission(role, "system:read")).toBe(false);
     }
+  });
+
+  test("distinguishes a confirmed expired session from temporary auth-service failures", () => {
+    expect(isUnauthorizedSessionError({ status: 401 })).toBe(true);
+    expect(isUnauthorizedSessionError({ status: 403 })).toBe(false);
+    expect(isUnauthorizedSessionError({ status: 503 })).toBe(false);
+    expect(isUnauthorizedSessionError({})).toBe(false);
+    expect(isUnauthorizedSessionError({ status: "401" } as unknown as { status?: number })).toBe(false);
+    expect(isUnauthorizedSessionError(null)).toBe(false);
   });
 });

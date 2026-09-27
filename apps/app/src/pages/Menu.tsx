@@ -269,7 +269,7 @@ function MenuPageContent() {
   const navigate = useNavigate();
   const circleIdParam = searchParams.get("circleId");
   // 未入場 (リストバンド未発行) は空文字。閲覧は許可し注文送信側でゲートする
-  const { userId: visitorUserId, session } = useVisitor();
+  const { userId: visitorUserId, session, isLoaded: visitorLoaded } = useVisitor();
   const userId = visitorUserId ?? "";
 
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
@@ -335,7 +335,7 @@ function MenuPageContent() {
     queryKey: ["menus", selectedCircleId],
     queryFn: () => menuApi.list(selectedCircleId!),
     // 登録済み来場者は、サークルの所属イベント確認後に自分のイベントのメニューだけ取得する。
-    enabled: !!selectedCircleId && (!session?.userId || !session.eventId || circleData?.eventId === session.eventId),
+    enabled: visitorLoaded && !!selectedCircleId && (!session?.userId || !session.eventId || circleData?.eventId === session.eventId),
   });
 
   // サークルが属するイベントのテーマ (配色/ロゴ) を取得して画面に反映
