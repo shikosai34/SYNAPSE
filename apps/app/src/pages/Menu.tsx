@@ -709,7 +709,9 @@ function MenuPageContent() {
 
   return (
     <EventTheme theme={circleEvent} className="bg-background text-foreground">
-    <div className="max-w-6xl mx-auto p-sp-3 sm:p-sp-4 space-y-sp-4 sm:space-y-sp-5 pb-36">
+    {/* 2026-09-27: スマートフォンでは固定カートバーがカード末尾の「カートに追加」を
+        隠すため、バーの最大高さぶんスクロール余白を確保する。 */}
+    <div className="max-w-6xl mx-auto p-sp-3 sm:p-sp-4 space-y-sp-4 sm:space-y-sp-5 pb-56 sm:pb-36">
       {/* 戻るボタン */}
       <button
         onClick={() => {
