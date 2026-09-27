@@ -13,6 +13,7 @@ async function seedReviewData() {
   const visitCircleId = uid("ci");
   const userId = uid("usr");
   const otherReviewerId = uid("usr");
+  const bannedUserId = uid("usr");
   await db.insert(event).values([{ id: eventId, eventName: "レビュー祭" }, { id: otherEventId, eventName: "別の祭" }]);
   await db.insert(circle).values([
     { id: circleId, eventId, name: "利用済みサークル" },
@@ -20,14 +21,28 @@ async function seedReviewData() {
     { id: foreignCircleId, eventId: otherEventId, name: "別イベントの店" },
     { id: visitCircleId, eventId, name: "体験記録サークル" },
   ]);
-  await db.insert(eventUser).values([{ id: userId, eventId, displayId: 7 }, { id: otherReviewerId, eventId, displayId: 8 }]);
+  await db.insert(eventUser).values([
+    { id: userId, eventId, displayId: 7 },
+    { id: otherReviewerId, eventId, displayId: 8 },
+    { id: bannedUserId, eventId, displayId: 9, status: "banned" },
+  ]);
   await db.insert(order).values({ id: uid("ord"), userId, circleId, orderNumber: uid("num"), peopleCount: 1, totalPrice: 300, status: "completed", completed: true });
   await db.insert(order).values({ id: uid("ord"), userId, circleId: otherCircleId, orderNumber: uid("num"), peopleCount: 1, totalPrice: 300, status: "preparing", completed: false });
-  await db.insert(circleVisit).values({ eventUserId: userId, circleId: visitCircleId });
+  // 別イベントに誤った利用ログがあっても、レビュー候補には混ぜない。
+  await db.insert(circleVisit).values([
+    { eventUserId: userId, circleId: visitCircleId },
+    { eventUserId: userId, circleId: foreignCircleId },
+  ]);
   await db.insert(review).values({ eventUserId: otherReviewerId, circleId, rating: 1, comment: "他の人の非公開コメント" });
   const wristbandId = uid("wb");
   await db.insert(wristband).values({ id: wristbandId, userId, status: "smartphone" });
-  return { db, eventId, circleId, otherCircleId, foreignCircleId, visitCircleId, userId, wristbandId };
+  const lostWristbandId = uid("wb");
+  const bannedWristbandId = uid("wb");
+  await db.insert(wristband).values([
+    { id: lostWristbandId, userId, status: "lost" },
+    { id: bannedWristbandId, userId: bannedUserId, status: "active" },
+  ]);
+  return { db, eventId, circleId, otherCircleId, foreignCircleId, visitCircleId, userId, wristbandId, lostWristbandId, bannedUserId, bannedWristbandId };
 }
 
 describe("来場者レビュー", () => {
@@ -67,6 +82,17 @@ describe("来場者レビュー", () => {
     const { eventId, circleId } = await seedReviewData();
     expect((await request(`/api/reviews/circle/${circleId}`)).status).toBe(403);
     expect((await request(`/api/reviews/event/${eventId}`)).status).toBe(403);
+  });
+
+  it("紛失済みバンドと停止済みアカウントからレビューを参照・投稿できない", async () => {
+    const { lostWristbandId, bannedUserId, bannedWristbandId, circleId } = await seedReviewData();
+
+    await expect((await request(`/api/reviews/visitor/${lostWristbandId}`)).json()).resolves.toEqual([]);
+    expect((await postJson(`/api/reviews/visitor/${lostWristbandId}`, { circleId, rating: 5 })).status).toBe(404);
+    await expect((await request(`/api/reviews/visitor/${bannedUserId}`)).json()).resolves.toEqual([]);
+    expect((await postJson(`/api/reviews/visitor/${bannedUserId}`, { circleId, rating: 5 })).status).toBe(404);
+    await expect((await request(`/api/reviews/visitor/${bannedWristbandId}`)).json()).resolves.toEqual([]);
+    expect((await postJson(`/api/reviews/visitor/${bannedWristbandId}`, { circleId, rating: 5 })).status).toBe(404);
   });
 
   it("評価値を1から5の整数に制限する", async () => {
