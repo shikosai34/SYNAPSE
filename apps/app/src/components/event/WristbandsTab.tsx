@@ -27,6 +27,7 @@ import { toast } from "sonner";
 import { QrScannerModal } from "@/components/pos/qr-scanner-modal";
 import { Modal } from "@/components/ui/Modal";
 import { QRCodeSVG } from "qrcode.react";
+import { digitalQrIssueUrl } from "@/lib/digital-qr-url";
 
 interface WristbandsTabProps {
   eventId: string;
@@ -240,6 +241,8 @@ export function WristbandsTab({ eventId }: WristbandsTabProps) {
     const visitorBase = import.meta.env.VITE_VISITOR_URL || window.location.origin.replace("3000", "3001");
     return `${visitorBase}/w/${userId}`;
   };
+  // 2026-09-27 Issue #56: QRの内容を表示中の発行URLと同じ MyPage 発行アクションに揃える。
+  const selfIssueUrl = digitalQrIssueUrl(window.location.origin, eventId);
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
@@ -453,7 +456,7 @@ export function WristbandsTab({ eventId }: WristbandsTabProps) {
         <CardContent className="p-6 flex flex-col md:flex-row items-center gap-6">
           <div className="border-thick border-border p-3 bg-white shrink-0">
             <QRCodeSVG
-              value={getVisitorLink("issue-self-onboard")}
+              value={selfIssueUrl}
               size={150}
               level="M"
             />
@@ -461,7 +464,7 @@ export function WristbandsTab({ eventId }: WristbandsTabProps) {
           <div className="space-y-2 text-xs font-mono">
             <p className="font-bold underline text-primary">セルフ登録用URL (デジタル受付):</p>
             <p className="bg-muted p-2 select-all break-all border border-border">
-              {`${window.location.origin}/visitor/mypage?eventId=${eventId}&action=issue`}
+              {selfIssueUrl}
             </p>
             <div className="text-[10px] text-muted-foreground leading-normal space-y-1 pt-2 font-sans">
               <p>1. 受付にこのQRコードを掲示するか、URLを来場者に共有してください。</p>
