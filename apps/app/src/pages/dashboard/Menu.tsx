@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { CircleAuthGuard, useAuth } from "@/hooks/useCircleAuth";
+import { CircleAuthGuard, PermissionGuard, useAuth } from "@/hooks/useCircleAuth";
 import { menuApi, toppingApi, circleApi, parseCircleSettings } from "@/lib/api";
 import DashboardLayout from "@/components/DashboardLayout";
 import {
@@ -22,6 +22,7 @@ import { Plus, Edit, Trash2, Settings, UtensilsCrossed } from "lucide-react";
 import { MenuFormModal } from "@/components/menu/MenuFormModal";
 import { ToppingFormModal } from "@/components/menu/ToppingFormModal";
 import { ToppingMappingModal } from "@/components/menu/ToppingMappingModal";
+import { resolveAssetUrl } from "@/lib/asset-url";
 
 function MenuManagementContent() {
   // 2026-07-16: circleId/circleName を useState+useEffect(mount時一度きり) で
@@ -73,7 +74,8 @@ function MenuManagementContent() {
     queryFn: () => circleApi.get(circleId),
     enabled: !!circleId,
   });
-  const stockManaged = parseCircleSettings(circleData?.settings).extensions.stock;
+  // 2026-09-27: Keep the legacy circle switch only for topping stock; menu inventory is per-product.
+  const toppingStockManaged = parseCircleSettings(circleData?.settings).extensions.stock;
 
   // カードから売切をワンタップで切り替える (在庫管理OFF時のみ) (2026-07-14)
   const toggleSoldOut = useMutation({
@@ -202,7 +204,7 @@ function MenuManagementContent() {
                   <div className="relative h-40 w-full overflow-hidden border-b-thick border-border">
                     {menu.imagePath ? (
                       <img
-                        src={menu.imagePath}
+                        src={resolveAssetUrl(menu.imagePath)}
                         alt={menu.name}
                         className={`object-cover absolute inset-0 h-full w-full ${menu.soldOut ? "opacity-40" : ""}`}
                       />
@@ -223,7 +225,9 @@ function MenuManagementContent() {
                   <CardContent className="p-4 space-y-3">
                     <div>
                       <CardTitle className="text-sm font-bold truncate uppercase">{menu.name}</CardTitle>
-                      <p className="text-xs text-muted-foreground font-mono mt-0.5">ID: {menu.id}</p>
+                      {menu.inventoryEnabled && (
+                        <p className="text-[10px] text-muted-foreground font-mono mt-0.5">在庫管理中 · 残{menu.stockQuantity ?? 0}</p>
+                      )}
                     </div>
 
                     <div className="flex justify-between items-center">
@@ -231,7 +235,7 @@ function MenuManagementContent() {
                         ¥{menu.price.toLocaleString()}
                       </span>
                       {/* 販売状態: 在庫管理OFFならワンタップ切替、ONなら在庫連動で読み取り専用 (2026-07-14) */}
-                      {stockManaged ? (
+                      {menu.inventoryEnabled ? (
                         <span className={`text-[10px] font-bold font-mono px-2 py-1 border-thick ${menu.soldOut ? "border-destructive text-destructive" : "border-success text-success"}`} title="在庫管理で自動制御">
                           {menu.soldOut ? "売り切れ" : "販売中"}<span className="text-muted-foreground">(在庫連動)</span>
                         </span>
@@ -260,7 +264,7 @@ function MenuManagementContent() {
                           {menu.toppings.map((t) => (
                             <span key={t.id} className={`inline-flex items-center gap-1 text-[9px] px-1.5 py-0.5 border-thin border-border font-bold ${t.soldOut ? "bg-destructive/10 text-destructive line-through" : "bg-muted"}`}>
                               {t.imagePath && (
-                                <img src={t.imagePath} alt="" className="h-3.5 w-3.5 object-cover border-thin border-current shrink-0" />
+                                <img src={resolveAssetUrl(t.imagePath)} alt="" className="h-3.5 w-3.5 object-cover border-thin border-current shrink-0" />
                               )}
                               {t.name}
                             </span>
@@ -327,7 +331,7 @@ function MenuManagementContent() {
                   <div className="relative h-28 w-full overflow-hidden border-b-thick border-border">
                     {topping.imagePath ? (
                       <img
-                        src={topping.imagePath}
+                        src={resolveAssetUrl(topping.imagePath)}
                         alt={topping.name}
                         className={`object-cover absolute inset-0 h-full w-full ${topping.soldOut ? "opacity-40" : ""}`}
                       />
@@ -355,7 +359,7 @@ function MenuManagementContent() {
                       +¥{topping.price.toLocaleString()}
                     </span>
                     {/* 販売状態: 在庫管理OFFならワンタップ切替、ONなら在庫連動で読み取り専用 (2026-07-15) */}
-                    {stockManaged ? (
+                    {toppingStockManaged ? (
                       <span className={`text-[9px] font-bold font-mono px-1.5 py-1 border-thick ${topping.soldOut ? "border-destructive text-destructive" : "border-success text-success"}`} title="在庫管理で自動制御">
                         {topping.soldOut ? "売切" : "販売中"}<span className="text-muted-foreground">(在庫連動)</span>
                       </span>
@@ -434,7 +438,9 @@ function MenuManagementContent() {
 export default function MenuManagementPage() {
   return (
     <CircleAuthGuard>
-      <MenuManagementContent />
+      <PermissionGuard permission="menu:write" showDenied>
+        <MenuManagementContent />
+      </PermissionGuard>
     </CircleAuthGuard>
   );
 }

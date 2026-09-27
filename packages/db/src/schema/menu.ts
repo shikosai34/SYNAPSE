@@ -26,6 +26,11 @@ export const menu = sqliteTable(
     additionalInfo: text("additional_info"),
     soldOut: integer("sold_out", { mode: "boolean" }).default(false).notNull(),
     stockQuantity: integer("stock_quantity").default(0).notNull(),
+    // 2026-09-27: 在庫は商品単位で明示的に有効化する。数量0を未管理と混同せず、
+    // 未選択の商品を注文時に誤って在庫切れにしないため既定はOFF。
+    inventoryEnabled: integer("inventory_enabled", { mode: "boolean" })
+      .default(false)
+      .notNull(),
     // 既定トッピング (2026-07-07): レジで追加時に自動適用するトッピングID配列 (JSON)。
     // 正規化しない理由: 表示順を保持した単純なID配列であり、専用テーブル化しても
     // 参照系のクエリが増えるだけで恩恵が薄い。書き込みはメニュー編集時のみで低頻度。

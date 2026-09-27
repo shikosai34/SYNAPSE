@@ -59,6 +59,7 @@ async function seedManagerWithMenu() {
 		imagePath: "",
 		soldOut: true,
 		stockQuantity: 0,
+		inventoryEnabled: true,
 	});
 
 	const headers = {
@@ -66,10 +67,112 @@ async function seedManagerWithMenu() {
 		Cookie: cookie,
 		"X-Active-Membership-Id": membershipId,
 	};
-	return { db, menuId, headers };
+	return { db, menuId, circleId, headers };
 }
 
 describe("メニュー在庫の絶対値更新", () => {
+	it("商品作成時の在庫管理は既定OFFでも在庫数を保持する", async () => {
+		const { db, circleId, headers } = await seedManagerWithMenu();
+		const res = await postJson("/api/menus", {
+			circleId,
+			name: "在庫未管理ドリンク",
+			price: 200,
+			stockQuantity: 8,
+		}, headers);
+		expect(res.status).toBe(201);
+		const data = (await res.json()) as { id: string };
+		const rows = await db.select().from(menu).where(eq(menu.id, data.id));
+		expect(rows[0]!.inventoryEnabled).toBe(false);
+		expect(rows[0]!.stockQuantity).toBe(8);
+	});
+
+	it("残数0で管理を始めると売切になり、停止すると自動売切を解除する", async () => {
+		const { db, menuId, headers } = await seedManagerWithMenu();
+		const enable = await request(`/api/menus/${menuId}/inventory`, {
+			method: "PATCH",
+			headers,
+			body: JSON.stringify({ inventoryEnabled: true }),
+		});
+		expect(enable.status).toBe(200);
+		let rows = await db.select().from(menu).where(eq(menu.id, menuId));
+		expect(rows[0]!.inventoryEnabled).toBe(true);
+		expect(rows[0]!.soldOut).toBe(true);
+
+		const disable = await request(`/api/menus/${menuId}/inventory`, {
+			method: "PATCH",
+			headers,
+			body: JSON.stringify({ inventoryEnabled: false }),
+		});
+		expect(disable.status).toBe(200);
+		rows = await db.select().from(menu).where(eq(menu.id, menuId));
+		expect(rows[0]!.inventoryEnabled).toBe(false);
+		expect(rows[0]!.soldOut).toBe(false);
+	});
+
+	it("在庫管理中の商品は残数0でsoldOut:falseを受けても売切を維持する", async () => {
+		const { db, menuId, headers } = await seedManagerWithMenu();
+		const response = await request(`/api/menus/${menuId}`, {
+			method: "PUT",
+			headers,
+			body: JSON.stringify({ soldOut: false }),
+		});
+		expect(response.status).toBe(200);
+		const rows = await db.select().from(menu).where(eq(menu.id, menuId));
+		expect(rows[0]!.soldOut).toBe(true);
+	});
+
+	it("在庫が残っている商品の手動売切は、売切操作と説明編集の後も有効", async () => {
+		const { db, menuId, headers } = await seedManagerWithMenu();
+		const restock = await request(`/api/menus/${menuId}/stock`, {
+			method: "PATCH",
+			headers,
+			body: JSON.stringify({ stockQuantity: 12 }),
+		});
+		expect(restock.status).toBe(200);
+
+		const markSoldOut = await request(`/api/menus/${menuId}`, {
+			method: "PUT",
+			headers,
+			body: JSON.stringify({ soldOut: true }),
+		});
+		expect(markSoldOut.status).toBe(200);
+
+		const editDescription = await request(`/api/menus/${menuId}`, {
+			method: "PUT",
+			headers,
+			body: JSON.stringify({ description: "本日は販売休止" }),
+		});
+		expect(editDescription.status).toBe(200);
+		const rows = await db.select().from(menu).where(eq(menu.id, menuId));
+		expect(rows[0]!.stockQuantity).toBe(12);
+		expect(rows[0]!.soldOut).toBe(true);
+	});
+
+	it("在庫管理がONの商品の手動売切は、在庫管理の重複ON操作でも維持する", async () => {
+		const { db, menuId, headers } = await seedManagerWithMenu();
+		await request(`/api/menus/${menuId}/stock`, {
+			method: "PATCH",
+			headers,
+			body: JSON.stringify({ stockQuantity: 12 }),
+		});
+		await request(`/api/menus/${menuId}`, {
+			method: "PUT",
+			headers,
+			body: JSON.stringify({ soldOut: true }),
+		});
+
+		const response = await request(`/api/menus/${menuId}/inventory`, {
+			method: "PATCH",
+			headers,
+			body: JSON.stringify({ inventoryEnabled: true }),
+		});
+		expect(response.status).toBe(200);
+		const rows = await db.select().from(menu).where(eq(menu.id, menuId));
+		expect(rows[0]!.stockQuantity).toBe(12);
+		expect(rows[0]!.inventoryEnabled).toBe(true);
+		expect(rows[0]!.soldOut).toBe(true);
+	});
+
 	it("{ stockQuantity } を送ると在庫が更新され、補充時は売切が自動解除される", async () => {
 		const { db, menuId, headers } = await seedManagerWithMenu();
 
@@ -104,7 +207,7 @@ describe("メニュー在庫の絶対値更新", () => {
 		expect(rows[0]!.stockQuantity).toBe(0);
 	});
 
-	it("在庫 0 への更新では soldOut に触れない (0 = 無制限/未管理の既存挙動を尊重)", async () => {
+	it("在庫管理中の商品を残数0にすると売切にする", async () => {
 		const { db, menuId, headers } = await seedManagerWithMenu();
 
 		const res = await request(`/api/menus/${menuId}/stock`, {

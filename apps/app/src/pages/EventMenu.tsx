@@ -8,6 +8,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Store, ArrowRight, QrCode, Calendar, ChevronRight } from "lucide-react";
+import { resolveAssetUrl } from "@/lib/asset-url";
 
 /**
  * イベント メニュー横断閲覧 (2026-07-06)。
@@ -22,11 +23,29 @@ import { Store, ArrowRight, QrCode, Calendar, ChevronRight } from "lucide-react"
 export default function EventMenu() {
   const { eventId: eventIdParam } = useParams();
   const navigate = useNavigate();
-  const { session } = useVisitor();
+  const { session, isLoaded } = useVisitor();
 
   // ルート優先。無ければ入場中リストバンドのイベントを使う。
   const eventId = eventIdParam || session?.eventId || null;
   const isEntered = !!session?.userId;
+
+  if (!isLoaded) {
+    return <div className="mx-auto max-w-4xl p-6 font-mono" role="status" aria-busy="true">読み込み中…</div>;
+  }
+
+  // 入場済み来場者は自身のイベント内で注文先を探す。未入場者の公開下見と、
+  // リストバンド発行前のイベント選択は従来どおりイベント横断で利用できる (2026-09-27)。
+  if (session?.userId && session.eventId && eventIdParam && eventIdParam !== session.eventId) {
+    return (
+      <main className="mx-auto max-w-xl p-6 font-mono" role="alert">
+        <h1 className="text-xl font-bold">別のイベントは表示できません</h1>
+        <p className="my-4">入場中のイベントの出店一覧へ戻ってください。</p>
+        <button className="underline" onClick={() => navigate(`/visitor/events/${session.eventId}`)}>
+          入場中のイベントへ戻る
+        </button>
+      </main>
+    );
+  }
 
   // イベント未特定: イベント選択画面
   if (!eventId) {
@@ -88,7 +107,7 @@ function EventMenuContent({
             <Skeleton className="h-14 w-14" />
           ) : event?.logoUrl ? (
             <img
-              src={event.logoUrl}
+              src={resolveAssetUrl(event.logoUrl)}
               alt={event.eventName}
               className="h-14 w-14 object-contain border-thick border-primary-foreground bg-background shrink-0"
             />
@@ -160,7 +179,7 @@ function EventMenuContent({
               >
                 {circle.iconImagePath ? (
                   <img
-                    src={circle.iconImagePath}
+                    src={resolveAssetUrl(circle.iconImagePath)}
                     alt={circle.name}
                     className="h-12 w-12 object-cover border-thick border-border shrink-0"
                   />
@@ -254,7 +273,7 @@ function EventPicker() {
             >
               {event.logoUrl ? (
                 <img
-                  src={event.logoUrl}
+                  src={resolveAssetUrl(event.logoUrl)}
                   alt={event.eventName}
                   className="h-12 w-12 object-contain border-thick border-border bg-background shrink-0"
                 />

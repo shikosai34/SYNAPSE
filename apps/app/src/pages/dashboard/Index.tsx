@@ -31,8 +31,7 @@ function DashboardContent() {
   });
   const settings = parseCircleSettings(circle?.settings);
 
-  // 基本機能を先頭に、拡張機能(在庫/スタッフ/モッド)は末尾へ並べる。
-  // 在庫・スタッフは拡張機能としてON時のみ表示する。
+  // 2026-09-27: 在庫管理は組み込み機能として常時表示し、スタッフ管理だけ拡張設定に従う。
   const rawItems = [
     {
       title: "メニュー管理",
@@ -41,9 +40,22 @@ function DashboardContent() {
       permission: "menu:read" as const,
     },
     {
+      title: "在庫管理",
+      description: "商品の在庫を管理し、注文時の残数を自動反映",
+      href: "/circle/dashboard/stock",
+      permission: "stock:read" as const,
+    },
+    {
       title: "売上管理",
       description: "売上データの確認と分析 (グラフ表示対応)",
       href: "/circle/dashboard/sales",
+      permission: "sales:read" as const,
+    },
+    // 2026-09-27: 管理メニューからもレビュー一覧へ直接移動できるようにする。
+    {
+      title: "レビュー",
+      description: "来場者から届いた評価と感想の確認",
+      href: "/circle/dashboard/reviews",
       permission: "sales:read" as const,
     },
     {
@@ -77,14 +89,6 @@ function DashboardContent() {
       permission: "circle:read" as const,
     },
     // --- ここから拡張機能 (末尾) ---
-    ...(settings.extensions.stock
-      ? [{
-          title: "在庫管理",
-          description: "在庫の確認と更新",
-          href: "/circle/dashboard/stock",
-          permission: "stock:read" as const,
-        }]
-      : []),
     ...(settings.extensions.staff
       ? [{
           title: "スタッフ管理",

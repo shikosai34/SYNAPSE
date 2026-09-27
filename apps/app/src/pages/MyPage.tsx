@@ -8,6 +8,8 @@ import { ErrorState } from "@/components/ui/ErrorState";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { ArrowLeft, QrCode, Receipt, ChevronRight, UserCog, Pencil } from "lucide-react";
 import { toast } from "sonner";
+import { QRCodeSVG } from "qrcode.react";
+import { resolveAssetUrl } from "@/lib/asset-url";
 
 /**
  * 来場者マイページ (2026-07-11 注文履歴を /orders に分離しマイQR/身分表示に専念)。
@@ -117,16 +119,13 @@ export default function MyPage() {
   // 2026-07-13: 来場者の表示QRのURLを物理リストバンドのQRと同じ形式 (/w/:id) に統一する。
   // 店頭レジ側はすでに入力文字列から /w/:id や ?wb=... を解析してIDを抽出できるように修正済みのため、これで動作する。
   const userCheckinUrl = `${origin}/w/${targetWbId}`;
-  const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(
-    userCheckinUrl
-  )}`;
 
   return (
     <div className="max-w-3xl mx-auto p-3 sm:p-4 space-y-4 sm:space-y-6 pb-24 font-mono">
       {eventData?.logoUrl && (
         <div className="border-thick border-border p-2 bg-background mb-4">
           <img
-            src={eventData.logoUrl}
+            src={resolveAssetUrl(eventData.logoUrl)}
             alt={eventData.eventName}
             className="w-full h-auto max-h-32 object-contain mx-auto block"
           />
@@ -179,13 +178,7 @@ export default function MyPage() {
           </CardHeader>
           <CardContent className="p-0 space-y-4">
             <div className="bg-background p-3 sm:p-4 inline-block border-thick border-background mx-auto">
-              <img
-                src={qrImageUrl}
-                alt="My Digital QR"
-                width={180}
-                height={180}
-                className="mx-auto block"
-              />
+              <QRCodeSVG value={userCheckinUrl} size={180} level="M" title="My Digital QR" className="mx-auto block" />
             </div>
             <div className="space-y-1">
               <p className="text-xs text-primary-foreground/70 uppercase tracking-widest">

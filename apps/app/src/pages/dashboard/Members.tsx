@@ -19,6 +19,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Modal } from "@/components/ui/Modal";
@@ -40,6 +41,7 @@ import {
   Users,
   Ban,
   RotateCcw,
+  Search,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -53,6 +55,9 @@ function MembersContent() {
   const [showAddForm, setShowAddForm] = useState(false);
   const [showInviteForm, setShowInviteForm] = useState(false);
   const [copiedToken, setCopiedToken] = useState<string | null>(null);
+
+  const [isMembersTableOpen, setIsMembersTableOpen] = useState(false);
+  const [memberSearch, setMemberSearch] = useState("");
 
   // 削除確認ダイアログ用ステート (メンバー除名 / 招待リンク削除)
 
@@ -89,6 +94,10 @@ function MembersContent() {
     queryFn: () => membershipApi.listByCircle(circleId!),
     enabled: !!circleId,
   });
+
+  const filteredMembers = (members ?? []).filter((member) =>
+    `${member.userName} ${member.userEmail}`.toLocaleLowerCase().includes(memberSearch.trim().toLocaleLowerCase())
+  );
 
   const {
     data: inviteTokens,
@@ -300,7 +309,8 @@ function MembersContent() {
         </PermissionGuard>
       }
     >
-      <div className="space-y-6 font-mono">
+      {/* 2026-09-27: 固定幅の表をスクロール領域内に閉じ、ページ全体の横幅を押し広げない。 */}
+      <div className="min-w-0 max-w-full space-y-6 font-mono">
       {/* メンバー追加モーダル */}
       <Modal
         isOpen={showAddForm}
@@ -358,13 +368,14 @@ function MembersContent() {
       <Modal
         isOpen={showInviteForm}
         onClose={() => setShowInviteForm(false)}
-        title="[招待リンク作成]"
-        subtitle="新しいメンバーを招待するためのリンクを生成します。"
+        title="[招待の発行]"
+        subtitle="新しいメンバーを招待するリンクを発行します。"
       >
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        {/* 2026-09-27: イベント招待と同じ縦並び・項目順にして設定の見落としを防ぐ。 */}
+        <div className="space-y-4">
           <FormSelect
             id="invite-role"
-            label="付与するロール"
+            label="招待するロール"
             value={inviteSettings.role}
             onChange={(e) => setInviteSettings({ ...inviteSettings, role: e.target.value as Role })}
           >
@@ -378,6 +389,14 @@ function MembersContent() {
                 </option>
               ))}
           </FormSelect>
+          <FormField
+            id="target-email"
+            label="メールアドレス (任意)"
+            type="email"
+            placeholder="user@example.com (任意)"
+            value={inviteSettings.targetEmail}
+            onChange={(e) => setInviteSettings({ ...inviteSettings, targetEmail: e.target.value })}
+          />
           {/* 編集中に 1 未満へ丸めると打ち直しがつっかえるため、空欄(0)を許容する。
               実際の下限は送信時 (handleCreateInvite) に 1 以上へ丸める。 */}
           <FormField
@@ -403,14 +422,6 @@ function MembersContent() {
               setInviteSettings({ ...inviteSettings, expiresInHours: Number.isNaN(n) ? 0 : Math.max(0, Math.min(168, n)) });
             }}
           />
-          <FormField
-            id="target-email"
-            label="相手のメール (直接通知する場合)"
-            type="email"
-            placeholder="user@example.com (任意)"
-            value={inviteSettings.targetEmail}
-            onChange={(e) => setInviteSettings({ ...inviteSettings, targetEmail: e.target.value })}
-          />
         </div>
 
         <FormSubmitButton
@@ -418,19 +429,19 @@ function MembersContent() {
           isPending={createInviteMutation.isPending}
           icon={LinkIcon}
         >
-          リンクを生成
+          招待を発行
         </FormSubmitButton>
       </Modal>
 
       {/* アクティブな招待リンク */}
-      <Card>
+      <Card className="min-w-0 max-w-full">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <LinkIcon className="h-5 w-5" />
             アクティブな招待リンク
           </CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="min-w-0 max-w-full">
           {inviteTokensError ? (
             <ErrorState error={inviteTokensErrorObj} onRetry={() => refetchTokens()} />
           ) : inviteTokens && inviteTokens.length > 0 ? (
@@ -523,39 +534,53 @@ function MembersContent() {
         </CardContent>
       </Card>
 
-      {/* メンバー一覧 */}
+      {/* 2026-09-27: メンバーが増えても他の管理情報へスクロールし続けず、表を独立して開けるようにする。 */}
       <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Users className="h-5 w-5" />
-            メンバー一覧
-          </CardTitle>
-          <CardDescription>
-            {members?.length || 0}人のメンバーが登録されています
-          </CardDescription>
+        <CardHeader className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <CardTitle className="flex items-center gap-2">
+              <Users className="h-5 w-5" />
+              メンバー一覧
+            </CardTitle>
+            <CardDescription>
+              {members?.length || 0}人のメンバーが登録されています
+            </CardDescription>
+          </div>
+          {members && members.length > 0 && (
+            <Button variant="outline" onClick={() => setIsMembersTableOpen(true)} className="border-thick border-border">
+              一覧を開く
+            </Button>
+          )}
         </CardHeader>
-        <CardContent>
+        <CardContent className="p-0">
           {membersError ? (
             <ErrorState error={membersErrorObj} onRetry={() => refetchMembers()} />
           ) : members && members.length > 0 ? (
-            <div className="space-y-3">
-              {members.map((member) => (
-                <div
-                  key={member.id}
-                  className="flex items-center justify-between p-4 border-thick border-border"
-                >
-                  <div className="flex items-center gap-4">
-                    <div className="h-10 w-10 border-thick border-border bg-secondary flex items-center justify-center">
-                      <Shield className="h-5 w-5 text-muted-foreground" />
-                    </div>
-                    <div>
-                      <p className="font-medium">{member.userName}</p>
-                      <p className="text-sm text-muted-foreground">
-                        {member.userEmail}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-3">
+            <p className="p-4 text-xs text-muted-foreground">{members.length}人が登録されています。表で権限変更・停止・除名を行えます。</p>
+          ) : (
+            <EmptyState
+              icon={Users}
+              message="まだメンバーがいません"
+            />
+          )}
+        </CardContent>
+      </Card>
+
+      {/* 2026-09-27: 一覧操作をモーダル内にまとめ、管理ページの高さをメンバー数に左右されないようにする。 */}
+      <Modal isOpen={isMembersTableOpen} onClose={() => setIsMembersTableOpen(false)} title="[メンバー一覧]" subtitle={`${members?.length ?? 0}人`} maxWidth="xl">
+        <div className="relative">
+          <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+          <Input aria-label="メンバーを検索" value={memberSearch} onChange={(e) => setMemberSearch(e.target.value)} placeholder="名前・メールアドレスで検索" className="pl-9 border-thick border-border" />
+        </div>
+        <div className="max-h-[55vh] overflow-auto border-thick border-border">
+          <table className="w-full min-w-[720px] text-xs text-left font-mono">
+            <thead className="sticky top-0 bg-background"><tr className="border-b-thick border-border"><th className="p-3">名前</th><th className="p-3">メールアドレス</th><th className="p-3">ロール</th><th className="p-3">状態</th><th className="p-3 text-right">操作</th></tr></thead>
+            <tbody>
+              {filteredMembers.map((member) => (
+                <tr key={member.id} className="border-b-thin border-border">
+                  <td className="p-3 font-bold">{member.userName}</td>
+                  <td className="p-3">{member.userEmail}</td>
+                  <td className="p-3">
                     {/* ロール変更 (2026-07-15)。サークルロールのメンバーはインラインで昇格/降格できる。
                         イベント/システムロールは読み取り専用バッジのまま。最後の管理者は降格不可。 */}
                     <PermissionGuard
@@ -569,6 +594,7 @@ function MembersContent() {
                       {MANAGEABLE_ROLES.includes(member.role as Role) ? (
                         <select
                           value={member.role}
+                          aria-label={`${member.userName} のロール`}
                           disabled={updateRoleMutation.isPending || isLastManager(member)}
                           title={isLastManager(member) ? "最後の管理者のロールは変更できません" : undefined}
                           onChange={(e) =>
@@ -588,15 +614,16 @@ function MembersContent() {
                         </Badge>
                       )}
                     </PermissionGuard>
-                    {!member.isActive && (
-                      <Badge variant="warning">停止中</Badge>
-                    )}
+                  </td>
+                  <td className="p-3">{member.isActive ? <Badge variant="active">有効</Badge> : <Badge variant="warning">停止中</Badge>}</td>
+                  <td className="p-3 text-right">
                     {/* アカウント停止/復帰 (2026-07-15)。停止すると権限が即無効化される。
                         最後のアクティブ管理者は停止不可 (ロックアウト防止)。 */}
                     <PermissionGuard permission="member:write">
                       <Button
                         size="sm"
                         variant="ghost"
+                        aria-label={`${member.userName}を${member.isActive ? "停止" : "復帰"}`}
                         disabled={setActiveMutation.isPending || (member.isActive && isLastManager(member))}
                         title={
                           member.isActive
@@ -618,6 +645,7 @@ function MembersContent() {
                       <Button
                         size="sm"
                         variant="ghost"
+                        aria-label={`${member.userName}を除名`}
                         disabled={isLastManager(member)}
                         title={isLastManager(member) ? "最後の管理者は除名できません" : undefined}
                         onClick={() => handleRemoveMember(member)}
@@ -625,29 +653,26 @@ function MembersContent() {
                         <Trash2 className="h-4 w-4 text-destructive" />
                       </Button>
                     </PermissionGuard>
-                  </div>
-                </div>
+                  </td>
+                </tr>
               ))}
-            </div>
-          ) : (
-            <EmptyState
-              icon={Users}
-              message="まだメンバーがいません"
-            />
-          )}
-        </CardContent>
-      </Card>
+              {filteredMembers.length === 0 && <tr><td colSpan={5} className="p-6 text-center text-muted-foreground">該当するメンバーがいません</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      </Modal>
 
+      {/* 2026-09-27: サークル設定ではサークル内で付与できるロールだけを示し、イベント/システム権限との混同を防ぐ。 */}
       {/* ロール説明 */}
       <Card>
         <CardHeader>
           <CardTitle>ロールと権限</CardTitle>
-          <CardDescription>各ロールで利用可能な機能の説明</CardDescription>
+          <CardDescription>サークル内の各ロールで利用できる機能</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="grid gap-4 md:grid-cols-2">
             {rolesData &&
-              rolesData.map((roleInfo) => (
+              rolesData.filter((roleInfo) => roleInfo.role === "circle_manager" || roleInfo.role === "circle_staff").map((roleInfo) => (
                 <div
                   key={roleInfo.role}
                   className="p-4 border-thick border-border space-y-2"

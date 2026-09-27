@@ -529,8 +529,8 @@ preOrderRoutes.post(
           ? await db.select().from(topping).where(inArray(topping.id, usedToppingIds))
           : [];
 
-      // order.ts と同じ意味論: stockQuantity === 0 は無制限/未管理を意味し、チェック・減算を
-      // スキップする。stockQuantity > 0 のメニュー/トッピングのみ在庫管理対象として必要数を集計する。
+      // 2026-09-27: メニューは商品単位の opt-in、トッピングは既存どおり数量0=未管理。
+      // これにより、在庫管理中のメニューは残数0のときも受取確定を拒否できる。
       const stockNeeded = new Map<string, number>();
       const toppingStockNeeded = new Map<string, number>();
       for (const item of items) {
@@ -539,7 +539,7 @@ preOrderRoutes.post(
         // 在庫計算の対象からも除外する。
         if (!m) continue;
 
-        if (m.stockQuantity > 0) {
+        if (m.inventoryEnabled) {
           stockNeeded.set(m.id, (stockNeeded.get(m.id) || 0) + item.quantity);
         }
 

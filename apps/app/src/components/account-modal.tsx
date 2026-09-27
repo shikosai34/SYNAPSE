@@ -14,6 +14,7 @@ import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { ConfirmDialog } from "./ui/ConfirmDialog";
 import { accountApi, uploadImage } from "@/lib/api";
+import { resolveAssetUrl } from "@/lib/asset-url";
 import {
   useAuth,
   getAuthInfo,
@@ -160,7 +161,7 @@ export default function AccountModal({
           <div className="flex items-center gap-3">
             <div className="relative w-16 h-16 border-thin border-border bg-muted/30 flex items-center justify-center overflow-hidden shrink-0">
               {image ? (
-                <img src={image} alt="アイコン" className="w-full h-full object-cover" />
+                <img src={resolveAssetUrl(image)} alt="アイコン" className="w-full h-full object-cover" />
               ) : (
                 <User className="h-7 w-7 text-muted-foreground" />
               )}

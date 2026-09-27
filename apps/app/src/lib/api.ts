@@ -1,6 +1,8 @@
 import { apiErrorFromResponse, networkApiError } from "./api-error";
+import { readAuthContext } from "./auth-context";
+import type { RoleType } from "@fesflow/config";
 
-function getApiBaseUrl(): string {
+export function getApiBaseUrl(): string {
   let url = import.meta.env.VITE_API_URL || "https://localhost:8787";
   if (typeof window !== "undefined" && (url.includes("localhost") || url.includes("127.0.0.1"))) {
     const host = window.location.hostname;
@@ -32,16 +34,9 @@ async function fetchApi<T>(
     ...headers,
   };
 
-  // ローカルストレージのアクティブメンバーシップIDをヘッダーに注入 (2026-07-04 SaaS権限隔離対応)
-  const authStored = localStorage.getItem("circleAuth");
-  if (authStored) {
-    try {
-      const authInfo = JSON.parse(authStored);
-      if (authInfo.membershipId) {
-        headersObj["X-Active-Membership-Id"] = authInfo.membershipId;
-      }
-    } catch (_) {}
-  }
+  // タブ別コンテキストからアクティブメンバーシップIDを注入 (2026-07-04 SaaS権限隔離対応、2026-09-27 タブ間分離)
+  const authInfo = readAuthContext<{ membershipId?: string | null }>();
+  if (authInfo?.membershipId) headersObj["X-Active-Membership-Id"] = authInfo.membershipId;
 
   const config: RequestInit = {
     method,
@@ -71,7 +66,17 @@ async function fetchApi<T>(
     throw await apiErrorFromResponse(response);
   }
 
-  return await response.json();
+  const data = await response.json();
+  // メンバーの追加/変更/停止は選択可能な所属も変えるため、useMySpaces に即時再取得を通知する。
+  // 対象は成功した書き込みだけに絞り、招待受諾による新規所属も同じ経路で反映する (2026-09-27)。
+  if (
+    typeof window !== "undefined" &&
+    endpoint.startsWith("/api/memberships") &&
+    method !== "GET"
+  ) {
+    window.dispatchEvent(new Event("membershipsChanged"));
+  }
+  return data;
 }
 
 // Event API
@@ -186,6 +191,11 @@ export const menuApi = {
       method: "PATCH",
       body: { stockQuantity },
     }),
+  setInventoryEnabled: (id: string, inventoryEnabled: boolean) =>
+    fetchApi<{ success: boolean }>(`/api/menus/${id}/inventory`, {
+      method: "PATCH",
+      body: { inventoryEnabled },
+    }),
 };
 
 // Topping API
@@ -270,6 +280,30 @@ export const orderApi = {
     if (dateTo) url += `&dateTo=${dateTo}`;
     return fetchApi<SalesStats>(url);
   },
+};
+
+export interface VisitorReviewTarget {
+  circleId: string;
+  circleName: string;
+  review: { rating: number; comment: string | null } | null;
+}
+
+export interface ManagedReview {
+  circleId?: string;
+  circleName?: string;
+  rating: number;
+  comment: string | null;
+  createdAt: string | number | Date;
+  displayId: number;
+}
+
+// 2026-09-27: 来場者は自分の体験先と投稿状態のみを取得し、管理側は既存の sales:read 権限で一覧を見る。
+export const reviewApi = {
+  mine: (code: string) => fetchApi<VisitorReviewTarget[]>(`/api/reviews/visitor/${encodeURIComponent(code)}`),
+  submit: (code: string, body: { circleId: string; rating: number; comment: string }) =>
+    fetchApi<{ success: boolean }>(`/api/reviews/visitor/${encodeURIComponent(code)}`, { method: "POST", body }),
+  circle: (circleId: string) => fetchApi<ManagedReview[]>(`/api/reviews/circle/${encodeURIComponent(circleId)}`),
+  event: (eventId: string) => fetchApi<ManagedReview[]>(`/api/reviews/event/${encodeURIComponent(eventId)}`),
 };
 
 // Membership API
@@ -674,6 +708,7 @@ export interface Menu {
   description: string | null;
   imagePath: string | null;
   stockQuantity: number | null;
+  inventoryEnabled: boolean;
   soldOut: boolean;
   /** 既定トッピングID配列を JSON 文字列で保持 (例: '["t1","t2"]') */
   defaultToppingIds?: string;
@@ -785,20 +820,8 @@ export interface SalesStats {
 // 招待/メンバー追加でこれらを送ると 400 になっていた (実装が「間に合っていない」ように見えた原因)。
 // まずバックエンド正規ロールを先頭に加えて型と実挙動を一致させる。旧・イベント系ロールは
 // 参照箇所 (EventStaffFormModal 等) が残っているため当面は残置し、別途整理する。
-export type Role =
-  // --- バックエンド正規ロール ---
-  | "super_admin"
-  | "event_manager"
-  | "circle_manager"
-  | "circle_staff"
-  // --- 旧/イベント系 (段階的に廃止予定。lib と backend の乖離が残る箇所) ---
-  | "event_admin"
-  | "event_staff"
-  | "cashier"
-  | "kitchen_staff"
-  | "waiter"
-  | "stock_manager"
-  | "viewer";
+// API が受理する正規ロールを共有定義から参照し、未対応ロールを送信可能な型に残さない。
+export type Role = RoleType;
 
 export interface RoleInfo {
   role: Role;
@@ -880,6 +903,7 @@ export interface CreateMenuInput {
   imagePath?: string;
   imageUrl?: string;
   stockQuantity?: number;
+  inventoryEnabled?: boolean;
   stock?: number;
   isAvailable?: boolean;
   soldOut?: boolean;
@@ -894,6 +918,7 @@ export interface UpdateMenuInput {
   imagePath?: string | null;
   imageUrl?: string;
   stockQuantity?: number | null;
+  inventoryEnabled?: boolean;
   stock?: number | null;
   isAvailable?: boolean;
   soldOut?: boolean;

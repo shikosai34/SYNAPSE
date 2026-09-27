@@ -8,12 +8,9 @@
  * (権限ロジックは hooks/useCircleAuth.tsx の ROLES/ROLE_PERMISSIONS を参照)。
  */
 
-export type Role =
-  | "super_admin"
-  | "event_manager"
-  | "circle_manager"
-  | "circle_staff"
-  | "visitor";
+import type { RoleType } from "@fesflow/config";
+
+export type Role = RoleType | "visitor";
 
 // ロールの日本語表示ラベル
 export const ROLE_LABELS: Record<Role, string> = {
@@ -34,7 +31,7 @@ export const ROLE_BADGES: Record<Role, string> = {
 };
 
 function isKnownRole(role: string): role is Role {
-  return role in ROLE_LABELS;
+  return Object.hasOwn(ROLE_LABELS, role);
 }
 
 /**
