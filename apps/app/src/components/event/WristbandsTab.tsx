@@ -250,7 +250,7 @@ export function WristbandsTab({ eventId }: WristbandsTabProps) {
   return (
     <div className="space-y-6 font-mono text-foreground">
       {/* 画面ヘッダー部 */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b-thick border-border pb-4">
+      <div className="flex max-w-full flex-col gap-4 border-b-thick border-border pb-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
           <h2 className="text-sm font-bold uppercase tracking-wider flex items-center gap-2">
             <IdCard className="h-4 w-4" />
@@ -260,8 +260,8 @@ export function WristbandsTab({ eventId }: WristbandsTabProps) {
             来場者アカウント情報の変更、紛失リストバンドのロック・再発行、スマホデジタルIDの発行などを一括管理します。
           </p>
         </div>
-        {/* 2026-09-27: 小さい画面では操作ボタンを縦に並べ、ページ幅からはみ出さないようにする。 */}
-        <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:shrink-0">
+        {/* 2026-09-27: タブレット幅でも見出しと操作列を分け、ボタンも利用可能幅で折り返す。 */}
+        <div className="flex w-full max-w-full flex-col gap-2 sm:flex-row sm:flex-wrap lg:w-auto lg:flex-nowrap lg:shrink-0">
           <Button
             onClick={() => {
               setLookupCode("");
