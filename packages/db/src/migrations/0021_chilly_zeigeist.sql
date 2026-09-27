@@ -1,0 +1,1 @@
+ALTER TABLE `menu` ADD `inventory_enabled` integer DEFAULT false NOT NULL;

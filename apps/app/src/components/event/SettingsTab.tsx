@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Settings, Save, Upload, Loader2, Palette, CreditCard, Plus, X, Ticket, CalendarClock } from "lucide-react";
 import { ToggleSwitch } from "@/components/ui/ToggleSwitch";
 import { toast } from "sonner";
+import { resolveAssetUrl } from "@/lib/asset-url";
 
 // 開催状態の選択肢 (主催者が切り替えられるのは upcoming/live/ended。archived は保持期間としてシステム側概念)。
 const LIFECYCLE_OPTIONS: { value: EventLifecycleStatus; label: string; desc: string }[] = [
@@ -192,10 +193,8 @@ export function SettingsTab({ eventId, event }: SettingsTabProps) {
     try {
       toast.loading("画像をアップロード中...", { id: "logo-upload" });
       const res = await uploadImage(file);
-      const baseUrl = import.meta.env.VITE_API_URL || "http://localhost:8787";
-      const fullUrl = res.path.startsWith("http") ? res.path : `${baseUrl}${res.path}`;
-
-      setBasicForm((prev) => ({ ...prev, logoUrl: fullUrl }));
+      // 2026-09-27 Issue #57: 保存は相対パスに統一し、表示時に現在のAPI hostへ解決する。
+      setBasicForm((prev) => ({ ...prev, logoUrl: res.path }));
       toast.success("画像をアップロードしました", { id: "logo-upload" });
     } catch (err: any) {
       console.error(err);
@@ -425,7 +424,7 @@ export function SettingsTab({ eventId, event }: SettingsTabProps) {
               {basicForm.logoUrl ? (
                 <div className="space-y-2 text-center w-full">
                   <img
-                    src={basicForm.logoUrl}
+                    src={resolveAssetUrl(basicForm.logoUrl)}
                     alt="Event logo"
                     className="max-h-24 mx-auto block border-thick border-border bg-background"
                   />
@@ -525,7 +524,7 @@ export function SettingsTab({ eventId, event }: SettingsTabProps) {
                 style={{ backgroundColor: themeForm.backgroundColor, color: themeForm.textColor }}
               >
                 {basicForm.logoUrl && (
-                  <img src={basicForm.logoUrl} alt="" className="max-h-12 border-thick" style={{ borderColor: themeForm.primaryColor }} />
+                  <img src={resolveAssetUrl(basicForm.logoUrl)} alt="" className="max-h-12 border-thick" style={{ borderColor: themeForm.primaryColor }} />
                 )}
                 <div
                   className="p-3 font-bold uppercase text-sm"

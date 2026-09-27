@@ -24,6 +24,7 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { toast } from "sonner";
 import { EventTheme } from "@/components/EventTheme";
 import { ShoppingCart, Plus, Minus, CheckCircle, UtensilsCrossed, Ticket, X } from "lucide-react";
+import { resolveAssetUrl } from "@/lib/asset-url";
 
 // 2026-07-13: 来場者モバイルオーダーもトッピング対応にするため、レジ (Register.tsx) と同じく
 // カートを「行 (line)」単位で持つ。同じメニューでもトッピング構成が違えば別行になる。
@@ -125,7 +126,7 @@ function VisitorMenuCard({
         <div className="relative h-48 w-full overflow-hidden border-b-thick border-border">
           {menu.imagePath ? (
             <img
-              src={menu.imagePath}
+              src={resolveAssetUrl(menu.imagePath)}
               alt={menu.name}
               className="absolute inset-0 h-full w-full object-cover"
             />
@@ -180,7 +181,7 @@ function VisitorMenuCard({
                     )}
                   >
                     {t.imagePath && (
-                      <img src={t.imagePath} alt="" className="h-5 w-5 object-cover border-thin border-current shrink-0" />
+                      <img src={resolveAssetUrl(t.imagePath)} alt="" className="h-5 w-5 object-cover border-thin border-current shrink-0" />
                     )}
                     <span className="truncate max-w-[110px]">{t.name}</span>
                     {isFree ? (
@@ -269,7 +270,7 @@ function MenuPageContent() {
   const navigate = useNavigate();
   const circleIdParam = searchParams.get("circleId");
   // 未入場 (リストバンド未発行) は空文字。閲覧は許可し注文送信側でゲートする
-  const { userId: visitorUserId } = useVisitor();
+  const { userId: visitorUserId, session, isLoaded: visitorLoaded } = useVisitor();
   const userId = visitorUserId ?? "";
 
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
@@ -334,7 +335,8 @@ function MenuPageContent() {
   } = useQuery({
     queryKey: ["menus", selectedCircleId],
     queryFn: () => menuApi.list(selectedCircleId!),
-    enabled: !!selectedCircleId,
+    // 登録済み来場者は、サークルの所属イベント確認後に自分のイベントのメニューだけ取得する。
+    enabled: visitorLoaded && !!selectedCircleId && (!session?.userId || !session.eventId || circleData?.eventId === session.eventId),
   });
 
   // サークルが属するイベントのテーマ (配色/ロゴ) を取得して画面に反映
@@ -635,6 +637,18 @@ function MenuPageContent() {
     );
   }
 
+  // 店頭QRなどの明示URLでも、入場済み来場者の閲覧/注文対象を自分のイベントに限定する。
+  // 未入場者の公開メニュー下見は維持し、イベント所属確認前にメニュー本体を取得しない (2026-09-27)。
+  if (session?.userId && session.eventId && circleData?.eventId && circleData.eventId !== session.eventId) {
+    return (
+      <div className="max-w-xl mx-auto p-6 space-y-4 font-mono" role="alert">
+        <h1 className="text-xl font-bold">別のイベントの出店です</h1>
+        <p>入場中のイベントにある出店へ戻ってください。</p>
+        <Button onClick={() => navigate(`/visitor/events/${session.eventId}`)}>入場中のイベントへ戻る</Button>
+      </div>
+    );
+  }
+
   // メニュー表示画面
   if (circleLoading || menusLoading) {
     return (
@@ -674,7 +688,7 @@ function MenuPageContent() {
         <div className="max-w-xl mx-auto p-sp-3 sm:p-sp-4 text-center font-mono my-12">
           <div className="border-heavy border-border p-sp-5 space-y-sp-4 bg-background">
             {circleEvent.logoUrl ? (
-              <img src={circleEvent.logoUrl} alt={circleEvent.eventName} className="max-h-24 mx-auto block border-thick border-border" />
+              <img src={resolveAssetUrl(circleEvent.logoUrl)} alt={circleEvent.eventName} className="max-h-24 mx-auto block border-thick border-border" />
             ) : (
               <div className="inline-flex items-center justify-center h-14 w-14 border-thick border-border bg-primary text-primary-foreground mx-auto">
                 <UtensilsCrossed className="h-7 w-7" />
@@ -709,7 +723,9 @@ function MenuPageContent() {
 
   return (
     <EventTheme theme={circleEvent} className="bg-background text-foreground">
-    <div className="max-w-6xl mx-auto p-sp-3 sm:p-sp-4 space-y-sp-4 sm:space-y-sp-5 pb-36">
+    {/* 2026-09-27: スマートフォンでは固定カートバーがカード末尾の「カートに追加」を
+        隠すため、バーの最大高さぶんスクロール余白を確保する。 */}
+    <div className="max-w-6xl mx-auto p-sp-3 sm:p-sp-4 space-y-sp-4 sm:space-y-sp-5 pb-56 sm:pb-36">
       {/* 戻るボタン */}
       <button
         onClick={() => {
@@ -732,7 +748,7 @@ function MenuPageContent() {
           style={
             circleData.backgroundImagePath
               ? {
-                  backgroundImage: `url(${circleData.backgroundImagePath})`,
+                  backgroundImage: `url(${JSON.stringify(resolveAssetUrl(circleData.backgroundImagePath))})`,
                   backgroundSize: "cover",
                   backgroundPosition: "center",
                 }
@@ -742,7 +758,7 @@ function MenuPageContent() {
           <div className="bg-primary/80 border-thick border-primary-foreground p-sp-3 sm:p-sp-4 max-w-2xl w-full">
             {circleData.iconImagePath && (
               <img
-                src={circleData.iconImagePath}
+                src={resolveAssetUrl(circleData.iconImagePath)}
                 alt={circleData.name}
                 width={64}
                 height={64}

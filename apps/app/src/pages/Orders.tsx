@@ -142,6 +142,11 @@ export default function OrdersPage() {
         </p>
       </div>
 
+      {/* 2026-09-27: 注文履歴ページをレビュー投稿への導線にし、利用済み店舗を別ページで確認できるようにする。 */}
+      <button onClick={() => navigate("/visitor/reviews")} className="inline-flex items-center gap-2 border-thick border-border px-4 py-3 text-xs font-bold uppercase hover:bg-primary hover:text-primary-foreground">
+        <Receipt className="h-4 w-4" />体験したサークルをレビューする
+      </button>
+
       {/* どちらも無い & エラーも無いときは1つの空状態にまとめる */}
       {!hasHistory && !hasPreOrders && !historyError && !preOrdersError ? (
         <EmptyState icon={Receipt} message="まだ注文履歴はありません" />
@@ -192,6 +197,7 @@ export default function OrdersPage() {
             </div>
           )}
         </div>
+
       )}
 
       {/* 注文履歴 (レジを通った注文) */}

@@ -20,6 +20,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { toast } from "sonner";
 import { Minus, Plus, ShoppingCart, Trash2, QrCode, X, ScanLine } from "lucide-react";
+import { resolveAssetUrl } from "@/lib/asset-url";
 
 // カートは「行 (line)」単位。同じメニューでもトッピング構成が違えば別行として持てるように
 // menuId ではなく lineId をキーにする (トッピングあり/なしを同時注文したい要件のため)。
@@ -99,7 +100,7 @@ function MenuCard({
       <CardHeader className="p-0">
         <div className="relative h-28 sm:h-36 w-full overflow-hidden border-b-thick border-border">
           {menu.imagePath ? (
-            <img src={menu.imagePath} alt={menu.name} className="object-cover absolute inset-0 h-full w-full" />
+            <img src={resolveAssetUrl(menu.imagePath)} alt={menu.name} className="object-cover absolute inset-0 h-full w-full" />
           ) : (
             <div className="flex h-full w-full items-center justify-center bg-muted">
               <span className="font-mono text-[11px] sm:text-[14px] uppercase tracking-[1px]">No Image</span>
@@ -142,7 +143,7 @@ function MenuCard({
                     )}
                   >
                     {t.imagePath && (
-                      <img src={t.imagePath} alt="" className="h-4 w-4 object-cover border-thin border-current shrink-0" />
+                      <img src={resolveAssetUrl(t.imagePath)} alt="" className="h-4 w-4 object-cover border-thin border-current shrink-0" />
                     )}
                     <span className="truncate max-w-[80px]">{t.name}</span>
                     <span className={on ? "opacity-80" : "text-muted-foreground"}>
@@ -259,7 +260,7 @@ function CartBody({
                             )}
                           >
                             {topping.imagePath && (
-                              <img src={topping.imagePath} alt="" className="h-5 w-5 object-cover border-thin border-current shrink-0" />
+                              <img src={resolveAssetUrl(topping.imagePath)} alt="" className="h-5 w-5 object-cover border-thin border-current shrink-0" />
                             )}
                             <span>{topping.name}</span>
                             <span className={on ? "opacity-80" : "text-muted-foreground"}>

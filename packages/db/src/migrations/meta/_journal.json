@@ -148,6 +148,20 @@
       "when": 1789534996457,
       "tag": "0020_coupon_unlimited_redemptions",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "6",
+      "when": 1790495158802,
+      "tag": "0021_chilly_zeigeist",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "6",
+      "when": 1790495168734,
+      "tag": "0022_backfill-existing-managed-menu-stock",
+      "breakpoints": true
     }
   ]
 }

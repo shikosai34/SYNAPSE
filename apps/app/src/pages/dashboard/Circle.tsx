@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { CircleAuthGuard, useAuth } from "@/hooks/useCircleAuth";
+import { CircleAuthGuard, PermissionGuard, getAuthInfo, saveAuthInfo, useAuth } from "@/hooks/useCircleAuth";
 import {
   circleApi,
   eventApi,
@@ -28,7 +28,7 @@ import { OptionCard } from "@/components/ui/OptionCard";
 import { ToggleSwitch } from "@/components/ui/ToggleSwitch";
 import { ExtensionsManager } from "@/components/circle/ExtensionsManager";
 import { toast } from "sonner";
-import { Save, Package, UserCheck, CreditCard, Crown, Clock, ChefHat, CheckCircle2 } from "lucide-react";
+import { Save, UserCheck, CreditCard, Crown, Clock, ChefHat, CheckCircle2 } from "lucide-react";
 
 // 注文モードの選択肢
 const ORDER_FLOW_OPTIONS: {
@@ -79,7 +79,7 @@ function CircleSettingsContent() {
   // 2026-07-16: 「基本情報」セクションの未保存判定用に、直近保存済みの値を保持する。
   const [formSnapshot, setFormSnapshot] = useState(form);
 
-  // 運用設定 (注文モード・拡張機能ON/OFF)
+  // 2026-09-27: stockEnabledは旧設定値の保存互換用で、UIでは切り替えない。
   const [orderFlowMode, setOrderFlowMode] = useState<OrderFlowMode>("pending");
   const [stockEnabled, setStockEnabled] = useState(false);
   const [staffEnabled, setStaffEnabled] = useState(false);
@@ -112,9 +112,10 @@ function CircleSettingsContent() {
     enabled: !!circleId,
   });
 
+  // 2026-09-27: Members画面と同じquery keyを使い、メンバー追加/権限更新後の候補一覧を共有キャッシュで同期する。
   // サークルメンバー (オーナー譲渡用)
   const { data: members } = useQuery({
-    queryKey: ["circleMembers", circleId],
+    queryKey: ["members", circleId],
     queryFn: () => membershipApi.listByCircle(circleId),
     enabled: !!circleId,
   });
@@ -165,7 +166,7 @@ function CircleSettingsContent() {
     },
     onSuccess: (_res, variables) => {
       toast.success("サークル情報を更新しました");
-      localStorage.setItem("circleName", form.name);
+      window.sessionStorage.setItem("circleName", form.name);
       queryClient.invalidateQueries({ queryKey: ["circle", circleId] });
       // 再取得を待たずにスナップショットを更新し、即座に「未保存」表示を消す。
       // iconImagePath/backgroundImagePath は削除時に null を送るため、null は
@@ -181,7 +182,7 @@ function CircleSettingsContent() {
   });
 
   // 「運用設定」の保存。circleApi.updateSettings は settings カラムを丸ごと上書きするため、
-  // 注文モード・拡張機能・支払い方法を常にまとめて送る (どれか1つだけを送る部分更新はできない)。
+  // 注文モード・拡張機能・支払い方法を常にまとめて送る。旧stock値も後方互換用に保持する。
   const updateSettings = useMutation({
     mutationFn: async () =>
       circleApi.updateSettings(circleId, {
@@ -203,7 +204,25 @@ function CircleSettingsContent() {
       circleApi.transferOwner(circleId, targetMembershipId),
     onSuccess: () => {
       toast.success("オーナー権限を譲渡しました");
-      queryClient.invalidateQueries({ queryKey: ["circleMembers", circleId] });
+      queryClient.invalidateQueries({ queryKey: ["members", circleId] });
+      queryClient.invalidateQueries({ queryKey: ["mySpaces"] });
+      // 2026-09-27: 自分が譲渡元ならローカル権限表示も一般スタッフへ同期し、旧管理操作を残さない。
+      const authInfo = getAuthInfo();
+      if (authInfo && authInfo.membershipId === membershipId && authInfo.role === "circle_manager") {
+        saveAuthInfo({
+          userId: authInfo.userId ?? null,
+          circleId: authInfo.circleId ?? null,
+          eventId: authInfo.eventId ?? null,
+          userEmail: authInfo.userEmail ?? null,
+          userName: authInfo.userName ?? null,
+          role: "circle_staff",
+          membershipId: authInfo.membershipId,
+          circleName: authInfo.circleName,
+          isEventAdmin: authInfo.isEventAdmin,
+          adminMembershipId: authInfo.adminMembershipId,
+          adminEventId: authInfo.adminEventId,
+        });
+      }
       setPendingTransfer(null);
     },
     onError: (error: any) => {
@@ -237,9 +256,10 @@ function CircleSettingsContent() {
 
   const activeMembers = (members ?? []).filter((m: any) => m.isActive !== false);
   const currentOwner = activeMembers.find((m: any) => m.role === "circle_manager");
-  // 譲渡先候補: 現オーナー以外のアクティブメンバー
+  // 2026-09-27: transfer-owner APIは既存circle_managerを降格して指定先を昇格できるため、
+  // 追加済みの別オーナーも候補に含める。自分自身と停止中メンバーだけを除外する。
   const transferCandidates = activeMembers.filter(
-    (m: any) => m.role !== "circle_manager" && m.id !== membershipId
+    (m: any) => m.id !== membershipId
   );
 
   if (isLoading) {
@@ -371,20 +391,13 @@ function CircleSettingsContent() {
               </div>
             </div>
 
-            {/* 拡張機能 (在庫/スタッフ) */}
+            {/* 2026-09-27: 商品在庫管理は組み込みのため商品フォームから個別に設定する。 */}
             <div className="space-y-2 border-t-thin border-border pt-4">
-              <h3 className="text-xs font-bold uppercase tracking-wider">拡張機能</h3>
+              <h3 className="text-xs font-bold uppercase tracking-wider">オプション機能</h3>
               <p className="text-[11px] text-muted-foreground">
-                使いたい機能だけONにできます。OFFの機能はダッシュボードから隠れます
+                スタッフ管理は必要に応じて有効化できます。在庫管理はメニューごとに設定します。
               </p>
               <div className="space-y-3 pt-1">
-                <ExtensionToggle
-                  icon={Package}
-                  label="在庫管理"
-                  description="在庫数の確認と更新"
-                  enabled={stockEnabled}
-                  onToggle={() => setStockEnabled((v) => !v)}
-                />
                 <ExtensionToggle
                   icon={UserCheck}
                   label="スタッフ管理"
@@ -572,7 +585,9 @@ function ExtensionToggle({
 export default function CircleSettingsPage() {
   return (
     <CircleAuthGuard>
-      <CircleSettingsContent />
+      <PermissionGuard permission="circle:write" showDenied>
+        <CircleSettingsContent />
+      </PermissionGuard>
     </CircleAuthGuard>
   );
 }

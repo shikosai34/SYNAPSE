@@ -1,4 +1,5 @@
-import { Loader2, type LucideIcon } from "lucide-react";
+import { Eye, EyeOff, Loader2, type LucideIcon } from "lucide-react";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -55,6 +56,7 @@ export function FormField({
   placeholder,
   ...inputProps
 }: FormFieldProps) {
+  const [passwordVisible, setPasswordVisible] = useState(false);
   // 2026-07-05: 価格・在庫数等の number 入力で負値が入力・確定されてしまう問題への
   // 共通対策。呼び出し側が min を指定しなければ 0 を既定にし、onBlur 時に
   // DOM の現在値を min でクランプ・正規化して onChange を呼び直す。
@@ -95,17 +97,32 @@ export function FormField({
 
   return (
     <FieldShell id={id} label={label} required={required} className={fieldClassName}>
-      <Input
-        id={id}
-        type={type}
-        min={resolvedMin}
-        inputMode={isNumber ? (inputMode ?? "numeric") : inputMode}
-        onBlur={handleBlur}
-        value={displayValue}
-        placeholder={resolvedPlaceholder}
-        className={cn(formControlClassName, className)}
-        {...inputProps}
-      />
+      <div className={type === "password" ? "relative" : undefined}>
+        <Input
+          id={id}
+          type={type === "password" && passwordVisible ? "text" : type}
+          min={resolvedMin}
+          inputMode={isNumber ? (inputMode ?? "numeric") : inputMode}
+          onBlur={handleBlur}
+          value={displayValue}
+          placeholder={resolvedPlaceholder}
+          className={cn(formControlClassName, className, type === "password" && "pr-10")}
+          {...inputProps}
+        />
+        {type === "password" && (
+          // 2026-09-27: 表示切替を共通フィールドに置き、パスワード欄ごとに操作感を揃える。
+          <button
+          type="button"
+          aria-label={passwordVisible ? "パスワードを隠す" : "パスワードを表示"}
+          aria-pressed={passwordVisible}
+          disabled={inputProps.disabled}
+          onClick={() => setPasswordVisible((visible) => !visible)}
+            className="absolute inset-y-0 right-0 flex w-10 items-center justify-center text-foreground focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-foreground"
+          >
+            {passwordVisible ? <EyeOff className="h-4 w-4" aria-hidden="true" /> : <Eye className="h-4 w-4" aria-hidden="true" />}
+          </button>
+        )}
+      </div>
     </FieldShell>
   );
 }

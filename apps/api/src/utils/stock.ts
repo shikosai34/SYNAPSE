@@ -7,20 +7,18 @@ import { apiError } from "../http-error";
 // 同一の在庫減算処理を持っていた。並行作業の競合を避けるためこれまで共通化を見送っていたが、
 // 片方だけ直す変更漏れ事故のリスクが高いためここに切り出す。
 //
-// 意味論 (order.ts / pre_order.ts と完全に同一。挙動は1ミリも変えない):
-// - stockQuantity === 0 は「無制限/未管理」を意味し、チェック・減算をスキップする。
-//   そのため stockNeeded / toppingStockNeeded には stockQuantity > 0 の対象のみを
-//   積んでおくこと (集計自体は呼び出し側の責務のまま。order.ts は事前のスナップショット
+// 意味論 (order.ts / pre_order.ts と完全に同一):
+// - menu.stockNeeded は inventoryEnabled=true の対象のみ。0も在庫切れとして拒否される。
+//   toppingStockNeeded は従来どおり stockQuantity > 0 の対象のみを積む (集計自体は呼び出し側の責務。
+//   order.ts は事前のスナップショット
 //   読み取りチェックを持つが pre_order.ts の claim は持たない、という差異があるため
 //   集計ロジックはここに寄せず呼び出し側に残している)。
 // - D1 は対話的トランザクション非対応 (過去に db.transaction() で BEGIN が拒否され
 //   全注文が500になったリグレッションあり。order.ts 参照)。そのため常に逐次実行＋
 //   ガード付きUPDATE (`gte(stockQuantity, needed)` が0行なら在庫不足) ＋
 //   ベストエフォート補償で実装する。完全なロールバック保証はない (既知の制約 M-5)。
-// - 補償の非対称性: メニューは stockNeeded の全量を戻す一方、トッピングは実際に
-//   減算できた分 (decrementedToppings) だけを戻す。トッピングは減算ループの途中で
-//   失敗し得るため、まだ減算していない分まで加算してしまわないようにするための実装で
-//   あり、意図した非対称性のため維持する。
+// 2026-09-27: 複数品目の後半でガードが失敗した時に先行品目だけを戻せるよう、
+// 両商品種とも実際に減算できた数量を記録して補償する。
 
 /** 在庫不足エラーメッセージ用に、ID からメニュー/トッピング名を引く関数群。 */
 export type StockNameLookup = {
@@ -54,11 +52,13 @@ export async function decrementStockWithGuard(
   toppingStockNeeded: Map<string, number>,
   names: StockNameLookup
 ): Promise<StockDecrementHandle> {
-  // トッピングは実際に減算できた分だけを補償対象として記録する (非対称性、上記コメント参照)。
+  // 両商品種とも実際に減算できた分だけを補償対象にする。後続のガード付き更新が
+  // 並行注文で失敗した際に、まだ減らしていない品目まで補填しない。
+  const decrementedMenus: Array<[string, number]> = [];
   const decrementedToppings: Array<[string, number]> = [];
 
   const restoreStockBestEffort = async () => {
-    for (const [menuId, neededQty] of stockNeeded.entries()) {
+    for (const [menuId, neededQty] of decrementedMenus) {
       try {
         await db
           .update(menu)
@@ -93,12 +93,20 @@ export async function decrementStockWithGuard(
     const result = await db
       .update(menu)
       .set({ stockQuantity: sql`${menu.stockQuantity} - ${neededQty}` })
-      .where(and(eq(menu.id, menuId), gte(menu.stockQuantity, neededQty)))
+      .where(
+        and(
+          eq(menu.id, menuId),
+          eq(menu.inventoryEnabled, true),
+          gte(menu.stockQuantity, neededQty),
+        ),
+      )
       .returning({ stockQuantity: menu.stockQuantity });
 
     if (result.length === 0) {
+      await restoreStockBestEffort();
       apiError("BAD_REQUEST", `${names.getMenuName(menuId) ?? menuId}の在庫が不足しています`);
     }
+    decrementedMenus.push([menuId, neededQty]);
 
     // 減算の結果 在庫が0になった場合は soldOut も併せてセットする
     if (result[0]!.stockQuantity <= 0) {

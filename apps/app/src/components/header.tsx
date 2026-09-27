@@ -21,7 +21,8 @@ import {
 import AccountModal from "./account-modal";
 import { PRODUCT_NAME } from "@fesflow/config";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { eventApi, notificationApi, accountApi, systemApi } from "@/lib/api";
+import { adminApi, notificationApi, accountApi, systemApi } from "@/lib/api";
+import { resolveAssetUrl } from "@/lib/asset-url";
 import {
   useAuth,
   clearAuthInfo,
@@ -31,6 +32,7 @@ import {
   getAuthInfo,
 } from "@/hooks/useCircleAuth";
 import { roleLabel, roleBadge } from "@/lib/roles";
+import { PERMISSION_NAMES } from "@fesflow/config";
 import { authClient } from "@/lib/auth-client";
 
 // 2026-07-07 単一ドメイン化: register の circle/event/sys はすべて同一オリジンの同一SPA。
@@ -44,6 +46,7 @@ import { authClient } from "@/lib/auth-client";
 // 以下の方針で作り直す:
 //   - すべてのトリガーに常時ラベルを付ける (アイコンのみのボタンを廃止)
 //   - デスクトップ (hover: hover な環境) はホバーで開き、タッチ環境はタップで開閉する
+//   - 2026-09-27: スペース切替だけは意図しない展開を避けるため、全環境でクリック/タップに統一する
 //   - 開閉状態は単一の activeMenu state に統一し、常に1つしか開かないようにする
 //   - 外側クリックは document 全体の mousedown 監視で判定する (フルスクリーンの透明backdrop
 //     を使うと、hover 判定(mouseleave)がbackdropに邪魔されて機能しなくなるため廃止した)
@@ -53,7 +56,7 @@ import { authClient } from "@/lib/auth-client";
 // 開閉する作りは「今どれが開いているか」を見失いやすい。トップレベルのトリガーを3本線1つに
 // 集約し、その中を「通知/組織切り替え/アカウント」を並べた1段目 → タップした項目の中身を
 // 表示する2段目、という構造にする。デスクトップは今までどおり個別トリガー+ホバー/タップを
-// 維持する (md:hidden / hidden md:block で出し分け)。
+// 維持する (lg:hidden / hidden lg:block で出し分け)。
 // 開閉の最上位は引き続き activeMenu (nav = 3本線) で1つだけ開く制御を継続し、3本線の中の
 // 「今どの項目を掘り下げているか」だけを別 state (mobileSection) で管理する。
 type MenuKey = "notif" | "space" | "account" | "nav" | null;
@@ -71,7 +74,7 @@ export default function Header() {
   const navigate = useNavigate();
   const pathname = useLocation().pathname;
   const queryClient = useQueryClient();
-  const { role, userName, circleName, isLoading, isAuthenticated, isEventAdmin, userEmail } =
+  const { role, eventId, userName, circleName, isLoading, isAuthenticated, isEventAdmin, userEmail, permissions, membershipAuthorityError, retryAuthorization } =
     useAuth();
   const { data: spaces } = useMySpaces();
 
@@ -184,20 +187,19 @@ export default function Header() {
 
   // 現在のアクティブなスペース名
   const currentSpaceName = useMemo(() => {
-    if (pathname.startsWith("/sys")) {
+    if (role === "super_admin") {
       return "システム管理";
     }
-    if (pathname.startsWith("/event")) {
-      const info = getAuthInfo();
-      const eventId = info?.eventId;
+    if (role === "event_manager") {
       const space = (spaces ?? []).find((m: any) => m.eventId === eventId && !m.circleId);
       return space?.event?.eventName || localStorage.getItem("eventName") || "イベント管理";
     }
-    if (pathname.startsWith("/circle")) {
-      return circleName || "店舗";
+    if (role === "circle_manager" || role === "circle_staff") {
+      const space = (spaces ?? []).find((m: any) => m.circleId === (getAuthInfo()?.circleId ?? null));
+      return space?.circle?.name || circleName || "店舗";
     }
-    return "スペース選択";
-  }, [pathname, spaces, circleName]);
+    return role ? roleLabel(role) : "スペース選択";
+  }, [role, eventId, spaces, circleName]);
 
   // 現在のアクティブな権限 (ラベル対応表は lib/roles.ts に集約)
   const currentSpaceRole = useMemo(() => {
@@ -219,13 +221,6 @@ export default function Header() {
     queryFn: () => systemApi.announcements(),
     enabled: isAuthenticated,
     refetchInterval: 5 * 60_000,
-  });
-
-  // 全イベント取得 (super_admin用)
-  const { data: allEvents } = useQuery({
-    queryKey: ["allEvents"],
-    queryFn: () => eventApi.list(),
-    enabled: isAuthenticated && isAccountSuperAdmin,
   });
 
   // 通知を既読にするミューテーション (2026-07-16)。
@@ -271,7 +266,7 @@ export default function Header() {
     // ログインし直せなくなる。よって better-auth 側も必ず signOut する。
     // (2026-07-09 ログアウト後に再ログインできない不具合を修正)
     clearAuthInfo();
-    localStorage.removeItem("circleName");
+    window.sessionStorage.removeItem("circleName");
     localStorage.removeItem("eventName");
     await authClient.signOut();
     // useSession のキャッシュや mySpaces 等の残存クエリを掃除してから遷移する
@@ -295,10 +290,11 @@ export default function Header() {
       eventId?: string | null;
     }> = [];
 
-    // 1. システム管理 (アカウントが super_admin の場合)
+    // 1. システム管理 (実在する super_admin 所属を選択可能なスペースとして使う)
     if (isAccountSuperAdmin) {
+      const membership = (spaces ?? []).find((m: any) => m.role === "super_admin");
       list.push({
-        id: "super_admin_system",
+        id: membership?.id ?? "",
         type: "system",
         name: "システム管理",
         role: "super_admin",
@@ -332,25 +328,10 @@ export default function Header() {
       }
     });
 
-    // 3. 全イベントを管理 (super_admin の場合の特別追加)
-    if (isAccountSuperAdmin && allEvents) {
-      allEvents.forEach((evt: any) => {
-        if (!list.some(x => x.type === "event" && x.eventId === evt.id)) {
-          list.push({
-            id: `super_event_${evt.id}`,
-            type: "event",
-            name: evt.eventName,
-            role: "event_manager",
-            eventId: evt.id,
-          });
-        }
-      });
-    }
-
     return list;
-  }, [spaces, allEvents, isAccountSuperAdmin]);
+  }, [spaces, isAccountSuperAdmin]);
 
-  const handleSwitchSpace = (space: any) => {
+  const handleSwitchSpace = async (space: any) => {
     const email = userEmail || "";
     const name = userName || null;
 
@@ -375,7 +356,7 @@ export default function Header() {
         role: space.role,
         membershipId: space.id,
         circleName: null,
-        isEventAdmin: true,
+        isEventAdmin: false,
       };
     } else if (space.type === "event") {
       target = "/event/dashboard";
@@ -409,6 +390,19 @@ export default function Header() {
     setActiveMenu(null);
 
     if (!payload) return;
+
+    // なりすまし中にスペースだけ切り替えると、サーバー側の代理権限が残ったままになる。
+    // 明示的なスペース選択を終了操作として扱い、停止成功後にのみ新しい所属へ移る (2026-09-27)。
+    const currentAuth = getAuthInfo();
+    if (currentAuth?.role === "super_admin" && currentAuth.isEventAdmin && currentAuth.eventId) {
+      try {
+        await adminApi.impersonateStop();
+        queryClient.invalidateQueries({ queryKey: ["impersonation-status"] });
+      } catch (error: any) {
+        toast.error(error?.message || "なりすましを終了できませんでした。現在のスペースに留まります。");
+        return;
+      }
+    }
 
     // 2026-07-16: 権限・メンバーシップ関連のキャッシュを無効化する。
     // useAuth 側の role/circleId は saveAuthInfo が dispatch する authChange イベントで
@@ -565,6 +559,32 @@ export default function Header() {
   // スペース切り替えパネルの中身 (デスクトップのホバーパネル / モバイル3本線の2段目で共用) (2026-07-16)
   const spacePanelBody = (
     <>
+      {membershipAuthorityError && (
+        <div role="alert" className="mb-3 border-thick border-border bg-muted p-3 text-[10px]">
+          <p>{membershipAuthorityError}</p>
+          <button className="mt-1 underline" onClick={retryAuthorization}>再試行</button>
+        </div>
+      )}
+      <div className="mb-3 border-b-thin border-border pb-3">
+        <div className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">現在の権限</div>
+        <div className="mt-1 text-xs font-bold">{currentSpaceName}</div>
+        <div className="text-[10px] text-muted-foreground">{role ? roleLabel(role) : "スペース未選択"}</div>
+        {permissions.length > 0 && (
+          <details className="mt-2">
+            <summary className="cursor-pointer text-[10px] font-bold underline underline-offset-2">
+              このスペースでできること ({permissions.length})
+            </summary>
+            <ul className="mt-2 grid grid-cols-1 gap-1 text-[10px] sm:grid-cols-2">
+              {permissions.map((permission: string) => (
+                <li key={permission} className="flex items-start gap-1.5">
+                  <span aria-hidden="true">✓</span>
+                  <span>{PERMISSION_NAMES[permission] ?? permission}</span>
+                </li>
+              ))}
+            </ul>
+          </details>
+        )}
+      </div>
       <div className="max-h-72 overflow-y-auto space-y-3">
         {availableSpaces.length > 0 ? (
           ([
@@ -627,7 +647,7 @@ export default function Header() {
     <>
       <div className="flex items-center gap-2 mb-3 pb-3 border-b border-border/20">
         {me?.image ? (
-          <img src={me.image} alt="Avatar" className="w-8 h-8 rounded-none border border-border object-cover shrink-0" />
+          <img src={resolveAssetUrl(me.image)} alt="Avatar" className="w-8 h-8 rounded-none border border-border object-cover shrink-0" />
         ) : (
           <div className="w-8 h-8 border border-border flex items-center justify-center shrink-0">
             <User className="h-4 w-4" />
@@ -667,11 +687,11 @@ export default function Header() {
         {/* ロゴ / ブランド */}
         <Link
           to="/"
-          className="font-headline text-base sm:text-lg md:text-xl uppercase tracking-[2px] leading-none select-none hover:opacity-80 flex items-center gap-2 shrink-0"
+          className="font-headline text-base sm:text-lg lg:text-xl uppercase tracking-[2px] leading-none select-none hover:opacity-80 flex items-center gap-2 shrink-0"
         >
           <span className="font-black border-thin border-border px-2 py-1 bg-primary text-primary-foreground text-sm sm:text-base">
             {PRODUCT_NAME.toUpperCase()}
-            <span className="hidden md:inline">
+            <span className="hidden lg:inline">
               {isCircleView && " // BOOTH"}
               {isEventView && " // EVENT"}
               {isAdminView && " // SYSTEM"}
@@ -680,7 +700,7 @@ export default function Header() {
         </Link>
 
         {/* デスクトップナビゲーション (常時ラベル表示のためページリンクなのでそのまま維持) */}
-        <nav className="hidden md:flex items-center gap-1 font-headline text-[13px] uppercase tracking-[1px]">
+        <nav className="hidden lg:flex items-center gap-1 font-headline text-[13px] uppercase tracking-[1px]">
           {links.map(({ to, label }) => (
             <Link
               key={to}
@@ -701,10 +721,10 @@ export default function Header() {
           {isAuthenticated && !isLoading ? (
             <div className="flex items-center gap-1 sm:gap-2 relative">
               {/* 通知ベルメニュー (デスクトップのみ:ホバー / タッチ:タップ 両対応。
-                  モバイル(md未満)は3本線メニューへ集約するためここでは非表示にする 2026-07-16) */}
+                  1024px未満は3本線メニューへ集約するためここでは非表示にする 2026-09-27) */}
               <div
                 ref={notifRef}
-                className="relative hidden md:block"
+                className="relative hidden lg:block"
                 onMouseEnter={() => handleHoverOpen("notif")}
                 onMouseLeave={() => handleHoverClose("notif")}
               >
@@ -761,10 +781,9 @@ export default function Header() {
                   モバイルは3本線メニューへ集約 2026-07-16) */}
               <div
                 ref={spaceRef}
-                className="relative hidden md:block"
-                onMouseEnter={() => handleHoverOpen("space")}
-                onMouseLeave={() => handleHoverClose("space")}
+                className="relative hidden lg:block"
               >
+                {/* 2026-09-27 Issue #26: スペース一覧は意図したクリックで開閉し、ポインター通過では勝手に展開しない。 */}
                 <button
                   onClick={() => toggleMenu("space")}
                   aria-haspopup="menu"
@@ -815,7 +834,7 @@ export default function Header() {
                   (① アカウント設定を開く → AccountModal / ② ログアウト) (2026-07-16) */}
               <div
                 ref={accountRef}
-                className="relative hidden md:block"
+                className="relative hidden lg:block"
                 onMouseEnter={() => handleHoverOpen("account")}
                 onMouseLeave={() => handleHoverClose("account")}
               >
@@ -827,7 +846,7 @@ export default function Header() {
                   className="flex items-center justify-center gap-1 sm:gap-1.5 bg-muted border-thick border-border px-1.5 sm:px-3 py-1 sm:py-1.5 font-mono text-[11px] font-bold hover:bg-muted/80 select-none cursor-pointer h-8 sm:h-9 rounded-none"
                 >
                   {me?.image ? (
-                    <img src={me.image} alt="Avatar" className="w-5 h-5 rounded-none border border-border object-cover shrink-0" />
+                    <img src={resolveAssetUrl(me.image)} alt="Avatar" className="w-5 h-5 rounded-none border border-border object-cover shrink-0" />
                   ) : (
                     <User className="h-3.5 w-3.5 shrink-0" />
                   )}
@@ -859,7 +878,7 @@ export default function Header() {
                 )}
               </div>
 
-              {/* 3本線メニュー (モバイル(md未満)のみ)。「3本線 → 通知/組織切り替え/アカウント →
+              {/* 3本線メニュー (1024px未満のみ)。「3本線 → 通知/組織切り替え/アカウント →
                   中身」の2段階層に集約する (2026-07-16 要望対応)。
                   デスクトップの各トリガー横並びはスマホだと窮屈な上、それぞれ独立して開閉する
                   作りは今どれが開いているか見失いやすいため、トップレベルを3本線1つにし、
@@ -871,7 +890,7 @@ export default function Header() {
                   そのまま使うため、外側クリック/Esc/1つしか開かない制御はそのまま効く。
                   「一度に開く2段目は1つだけ」は mobileSection (単一 state) で保証し、
                   3本線が閉じるたびに useEffect (mobileSection のリセット) で1段目に戻す。 */}
-              <div ref={navRef} className="relative md:hidden">
+              <div ref={navRef} className="relative lg:hidden">
                 <button
                   onClick={() => toggleMenu("nav")}
                   aria-haspopup="menu"
@@ -945,7 +964,7 @@ export default function Header() {
                             >
                               <span className="flex items-center gap-2">
                                 {me?.image ? (
-                                  <img src={me.image} alt="Avatar" className="w-4 h-4 rounded-none border border-border object-cover shrink-0" />
+                                  <img src={resolveAssetUrl(me.image)} alt="Avatar" className="w-4 h-4 rounded-none border border-border object-cover shrink-0" />
                                 ) : (
                                   <User className="h-3.5 w-3.5 shrink-0" />
                                 )}

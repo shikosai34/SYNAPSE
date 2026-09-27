@@ -2,22 +2,13 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { authClient } from "@/lib/auth-client";
-import { adminApi, type ImpersonationStatus } from "@/lib/api";
+import { adminApi } from "@/lib/api";
 import { getAuthInfo, saveAuthInfo } from "@/hooks/useCircleAuth";
 import { Eye, X } from "lucide-react";
 
 // なりすまし中の常時バナー (2026-07-12 Phase E)。
 // アプリ最上部に固定表示し、誰として表示中か・残り時間・終了ボタンを出す。
 // サーバの impersonate/status を唯一の真実として参照する (端末=ログインセッション単位)。
-const INACTIVE: ImpersonationStatus = {
-  active: false,
-  role: null,
-  eventId: null,
-  circleId: null,
-  label: null,
-  expiresAt: null,
-};
-
 export function ImpersonationBanner() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -25,16 +16,10 @@ export function ImpersonationBanner() {
 
   const { data } = useQuery({
     queryKey: ["impersonation-status"],
-    // super_admin 以外は 403 になるため、例外は握りつぶして非表示 (inactive) 扱いにする
-    // (グローバル QueryCache.onError のトースト誤発火も防ぐ)。
-    queryFn: async () => {
-      try {
-        return await adminApi.impersonateStatus();
-      } catch {
-        return INACTIVE;
-      }
-    },
-    enabled: !!session?.user,
+    // useAuth と同じキーを共有するため、通信/認可エラーを inactive に変換しない。
+    // 失敗を成功データとしてキャッシュすると有効なサーバー側代理権限を誤終了扱いする (2026-09-27)。
+    queryFn: () => adminApi.impersonateStatus(),
+    enabled: !!session?.user && getAuthInfo()?.role === "super_admin",
     refetchInterval: 30_000,
   });
 

@@ -27,6 +27,7 @@ import { toast } from "sonner";
 import { QrScannerModal } from "@/components/pos/qr-scanner-modal";
 import { Modal } from "@/components/ui/Modal";
 import { QRCodeSVG } from "qrcode.react";
+import { digitalQrIssueUrl } from "@/lib/digital-qr-url";
 
 interface WristbandsTabProps {
   eventId: string;
@@ -38,6 +39,7 @@ export function WristbandsTab({ eventId }: WristbandsTabProps) {
   // 検索・表示関連の状態
   const [searchInput, setSearchInput] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
+  const [isVisitorTableOpen, setIsVisitorTableOpen] = useState(false);
 
   // モーダル開閉状態
   const [isScanModalOpen, setIsScanModalOpen] = useState(false);
@@ -240,6 +242,8 @@ export function WristbandsTab({ eventId }: WristbandsTabProps) {
     const visitorBase = import.meta.env.VITE_VISITOR_URL || window.location.origin.replace("3000", "3001");
     return `${visitorBase}/w/${userId}`;
   };
+  // 2026-09-27 Issue #56: QRの内容を表示中の発行URLと同じ MyPage 発行アクションに揃える。
+  const selfIssueUrl = digitalQrIssueUrl(window.location.origin, eventId);
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
@@ -249,7 +253,7 @@ export function WristbandsTab({ eventId }: WristbandsTabProps) {
   return (
     <div className="space-y-6 font-mono text-foreground">
       {/* 画面ヘッダー部 */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b-thick border-border pb-4">
+      <div className="flex max-w-full flex-col gap-4 border-b-thick border-border pb-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
           <h2 className="text-sm font-bold uppercase tracking-wider flex items-center gap-2">
             <IdCard className="h-4 w-4" />
@@ -259,14 +263,15 @@ export function WristbandsTab({ eventId }: WristbandsTabProps) {
             来場者アカウント情報の変更、紛失リストバンドのロック・再発行、スマホデジタルIDの発行などを一括管理します。
           </p>
         </div>
-        <div className="flex gap-2 shrink-0">
+        {/* 2026-09-27: タブレット幅でも見出しと操作列を分け、ボタンも利用可能幅で折り返す。 */}
+        <div className="flex w-full max-w-full flex-col gap-2 sm:flex-row sm:flex-wrap lg:w-auto lg:flex-nowrap lg:shrink-0">
           <Button
             onClick={() => {
               setLookupCode("");
               setIsScanModalOpen(true);
             }}
             variant="outline"
-            className="border-thick border-border h-9 text-xs font-bold rounded-none shadow-none px-3"
+            className="w-full sm:w-auto border-thick border-border h-9 text-xs font-bold rounded-none shadow-none px-3"
           >
             <Camera className="h-4 w-4 mr-1.5" />
             コード照会 / QRスキャン
@@ -276,7 +281,7 @@ export function WristbandsTab({ eventId }: WristbandsTabProps) {
               setIssuedUser(null);
               setIsIssueModalOpen(true);
             }}
-            className="border-thick border-primary bg-primary text-primary-foreground hover:bg-background hover:text-foreground h-9 text-xs font-bold rounded-none shadow-none px-3"
+            className="w-full sm:w-auto border-thick border-primary bg-primary text-primary-foreground hover:bg-background hover:text-foreground h-9 text-xs font-bold rounded-none shadow-none px-3"
           >
             <Plus className="h-4 w-4 mr-1" />
             スマホ年来場者発行
@@ -284,17 +289,30 @@ export function WristbandsTab({ eventId }: WristbandsTabProps) {
         </div>
       </div>
 
+      <Card className="rounded-none bg-background shadow-none border-thick border-border">
+        <CardHeader className="p-4 flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <CardTitle className="text-xs uppercase font-bold">[登録来場者一覧]</CardTitle>
+            <CardDescription className="text-[10px]">{visitors.length}件を表示中{searchQuery ? "（検索条件あり）" : ""}</CardDescription>
+          </div>
+          <Button onClick={() => setIsVisitorTableOpen(true)} variant="outline" className="border-thick border-border h-9 text-xs font-bold rounded-none">一覧を開く（{visitors.length}件）</Button>
+        </CardHeader>
+      </Card>
+
+      {/* 2026-09-27: 来場者の行が画面を押し下げないよう、検索と編集操作を表モーダルにまとめる。 */}
+      <Modal isOpen={isVisitorTableOpen} onClose={() => setIsVisitorTableOpen(false)} title="[登録来場者一覧]" subtitle={`${visitors.length}件`} maxWidth="xl">
       {/* 検索バー */}
       <Card className="rounded-none bg-background shadow-none border-thick border-border">
         <CardContent className="p-4">
-          <form onSubmit={handleSearchSubmit} className="flex gap-2">
-            <div className="relative flex-1">
+          {/* 2026-09-27: 狭い画面では検索欄を独立行へ折り返し、操作ボタンの幅を確保する。 */}
+          <form onSubmit={handleSearchSubmit} className="flex min-w-0 flex-wrap gap-2">
+            <div className="relative min-w-0 basis-full sm:basis-0 sm:flex-1">
               <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
               <Input
                 placeholder="ニックネーム、呼出ID（数字のみ）、またはお好きな日付（YYYY-MM-DD）で検索..."
                 value={searchInput}
                 onChange={(e) => setSearchInput(e.target.value)}
-                className="pl-9 border-thick border-border rounded-none focus-visible:ring-0 h-10 text-xs bg-background font-mono w-full"
+                className="min-w-0 w-full pl-9 border-thick border-border rounded-none focus-visible:ring-0 h-10 text-xs bg-background font-mono"
               />
             </div>
             <Button
@@ -329,7 +347,7 @@ export function WristbandsTab({ eventId }: WristbandsTabProps) {
 
       {/* 来場者一覧テーブル */}
       <Card className="rounded-none bg-background shadow-none border-thick border-border">
-        <CardHeader className="p-4 pb-2 border-b-thin border-border bg-muted/20 flex flex-row items-center justify-between">
+        <CardHeader className="p-4 pb-2 border-b-thin border-border bg-muted/20 flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <CardTitle className="text-xs uppercase font-bold">[登録来場者一覧]</CardTitle>
             <CardDescription className="text-[10px]">
@@ -341,7 +359,7 @@ export function WristbandsTab({ eventId }: WristbandsTabProps) {
           </Badge>
         </CardHeader>
         <CardContent className="p-0">
-          <div className="overflow-x-auto">
+          <div className="max-h-[55vh] overflow-auto">
             {isLoading ? (
               <div className="p-8 text-center text-xs text-muted-foreground flex items-center justify-center gap-2">
                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -352,7 +370,7 @@ export function WristbandsTab({ eventId }: WristbandsTabProps) {
                 該当する来場者が見つかりません。
               </div>
             ) : (
-              <table className="w-full text-xs text-left border-collapse">
+              <table className="w-full min-w-[880px] text-xs text-left border-collapse">
                 <thead>
                   <tr className="border-b-thin border-border bg-muted/10 font-bold font-mono">
                     <th className="p-3">呼出ID</th>
@@ -414,7 +432,11 @@ export function WristbandsTab({ eventId }: WristbandsTabProps) {
                           <Button
                             size="sm"
                             variant="outline"
-                            onClick={() => handleReportLost(res.wristband.id)}
+                            onClick={() => {
+                              // 2026-09-27: 確認操作の前に一覧モーダルを閉じ、Escape の対象を一つに保つ。
+                              setIsVisitorTableOpen(false);
+                              handleReportLost(res.wristband.id);
+                            }}
                             className="h-7 text-[10px] rounded-none border-thick border-border bg-background hover:bg-destructive hover:text-white"
                           >
                             ロック
@@ -424,6 +446,8 @@ export function WristbandsTab({ eventId }: WristbandsTabProps) {
                           size="sm"
                           variant="outline"
                           onClick={() => {
+                            // 2026-09-27: 詳細編集モーダルと一覧モーダルを重ねない。
+                            setIsVisitorTableOpen(false);
                             setSelectedUser(res);
                             setIsDetailsModalOpen(true);
                           }}
@@ -440,6 +464,7 @@ export function WristbandsTab({ eventId }: WristbandsTabProps) {
           </div>
         </CardContent>
       </Card>
+      </Modal>
 
       {/* セルフ登録用QRの出力エリア */}
       <Card className="rounded-none bg-background shadow-none border-thick border-border">
@@ -453,7 +478,7 @@ export function WristbandsTab({ eventId }: WristbandsTabProps) {
         <CardContent className="p-6 flex flex-col md:flex-row items-center gap-6">
           <div className="border-thick border-border p-3 bg-white shrink-0">
             <QRCodeSVG
-              value={getVisitorLink("issue-self-onboard")}
+              value={selfIssueUrl}
               size={150}
               level="M"
             />
@@ -461,7 +486,7 @@ export function WristbandsTab({ eventId }: WristbandsTabProps) {
           <div className="space-y-2 text-xs font-mono">
             <p className="font-bold underline text-primary">セルフ登録用URL (デジタル受付):</p>
             <p className="bg-muted p-2 select-all break-all border border-border">
-              {`${window.location.origin}/visitor/mypage?eventId=${eventId}&action=issue`}
+              {selfIssueUrl}
             </p>
             <div className="text-[10px] text-muted-foreground leading-normal space-y-1 pt-2 font-sans">
               <p>1. 受付にこのQRコードを掲示するか、URLを来場者に共有してください。</p>

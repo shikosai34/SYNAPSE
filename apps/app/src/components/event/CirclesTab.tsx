@@ -14,6 +14,7 @@ import { toast } from "sonner";
 import { CircleFormModal } from "./CircleFormModal";
 import { CircleManageModal } from "./CircleManageModal";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { getAuthInfo, saveAuthInfo, useAuth } from "@/hooks/useCircleAuth";
 
 interface CirclesTabProps {
   eventId: string;
@@ -35,6 +36,7 @@ export function CirclesTab({
 }: CirclesTabProps) {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const { role: effectiveRole, eventId: effectiveEventId } = useAuth();
 
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [selectedCircle, setSelectedCircle] = useState<any | null>(null);
@@ -76,24 +78,13 @@ export function CirclesTab({
 
   // サークル管理画面へ切り替え
   const handleSwitchToCircle = (circle: any) => {
-    const authStored = localStorage.getItem("circleAuth");
-    if (authStored) {
-      try {
-        const authInfo = JSON.parse(authStored);
-        localStorage.setItem(
-          "circleAuth",
-          JSON.stringify({
-            ...authInfo,
-            circleId: circle.id,
-            circleName: circle.name,
-            role: "circle_manager",
-          })
-        );
-        localStorage.setItem("circleId", circle.id);
-        toast.success(`「${circle.name}」のダッシュボードに切り替えました`);
-        navigate("/circle/dashboard");
-      } catch (_) {}
-    }
+    const authInfo = getAuthInfo();
+    if (!authInfo || effectiveRole !== "event_manager" || effectiveEventId !== eventId) return;
+    // 2026-09-27: タブ別の選択を保ち、権限の正本は実際のイベント所属または監査付きの実効権限に維持する。
+    saveAuthInfo({ ...authInfo, circleId: circle.id, circleName: circle.name, eventId });
+    void queryClient.invalidateQueries({ queryKey: ["circle", circle.id] });
+    toast.success(`「${circle.name}」のダッシュボードに切り替えました`);
+    navigate("/circle/dashboard");
   };
 
   const uniqueCircles = circles

@@ -230,12 +230,13 @@ describe("事前オーダー機能", () => {
 		const eventId = uid("ev");
 		const circleId = uid("ci");
 		const menuId = uid("me");
+		const untrackedMenuId = uid("me");
 		const toppingId = uid("top");
 		const userId = uid("usr");
 
 		await db.insert(event).values({ id: eventId, eventName: "テスト学園祭" });
 		await db.insert(circle).values({ id: circleId, eventId, name: "テスト模擬店" });
-		// 在庫管理対象 (stockQuantity > 0) のメニュー。数量2の事前オーダーで0になりsoldOutが立つはず。
+		// 2026-09-27: 商品ごとの在庫 opt-in。数量2の受取で0になりsoldOutが立つ。
 		await db.insert(menu).values({
 			id: menuId,
 			circleId,
@@ -244,6 +245,18 @@ describe("事前オーダー機能", () => {
 			imagePath: "dummy.png",
 			soldOut: false,
 			stockQuantity: 2,
+			inventoryEnabled: true,
+		});
+		// 数量が残っていてもopt-in OFFの商品は注文後も減算しない。
+		await db.insert(menu).values({
+			id: untrackedMenuId,
+			circleId,
+			name: "在庫未管理ドリンク",
+			price: 200,
+			imagePath: "dummy.png",
+			soldOut: false,
+			stockQuantity: 7,
+			inventoryEnabled: false,
 		});
 		// 在庫管理対象のトッピング。数量2の事前オーダーで3->1に減るがsoldOutは立たないはず。
 		await db.insert(topping).values({
@@ -271,7 +284,10 @@ describe("事前オーダー機能", () => {
 		const createRes = await postJson("/api/pre-orders", {
 			userId,
 			circleId,
-			items: [{ menuId, quantity: 2, toppingIds: [toppingId] }],
+			items: [
+				{ menuId, quantity: 2, toppingIds: [toppingId] },
+				{ menuId: untrackedMenuId, quantity: 1 },
+			],
 		});
 		expect(createRes.status).toBe(201);
 		const createData = (await createRes.json()) as { id: string };
@@ -291,6 +307,8 @@ describe("事前オーダー機能", () => {
 		const menuAfter = await db.select().from(menu).where(eq(menu.id, menuId));
 		expect(menuAfter[0]!.stockQuantity).toBe(0);
 		expect(menuAfter[0]!.soldOut).toBe(true);
+		const untrackedAfter = await db.select().from(menu).where(eq(menu.id, untrackedMenuId));
+		expect(untrackedAfter[0]!.stockQuantity).toBe(7);
 
 		// トッピング在庫は 3 - 2 = 1 になり、soldOut は立たない
 		const toppingAfter = await db.select().from(topping).where(eq(topping.id, toppingId));
@@ -298,16 +316,17 @@ describe("事前オーダー機能", () => {
 		expect(toppingAfter[0]!.soldOut).toBe(false);
 	});
 
-	it("受取確定 (claim) で在庫が不足している場合は400になり、在庫・事前オーダー状態が変化しない", async () => {
+	it("在庫管理中の商品が残数0なら受取確定を拒否し、在庫・事前オーダー状態を保つ", async () => {
 		const db = testDb();
 		const eventId = uid("ev");
 		const circleId = uid("ci");
 		const menuId = uid("me");
+		const laterMenuId = uid("me");
 		const userId = uid("usr");
 
 		await db.insert(event).values({ id: eventId, eventName: "テスト学園祭" });
 		await db.insert(circle).values({ id: circleId, eventId, name: "テスト模擬店" });
-		// 在庫は1しかないのに数量2で事前オーダーする (作成時点では在庫チェックしない方針のため作成は通る)
+		// 1品目の減算後に2品目の在庫ガードが失敗しても、先の減算を補償する。
 		await db.insert(menu).values({
 			id: menuId,
 			circleId,
@@ -315,7 +334,18 @@ describe("事前オーダー機能", () => {
 			price: 500,
 			imagePath: "dummy.png",
 			soldOut: false,
-			stockQuantity: 1,
+			stockQuantity: 5,
+			inventoryEnabled: true,
+		});
+		await db.insert(menu).values({
+			id: laterMenuId,
+			circleId,
+			name: "在庫0ドリンク",
+			price: 200,
+			imagePath: "dummy.png",
+			soldOut: false,
+			stockQuantity: 0,
+			inventoryEnabled: true,
 		});
 		await db.insert(eventUser).values({ id: userId, eventId, displayId: 1 });
 
@@ -333,7 +363,7 @@ describe("事前オーダー機能", () => {
 		const createRes = await postJson("/api/pre-orders", {
 			userId,
 			circleId,
-			items: [{ menuId, quantity: 2 }],
+			items: [{ menuId, quantity: 1 }, { menuId: laterMenuId, quantity: 1 }],
 		});
 		expect(createRes.status).toBe(201);
 		const createData = (await createRes.json()) as { id: string };
@@ -349,9 +379,11 @@ describe("事前オーダー機能", () => {
 		});
 		expect(claimRes.status).toBe(400);
 
-		// 在庫は減算されず1のまま
+		// 先に減算された1品目は戻り、失敗した2品目も0のまま
 		const menuAfter = await db.select().from(menu).where(eq(menu.id, menuId));
-		expect(menuAfter[0]!.stockQuantity).toBe(1);
+		expect(menuAfter[0]!.stockQuantity).toBe(5);
+		const laterMenuAfter = await db.select().from(menu).where(eq(menu.id, laterMenuId));
+		expect(laterMenuAfter[0]!.stockQuantity).toBe(0);
 
 		// 事前オーダーも pending のまま (正規注文は作られていない)
 		const getRes = await request(`/api/pre-orders/user/${userId}?circleId=${circleId}`);
