@@ -28,6 +28,20 @@ export default function EventMenu() {
   const eventId = eventIdParam || session?.eventId || null;
   const isEntered = !!session?.userId;
 
+  // 入場済み来場者は自身のイベント内で注文先を探す。未入場者の公開下見と、
+  // リストバンド発行前のイベント選択は従来どおりイベント横断で利用できる (2026-09-27)。
+  if (session?.userId && session.eventId && eventIdParam && eventIdParam !== session.eventId) {
+    return (
+      <main className="mx-auto max-w-xl p-6 font-mono" role="alert">
+        <h1 className="text-xl font-bold">別のイベントは表示できません</h1>
+        <p className="my-4">入場中のイベントの出店一覧へ戻ってください。</p>
+        <button className="underline" onClick={() => navigate(`/visitor/events/${session.eventId}`)}>
+          入場中のイベントへ戻る
+        </button>
+      </main>
+    );
+  }
+
   // イベント未特定: イベント選択画面
   if (!eventId) {
     return <EventPicker />;

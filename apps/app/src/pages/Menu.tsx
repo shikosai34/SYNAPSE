@@ -269,7 +269,7 @@ function MenuPageContent() {
   const navigate = useNavigate();
   const circleIdParam = searchParams.get("circleId");
   // 未入場 (リストバンド未発行) は空文字。閲覧は許可し注文送信側でゲートする
-  const { userId: visitorUserId } = useVisitor();
+  const { userId: visitorUserId, session } = useVisitor();
   const userId = visitorUserId ?? "";
 
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
@@ -334,7 +334,8 @@ function MenuPageContent() {
   } = useQuery({
     queryKey: ["menus", selectedCircleId],
     queryFn: () => menuApi.list(selectedCircleId!),
-    enabled: !!selectedCircleId,
+    // 登録済み来場者は、サークルの所属イベント確認後に自分のイベントのメニューだけ取得する。
+    enabled: !!selectedCircleId && (!session?.userId || !session.eventId || circleData?.eventId === session.eventId),
   });
 
   // サークルが属するイベントのテーマ (配色/ロゴ) を取得して画面に反映
@@ -631,6 +632,18 @@ function MenuPageContent() {
             </Button>
           </div>
         </div>
+      </div>
+    );
+  }
+
+  // 店頭QRなどの明示URLでも、入場済み来場者の閲覧/注文対象を自分のイベントに限定する。
+  // 未入場者の公開メニュー下見は維持し、イベント所属確認前にメニュー本体を取得しない (2026-09-27)。
+  if (session?.userId && session.eventId && circleData?.eventId && circleData.eventId !== session.eventId) {
+    return (
+      <div className="max-w-xl mx-auto p-6 space-y-4 font-mono" role="alert">
+        <h1 className="text-xl font-bold">別のイベントの出店です</h1>
+        <p>入場中のイベントにある出店へ戻ってください。</p>
+        <Button onClick={() => navigate(`/visitor/events/${session.eventId}`)}>入場中のイベントへ戻る</Button>
       </div>
     );
   }
