@@ -85,4 +85,40 @@ describe("サークルのセルフサービス作成", () => {
 		});
 		expect(res.status).toBe(401);
 	});
+
+	it("公開サークル一覧と詳細で保存済み画像パスを返し、managerEmail は公開しない", async () => {
+		const { cookie } = await signUpAndGetCookie();
+		const eventRes = await request("/api/festivals", {
+			method: "POST",
+			headers: { "Content-Type": "application/json", Cookie: cookie },
+			body: JSON.stringify({ eventName: uid("画像テストイベント") }),
+		});
+		const { id: eventId } = (await eventRes.json()) as { id: string };
+		const circleRes = await request("/api/circles", {
+			method: "POST",
+			headers: { "Content-Type": "application/json", Cookie: cookie },
+			body: JSON.stringify({ eventId, name: uid("画像テストサークル") }),
+		});
+		const { id: circleId } = (await circleRes.json()) as { id: string };
+		await testDb()
+			.update(circle)
+			.set({
+				iconImagePath: "/api/uploads/icon.webp",
+				backgroundImagePath: "/api/uploads/background.webp",
+			})
+			.where(eq(circle.id, circleId));
+
+		const detail = await request(`/api/circles/${circleId}`);
+		const detailJson = (await detail.json()) as Record<string, unknown>;
+		expect(detailJson.iconImagePath).toBe("/api/uploads/icon.webp");
+		expect(detailJson.backgroundImagePath).toBe("/api/uploads/background.webp");
+		expect(detailJson.managerEmail).toBeUndefined();
+
+		const list = await request(`/api/circles?eventId=${eventId}`);
+		const listJson = (await list.json()) as Array<Record<string, unknown>>;
+		const listedCircle = listJson.find((item) => item.id === circleId);
+		expect(listedCircle?.iconImagePath).toBe("/api/uploads/icon.webp");
+		expect(listedCircle?.backgroundImagePath).toBe("/api/uploads/background.webp");
+		expect(listedCircle?.managerEmail).toBeUndefined();
+	});
 });

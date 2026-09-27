@@ -8,6 +8,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Store, ArrowRight, QrCode, Calendar, ChevronRight } from "lucide-react";
+import { resolveAssetUrl } from "@/lib/asset-url";
 
 /**
  * イベント メニュー横断閲覧 (2026-07-06)。
@@ -88,7 +89,7 @@ function EventMenuContent({
             <Skeleton className="h-14 w-14" />
           ) : event?.logoUrl ? (
             <img
-              src={event.logoUrl}
+              src={resolveAssetUrl(event.logoUrl)}
               alt={event.eventName}
               className="h-14 w-14 object-contain border-thick border-primary-foreground bg-background shrink-0"
             />
@@ -160,7 +161,7 @@ function EventMenuContent({
               >
                 {circle.iconImagePath ? (
                   <img
-                    src={circle.iconImagePath}
+                    src={resolveAssetUrl(circle.iconImagePath)}
                     alt={circle.name}
                     className="h-12 w-12 object-cover border-thick border-border shrink-0"
                   />
@@ -254,7 +255,7 @@ function EventPicker() {
             >
               {event.logoUrl ? (
                 <img
-                  src={event.logoUrl}
+                  src={resolveAssetUrl(event.logoUrl)}
                   alt={event.eventName}
                   className="h-12 w-12 object-contain border-thick border-border bg-background shrink-0"
                 />

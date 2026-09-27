@@ -24,6 +24,7 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { toast } from "sonner";
 import { EventTheme } from "@/components/EventTheme";
 import { ShoppingCart, Plus, Minus, CheckCircle, UtensilsCrossed, Ticket, X } from "lucide-react";
+import { resolveAssetUrl } from "@/lib/asset-url";
 
 // 2026-07-13: 来場者モバイルオーダーもトッピング対応にするため、レジ (Register.tsx) と同じく
 // カートを「行 (line)」単位で持つ。同じメニューでもトッピング構成が違えば別行になる。
@@ -125,7 +126,7 @@ function VisitorMenuCard({
         <div className="relative h-48 w-full overflow-hidden border-b-thick border-border">
           {menu.imagePath ? (
             <img
-              src={menu.imagePath}
+              src={resolveAssetUrl(menu.imagePath)}
               alt={menu.name}
               className="absolute inset-0 h-full w-full object-cover"
             />
@@ -180,7 +181,7 @@ function VisitorMenuCard({
                     )}
                   >
                     {t.imagePath && (
-                      <img src={t.imagePath} alt="" className="h-5 w-5 object-cover border-thin border-current shrink-0" />
+                      <img src={resolveAssetUrl(t.imagePath)} alt="" className="h-5 w-5 object-cover border-thin border-current shrink-0" />
                     )}
                     <span className="truncate max-w-[110px]">{t.name}</span>
                     {isFree ? (
@@ -674,7 +675,7 @@ function MenuPageContent() {
         <div className="max-w-xl mx-auto p-sp-3 sm:p-sp-4 text-center font-mono my-12">
           <div className="border-heavy border-border p-sp-5 space-y-sp-4 bg-background">
             {circleEvent.logoUrl ? (
-              <img src={circleEvent.logoUrl} alt={circleEvent.eventName} className="max-h-24 mx-auto block border-thick border-border" />
+              <img src={resolveAssetUrl(circleEvent.logoUrl)} alt={circleEvent.eventName} className="max-h-24 mx-auto block border-thick border-border" />
             ) : (
               <div className="inline-flex items-center justify-center h-14 w-14 border-thick border-border bg-primary text-primary-foreground mx-auto">
                 <UtensilsCrossed className="h-7 w-7" />
@@ -732,7 +733,7 @@ function MenuPageContent() {
           style={
             circleData.backgroundImagePath
               ? {
-                  backgroundImage: `url(${circleData.backgroundImagePath})`,
+                  backgroundImage: `url(${JSON.stringify(resolveAssetUrl(circleData.backgroundImagePath))})`,
                   backgroundSize: "cover",
                   backgroundPosition: "center",
                 }
@@ -742,7 +743,7 @@ function MenuPageContent() {
           <div className="bg-primary/80 border-thick border-primary-foreground p-sp-3 sm:p-sp-4 max-w-2xl w-full">
             {circleData.iconImagePath && (
               <img
-                src={circleData.iconImagePath}
+                src={resolveAssetUrl(circleData.iconImagePath)}
                 alt={circleData.name}
                 width={64}
                 height={64}

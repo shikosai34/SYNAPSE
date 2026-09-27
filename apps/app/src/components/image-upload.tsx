@@ -4,6 +4,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Upload, X, Image as ImageIcon, Loader2 } from "lucide-react";
+import { uploadImage } from "@/lib/api";
+import { resolveAssetUrl } from "@/lib/asset-url";
 
 interface ImageUploadProps {
   value: string;
@@ -26,22 +28,8 @@ export function ImageUpload({
     setError(null);
 
     try {
-      const formData = new FormData();
-      formData.append("file", file);
-
-      // API Worker の既定ポートは 8787 (3001 は visitor フロントのポートで誤り) (2026-07-04)
-      const apiUrl = import.meta.env.VITE_API_URL || "http://localhost:8787";
-      const response = await fetch(`${apiUrl}/api/upload`, {
-        method: "POST",
-        body: formData,
-      });
-
-      if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.error || "アップロードに失敗しました");
-      }
-
-      const data = await response.json();
+      // 2026-09-27 Issue #57: 共通API関数で認証cookie・API host解決を揃える。
+      const data = await uploadImage(file);
       onChange(data.path);
     } catch (err) {
       setError(
@@ -97,7 +85,7 @@ export function ImageUpload({
         // プレビュー表示
         <div className="relative">
           <div className="relative h-48 w-full rounded-lg overflow-hidden border">
-            <img src={value} alt="プレビュー" className="absolute inset-0 h-full w-full object-cover" />
+            <img src={resolveAssetUrl(value)} alt="プレビュー" className="absolute inset-0 h-full w-full object-cover" />
           </div>
           <Button
             type="button"
