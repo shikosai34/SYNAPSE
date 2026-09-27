@@ -12,6 +12,7 @@ import { ErrorState } from "@/components/ui/ErrorState";
 import { Users, UserPlus, Copy, Search } from "lucide-react";
 import { toast } from "sonner";
 import { QRCodeSVG } from "qrcode.react";
+import { roleLabel } from "@/lib/roles";
 
 // モーダル
 import { EventStaffFormModal } from "./EventStaffFormModal";
@@ -300,7 +301,8 @@ export function StaffTab({
                 <tr key={member.id} className="border-b-thin border-border">
                   <td className="p-3 font-bold">{member.userName || "名前未設定"}</td>
                   <td className="p-3">{member.userEmail}</td>
-                  <td className="p-3"><Badge variant="default" className="rounded-none text-[8px] font-mono border-thick border-border bg-transparent text-foreground uppercase">{member.role === "event_admin" ? "管理者" : "スタッフ"}</Badge></td>
+                  {/* 2026-09-27: イベントスタッフ表も共通ラベルでロール名を揃える。 */}
+                  <td className="p-3"><Badge variant="default" className="rounded-none text-[8px] font-mono border-thick border-border bg-transparent text-foreground uppercase">{roleLabel(member.role)}</Badge></td>
                   <td className="p-3 text-right"><Button variant="outline" size="sm" onClick={() => handleOpenDeactivate(member)} disabled={deactivateStaffMutation.isPending} className="border-thick border-border hover:bg-destructive hover:text-destructive-foreground text-[10px] h-7 px-2 rounded-none shadow-none">解除</Button></td>
                 </tr>
               ))}
