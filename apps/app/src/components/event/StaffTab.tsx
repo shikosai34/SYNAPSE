@@ -1,6 +1,5 @@
 import { useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { membershipApi, type RoleInfo } from "@/lib/api";
 import { PERMISSION_NAMES, ROLE_NAMES, type RoleType } from "@/hooks/useCircleAuth";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
@@ -146,6 +145,7 @@ export function StaffTab({
       <Card className="rounded-none bg-background shadow-none">
         <CardHeader className="p-4 pb-2 border-b-thick border-border bg-muted/20">
           <CardTitle className="text-xs uppercase font-bold">[イベント権限]</CardTitle>
+          <p className="text-[10px] text-muted-foreground mt-1">このイベントと所属サークルの範囲で適用される権限です。システム全体の権限や、サークル単体のロールは含みません。</p>
         </CardHeader>
         <CardContent className="p-4">
           {rolesData?.filter((roleInfo: RoleInfo) => roleInfo.role === "event_manager").map((roleInfo) => (
