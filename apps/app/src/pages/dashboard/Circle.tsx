@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { CircleAuthGuard, useAuth } from "@/hooks/useCircleAuth";
+import { CircleAuthGuard, getAuthInfo, saveAuthInfo, useAuth } from "@/hooks/useCircleAuth";
 import {
   circleApi,
   eventApi,
@@ -205,6 +205,24 @@ function CircleSettingsContent() {
     onSuccess: () => {
       toast.success("オーナー権限を譲渡しました");
       queryClient.invalidateQueries({ queryKey: ["members", circleId] });
+      queryClient.invalidateQueries({ queryKey: ["mySpaces"] });
+      // 2026-09-27: 自分が譲渡元ならローカル権限表示も一般スタッフへ同期し、旧管理操作を残さない。
+      const authInfo = getAuthInfo();
+      if (authInfo && authInfo.membershipId === membershipId && authInfo.role === "circle_manager") {
+        saveAuthInfo({
+          userId: authInfo.userId ?? null,
+          circleId: authInfo.circleId ?? null,
+          eventId: authInfo.eventId ?? null,
+          userEmail: authInfo.userEmail ?? null,
+          userName: authInfo.userName ?? null,
+          role: "circle_staff",
+          membershipId: authInfo.membershipId,
+          circleName: authInfo.circleName,
+          isEventAdmin: authInfo.isEventAdmin,
+          adminMembershipId: authInfo.adminMembershipId,
+          adminEventId: authInfo.adminEventId,
+        });
+      }
       setPendingTransfer(null);
     },
     onError: (error: any) => {
