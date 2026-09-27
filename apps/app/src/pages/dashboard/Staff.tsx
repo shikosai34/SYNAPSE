@@ -127,7 +127,7 @@ function StaffManagementContent() {
       <div className="space-y-6 font-mono text-foreground">
         {/* スタッフ一覧 */}
         <Card className=" rounded-none bg-background shadow-none">
-          <CardHeader className="p-4 pb-2 border-b-thick border-border flex flex-row items-center justify-between">
+          <CardHeader className="p-4 pb-2 border-b-thick border-border flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
             <CardTitle className="flex items-center gap-2 text-xs uppercase font-bold">
               <User className="h-4 w-4" />
               スタッフ一覧 ({staffList?.length || 0})

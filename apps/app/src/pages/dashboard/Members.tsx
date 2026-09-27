@@ -536,7 +536,7 @@ function MembersContent() {
 
       {/* 2026-09-27: メンバーが増えても他の管理情報へスクロールし続けず、表を独立して開けるようにする。 */}
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
+        <CardHeader className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <CardTitle className="flex items-center gap-2">
               <Users className="h-5 w-5" />
