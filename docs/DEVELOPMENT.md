@@ -78,11 +78,12 @@ bunx wrangler d1 execute fesflow-db --local --command "SELECT id, event_name FRO
 
 コマンドに `--remote` を付けないでください。
 
-## 型チェックとテスト
+## 型チェック・テスト・ビルド
 
 ```bash
 bun run check-types
 bun run test
+bun run build
 ```
 
 アプリ内の Bun テストを個別に実行する場合:
@@ -97,7 +98,7 @@ bun test test/auth-context.test.ts
 - **API/アプリでローカル認証 UI が出ない**: `.env` の `VITE_ENABLE_LOCAL_AUTH` と API が読む `.dev.vars` の `ENABLE_EMAIL_PASSWORD` を確認してサーバーを再起動。
 - **ログイン後にデモスペースがない**: アカウントのメールアドレスが `demo@example.invalid` と一致しているか確認し、`bun run setup:local` を再実行。
 - **Wrangler が `(Y/n)` で止まる**: 必要なら `bunx wrangler telemetry disable` を一度実行。
-- **ポートが使用中**: `3000` / `3001` / `8787` を使うプロセスを停止するか、アプリ側の開発ポートを変更。
+- **ポートが使用中**: `3000` / `8787` を使うプロセスを停止するか、アプリ側の開発ポートを変更。
 
 ## 参考
 
