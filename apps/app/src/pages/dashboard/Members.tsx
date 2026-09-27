@@ -594,6 +594,7 @@ function MembersContent() {
                       {MANAGEABLE_ROLES.includes(member.role as Role) ? (
                         <select
                           value={member.role}
+                          aria-label={`${member.userName} のロール`}
                           disabled={updateRoleMutation.isPending || isLastManager(member)}
                           title={isLastManager(member) ? "最後の管理者のロールは変更できません" : undefined}
                           onChange={(e) =>

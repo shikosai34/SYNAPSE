@@ -263,14 +263,15 @@ export function WristbandsTab({ eventId }: WristbandsTabProps) {
             来場者アカウント情報の変更、紛失リストバンドのロック・再発行、スマホデジタルIDの発行などを一括管理します。
           </p>
         </div>
-        <div className="flex gap-2 shrink-0">
+        {/* 2026-09-27: 小さい画面では操作ボタンを縦に並べ、ページ幅からはみ出さないようにする。 */}
+        <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:shrink-0">
           <Button
             onClick={() => {
               setLookupCode("");
               setIsScanModalOpen(true);
             }}
             variant="outline"
-            className="border-thick border-border h-9 text-xs font-bold rounded-none shadow-none px-3"
+            className="w-full sm:w-auto border-thick border-border h-9 text-xs font-bold rounded-none shadow-none px-3"
           >
             <Camera className="h-4 w-4 mr-1.5" />
             コード照会 / QRスキャン
@@ -280,7 +281,7 @@ export function WristbandsTab({ eventId }: WristbandsTabProps) {
               setIssuedUser(null);
               setIsIssueModalOpen(true);
             }}
-            className="border-thick border-primary bg-primary text-primary-foreground hover:bg-background hover:text-foreground h-9 text-xs font-bold rounded-none shadow-none px-3"
+            className="w-full sm:w-auto border-thick border-primary bg-primary text-primary-foreground hover:bg-background hover:text-foreground h-9 text-xs font-bold rounded-none shadow-none px-3"
           >
             <Plus className="h-4 w-4 mr-1" />
             スマホ年来場者発行
