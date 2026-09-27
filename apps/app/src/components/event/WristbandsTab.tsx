@@ -286,7 +286,7 @@ export function WristbandsTab({ eventId }: WristbandsTabProps) {
       </div>
 
       <Card className="rounded-none bg-background shadow-none border-thick border-border">
-        <CardHeader className="p-4 flex flex-row items-center justify-between">
+        <CardHeader className="p-4 flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <CardTitle className="text-xs uppercase font-bold">[登録来場者一覧]</CardTitle>
             <CardDescription className="text-[10px]">{visitors.length}件を表示中{searchQuery ? "（検索条件あり）" : ""}</CardDescription>
@@ -300,14 +300,15 @@ export function WristbandsTab({ eventId }: WristbandsTabProps) {
       {/* 検索バー */}
       <Card className="rounded-none bg-background shadow-none border-thick border-border">
         <CardContent className="p-4">
-          <form onSubmit={handleSearchSubmit} className="flex gap-2">
-            <div className="relative flex-1">
+          {/* 2026-09-27: 狭い画面では検索欄を独立行へ折り返し、操作ボタンの幅を確保する。 */}
+          <form onSubmit={handleSearchSubmit} className="flex min-w-0 flex-wrap gap-2">
+            <div className="relative min-w-0 basis-full sm:basis-0 sm:flex-1">
               <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
               <Input
                 placeholder="ニックネーム、呼出ID（数字のみ）、またはお好きな日付（YYYY-MM-DD）で検索..."
                 value={searchInput}
                 onChange={(e) => setSearchInput(e.target.value)}
-                className="pl-9 border-thick border-border rounded-none focus-visible:ring-0 h-10 text-xs bg-background font-mono w-full"
+                className="min-w-0 w-full pl-9 border-thick border-border rounded-none focus-visible:ring-0 h-10 text-xs bg-background font-mono"
               />
             </div>
             <Button
@@ -342,7 +343,7 @@ export function WristbandsTab({ eventId }: WristbandsTabProps) {
 
       {/* 来場者一覧テーブル */}
       <Card className="rounded-none bg-background shadow-none border-thick border-border">
-        <CardHeader className="p-4 pb-2 border-b-thin border-border bg-muted/20 flex flex-row items-center justify-between">
+        <CardHeader className="p-4 pb-2 border-b-thin border-border bg-muted/20 flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <CardTitle className="text-xs uppercase font-bold">[登録来場者一覧]</CardTitle>
             <CardDescription className="text-[10px]">

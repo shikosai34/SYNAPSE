@@ -257,7 +257,7 @@ export function StaffTab({
 
       {/* スタッフ一覧 */}
       <Card className=" rounded-none bg-background shadow-none">
-        <CardHeader className="p-4 pb-2 border-b-thick border-border bg-muted/20 flex flex-row items-center justify-between">
+        <CardHeader className="p-4 pb-2 border-b-thick border-border bg-muted/20 flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
           <CardTitle className="text-xs uppercase font-bold">[登録済みスタッフ一覧]</CardTitle>
           {staffMembers && staffMembers.length > 0 && (
             <Button variant="outline" onClick={() => setIsStaffTableOpen(true)} className="rounded-none border-thick border-border text-xs">一覧を開く（{staffMembers.length}人）</Button>
