@@ -638,16 +638,17 @@ function MembersContent() {
         </CardContent>
       </Card>
 
+      {/* 2026-09-27: サークル設定ではサークル内で付与できるロールだけを示し、イベント/システム権限との混同を防ぐ。 */}
       {/* ロール説明 */}
       <Card>
         <CardHeader>
           <CardTitle>ロールと権限</CardTitle>
-          <CardDescription>各ロールで利用可能な機能の説明</CardDescription>
+          <CardDescription>サークル内の各ロールで利用できる機能</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="grid gap-4 md:grid-cols-2">
             {rolesData &&
-              rolesData.map((roleInfo) => (
+              rolesData.filter((roleInfo) => roleInfo.role === "circle_manager" || roleInfo.role === "circle_staff").map((roleInfo) => (
                 <div
                   key={roleInfo.role}
                   className="p-4 border-thick border-border space-y-2"

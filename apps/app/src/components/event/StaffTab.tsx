@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { membershipApi } from "@/lib/api";
+import { useQuery } from "@tanstack/react-query";
+import { membershipApi, type RoleInfo } from "@/lib/api";
+import { PERMISSION_NAMES, ROLE_NAMES, type RoleType } from "@/hooks/useCircleAuth";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -37,6 +39,10 @@ export function StaffTab({
 }: StaffTabProps) {
   const queryClient = useQueryClient();
   const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
+  const { data: rolesData } = useQuery({
+    queryKey: ["membershipRoles"],
+    queryFn: () => membershipApi.getRoles(),
+  });
 
   // 招待削除確認用ステート
   const [isDeleteInviteConfirmOpen, setIsDeleteInviteConfirmOpen] = useState(false);
@@ -133,6 +139,25 @@ export function StaffTab({
           スタッフを招待
         </Button>
       </div>
+
+      {/* 2026-09-27: イベント管理ではイベント共同管理者の権限だけを説明し、サークル権限との混同を防ぐ。 */}
+      <Card className="rounded-none bg-background shadow-none">
+        <CardHeader className="p-4 pb-2 border-b-thick border-border bg-muted/20">
+          <CardTitle className="text-xs uppercase font-bold">[イベント権限]</CardTitle>
+        </CardHeader>
+        <CardContent className="p-4">
+          {rolesData?.filter((roleInfo: RoleInfo) => roleInfo.role === "event_manager").map((roleInfo) => (
+            <div key={roleInfo.role} className="space-y-2">
+              <Badge variant="default" className="rounded-none text-[8px] font-mono border-thick border-border bg-transparent text-foreground uppercase">
+                {ROLE_NAMES[roleInfo.role as RoleType] || roleInfo.role}
+              </Badge>
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                権限: {roleInfo.permissions.map((permission) => PERMISSION_NAMES[permission] || permission).join("、 ") || "なし"}
+              </p>
+            </div>
+          ))}
+        </CardContent>
+      </Card>
 
       {/* 招待リンク一覧 */}
       {invites && invites.length > 0 && (
