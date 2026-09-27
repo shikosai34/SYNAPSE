@@ -261,28 +261,42 @@ export function StaffTab({
               <ErrorState error={error} onRetry={onRetry} />
             </div>
           ) : staffMembers && staffMembers.length > 0 ? (
-            <div className="divide-y divide-border">
-              {staffMembers.map((member) => (
-                <div key={member.id} className="flex justify-between items-center p-3 text-xs font-mono">
-                  <div>
-                    <p className="font-bold text-foreground">{member.userName || "名前未設定"}</p>
-                    <p className="text-[10px] text-muted-foreground">{member.userEmail}</p>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <Badge variant="default" className="rounded-none text-[8px] font-mono border-thick border-border bg-transparent text-foreground border uppercase">
-                      {member.role === "event_admin" ? "管理者" : "スタッフ"}
-                    </Badge>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => handleOpenDeactivate(member)}
-                      className="border-thick border-border hover:bg-destructive hover:text-destructive-foreground text-[10px] h-7 px-2 rounded-none shadow-none"
-                    >
-                      解除
-                    </Button>
-                  </div>
-                </div>
-              ))}
+            <div className="overflow-x-auto border-thin border-border">
+              {/* 2026-09-27: サークル側のメンバー表と同じ列構成にし、狭い画面では表内を横スクロールする。 */}
+              <table className="w-full min-w-[560px] border-collapse text-left font-mono text-xs">
+                <thead className="bg-muted/40 text-[10px] uppercase tracking-wide">
+                  <tr className="border-b-thick border-border">
+                    <th scope="col" className="p-3">スタッフ</th>
+                    <th scope="col" className="p-3">メールアドレス</th>
+                    <th scope="col" className="p-3">ロール</th>
+                    <th scope="col" className="p-3 text-right">操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {staffMembers.map((member) => (
+                    <tr key={member.id} className="border-b-thin border-border last:border-b-0 hover:bg-muted/20">
+                      <th scope="row" className="p-3 font-bold text-foreground">{member.userName || "名前未設定"}</th>
+                      <td className="p-3 text-muted-foreground">{member.userEmail}</td>
+                      <td className="p-3">
+                        <Badge variant="default" className="text-[8px] font-mono">
+                          {member.role === "event_admin" ? "管理者" : "スタッフ"}
+                        </Badge>
+                      </td>
+                      <td className="p-3 text-right">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleOpenDeactivate(member)}
+                          aria-label={`${member.userName || "スタッフ"} の登録を解除`}
+                          className="border-thick border-border hover:bg-destructive hover:text-destructive-foreground text-[10px] h-7 px-2 rounded-none shadow-none"
+                        >
+                          解除
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           ) : (
             <EmptyState

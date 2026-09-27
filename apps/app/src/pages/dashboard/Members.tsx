@@ -358,13 +358,14 @@ function MembersContent() {
       <Modal
         isOpen={showInviteForm}
         onClose={() => setShowInviteForm(false)}
-        title="[招待リンク作成]"
-        subtitle="新しいメンバーを招待するためのリンクを生成します。"
+        title="[招待の発行]"
+        subtitle="新しいメンバーを招待するリンクを発行します。"
       >
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        {/* 2026-09-27: イベント招待と同じ縦並び・項目順にして設定の見落としを防ぐ。 */}
+        <div className="space-y-4">
           <FormSelect
             id="invite-role"
-            label="付与するロール"
+            label="招待するロール"
             value={inviteSettings.role}
             onChange={(e) => setInviteSettings({ ...inviteSettings, role: e.target.value as Role })}
           >
@@ -405,7 +406,7 @@ function MembersContent() {
           />
           <FormField
             id="target-email"
-            label="相手のメール (直接通知する場合)"
+            label="メールアドレス (任意)"
             type="email"
             placeholder="user@example.com (任意)"
             value={inviteSettings.targetEmail}
@@ -418,7 +419,7 @@ function MembersContent() {
           isPending={createInviteMutation.isPending}
           icon={LinkIcon}
         >
-          リンクを生成
+          招待を発行
         </FormSubmitButton>
       </Modal>
 
@@ -538,96 +539,82 @@ function MembersContent() {
           {membersError ? (
             <ErrorState error={membersErrorObj} onRetry={() => refetchMembers()} />
           ) : members && members.length > 0 ? (
-            <div className="space-y-3">
-              {members.map((member) => (
-                <div
-                  key={member.id}
-                  className="flex items-center justify-between p-4 border-thick border-border"
-                >
-                  <div className="flex items-center gap-4">
-                    <div className="h-10 w-10 border-thick border-border bg-secondary flex items-center justify-center">
-                      <Shield className="h-5 w-5 text-muted-foreground" />
-                    </div>
-                    <div>
-                      <p className="font-medium">{member.userName}</p>
-                      <p className="text-sm text-muted-foreground">
-                        {member.userEmail}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    {/* ロール変更 (2026-07-15)。サークルロールのメンバーはインラインで昇格/降格できる。
-                        イベント/システムロールは読み取り専用バッジのまま。最後の管理者は降格不可。 */}
-                    <PermissionGuard
-                      permission="member:write"
-                      fallback={
-                        <Badge variant={getRoleBadgeVariant(member.role)}>
-                          {ROLE_NAMES[member.role as RoleType] || member.role}
-                        </Badge>
-                      }
-                    >
-                      {MANAGEABLE_ROLES.includes(member.role as Role) ? (
-                        <select
-                          value={member.role}
-                          disabled={updateRoleMutation.isPending || isLastManager(member)}
-                          title={isLastManager(member) ? "最後の管理者のロールは変更できません" : undefined}
-                          onChange={(e) =>
-                            updateRoleMutation.mutate({ id: member.id, role: e.target.value as Role })
-                          }
-                          className="h-8 border-thick border-border rounded-none bg-background px-2 text-[11px] font-bold uppercase font-mono disabled:opacity-50"
+            <div className="overflow-x-auto border-thin border-border">
+              {/* 2026-09-27: 表形式にして氏名・メール・ロール・状態と操作の対応を追いやすくし、
+                  横幅が限られる端末では表だけを横スクロールできるようにする。 */}
+              <table className="w-full min-w-[760px] border-collapse text-left font-mono text-xs">
+                <thead className="bg-muted/40 text-[10px] uppercase tracking-wide">
+                  <tr className="border-b-thick border-border">
+                    <th scope="col" className="p-3">メンバー</th>
+                    <th scope="col" className="p-3">メールアドレス</th>
+                    <th scope="col" className="p-3">ロール</th>
+                    <th scope="col" className="p-3">状態</th>
+                    <th scope="col" className="p-3 text-right">操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {members.map((member) => (
+                    <tr key={member.id} className="border-b-thin border-border last:border-b-0 hover:bg-muted/20">
+                      <th scope="row" className="p-3 font-bold">{member.userName}</th>
+                      <td className="p-3 text-muted-foreground">{member.userEmail}</td>
+                      <td className="p-3">
+                        <PermissionGuard
+                          permission="member:write"
+                          fallback={<Badge variant={getRoleBadgeVariant(member.role)}>{ROLE_NAMES[member.role as RoleType] || member.role}</Badge>}
                         >
-                          {MANAGEABLE_ROLES.map((r) => (
-                            <option key={r} value={r}>
-                              {ROLE_NAMES[r as RoleType]}
-                            </option>
-                          ))}
-                        </select>
-                      ) : (
-                        <Badge variant={getRoleBadgeVariant(member.role)}>
-                          {ROLE_NAMES[member.role as RoleType] || member.role}
+                          {MANAGEABLE_ROLES.includes(member.role as Role) ? (
+                            <select
+                              aria-label={`${member.userName} のロール`}
+                              value={member.role}
+                              disabled={updateRoleMutation.isPending || isLastManager(member)}
+                              title={isLastManager(member) ? "最後の管理者のロールは変更できません" : undefined}
+                              onChange={(e) => updateRoleMutation.mutate({ id: member.id, role: e.target.value as Role })}
+                              className="h-8 border-thick border-border bg-background px-2 text-[11px] font-bold uppercase disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-foreground"
+                            >
+                              {MANAGEABLE_ROLES.map((r) => <option key={r} value={r}>{ROLE_NAMES[r as RoleType]}</option>)}
+                            </select>
+                          ) : (
+                            <Badge variant={getRoleBadgeVariant(member.role)}>{ROLE_NAMES[member.role as RoleType] || member.role}</Badge>
+                          )}
+                        </PermissionGuard>
+                      </td>
+                      <td className="p-3">
+                        <Badge variant={member.isActive ? "active" : "warning"}>
+                          {member.isActive ? "有効" : "停止中"}
                         </Badge>
-                      )}
-                    </PermissionGuard>
-                    {!member.isActive && (
-                      <Badge variant="warning">停止中</Badge>
-                    )}
-                    {/* アカウント停止/復帰 (2026-07-15)。停止すると権限が即無効化される。
-                        最後のアクティブ管理者は停止不可 (ロックアウト防止)。 */}
-                    <PermissionGuard permission="member:write">
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        disabled={setActiveMutation.isPending || (member.isActive && isLastManager(member))}
-                        title={
-                          member.isActive
-                            ? isLastManager(member)
-                              ? "最後の管理者は停止できません"
-                              : "このアカウントを停止する"
-                            : "このアカウントを復帰する"
-                        }
-                        onClick={() => setActiveMutation.mutate({ id: member.id, active: !member.isActive })}
-                      >
-                        {member.isActive ? (
-                          <Ban className="h-4 w-4 text-warning" />
-                        ) : (
-                          <RotateCcw className="h-4 w-4 text-success" />
-                        )}
-                      </Button>
-                    </PermissionGuard>
-                    <PermissionGuard permission="member:delete">
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        disabled={isLastManager(member)}
-                        title={isLastManager(member) ? "最後の管理者は除名できません" : undefined}
-                        onClick={() => handleRemoveMember(member)}
-                      >
-                        <Trash2 className="h-4 w-4 text-destructive" />
-                      </Button>
-                    </PermissionGuard>
-                  </div>
-                </div>
-              ))}
+                      </td>
+                      <td className="p-3">
+                        <div className="flex justify-end gap-1">
+                          <PermissionGuard permission="member:write">
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              disabled={setActiveMutation.isPending || (member.isActive && isLastManager(member))}
+                              title={member.isActive ? (isLastManager(member) ? "最後の管理者は停止できません" : "このアカウントを停止する") : "このアカウントを復帰する"}
+                              aria-label={`${member.userName} を${member.isActive ? "停止" : "復帰"}`}
+                              onClick={() => setActiveMutation.mutate({ id: member.id, active: !member.isActive })}
+                            >
+                              {member.isActive ? <Ban className="h-4 w-4 text-warning" /> : <RotateCcw className="h-4 w-4 text-success" />}
+                            </Button>
+                          </PermissionGuard>
+                          <PermissionGuard permission="member:delete">
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              disabled={isLastManager(member)}
+                              title={isLastManager(member) ? "最後の管理者は除名できません" : "このメンバーを除名する"}
+                              aria-label={`${member.userName} を除名`}
+                              onClick={() => handleRemoveMember(member)}
+                            >
+                              <Trash2 className="h-4 w-4 text-destructive" />
+                            </Button>
+                          </PermissionGuard>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           ) : (
             <EmptyState
