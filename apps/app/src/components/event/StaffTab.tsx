@@ -2,16 +2,18 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { membershipApi, type RoleInfo } from "@/lib/api";
 import { PERMISSION_NAMES, ROLE_NAMES, type RoleType } from "@/hooks/useCircleAuth";
+import { roleLabel } from "@/lib/roles";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Modal } from "@/components/ui/Modal";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { ErrorState } from "@/components/ui/ErrorState";
-import { Users, UserPlus, Copy } from "lucide-react";
+import { Users, UserPlus, Copy, Search } from "lucide-react";
 import { toast } from "sonner";
 import { QRCodeSVG } from "qrcode.react";
-import { roleLabel } from "@/lib/roles";
 
 // モーダル
 import { EventStaffFormModal } from "./EventStaffFormModal";
@@ -39,6 +41,9 @@ export function StaffTab({
 }: StaffTabProps) {
   const queryClient = useQueryClient();
   const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
+  const [isStaffTableOpen, setIsStaffTableOpen] = useState(false);
+  const [staffSearch, setStaffSearch] = useState("");
+
   const { data: rolesData } = useQuery({
     queryKey: ["membershipRoles"],
     queryFn: () => membershipApi.getRoles(),
@@ -114,9 +119,15 @@ export function StaffTab({
   };
 
   const handleOpenDeactivate = (member: any) => {
+    // 2026-09-27: 確認ダイアログを開く前に一覧を閉じ、Escape で背面のモーダルも閉じる状態を防ぐ。
+    setIsStaffTableOpen(false);
     setMemberToDeactivate(member);
     setIsDeactivateConfirmOpen(true);
   };
+
+  const filteredStaffMembers = (staffMembers ?? []).filter((member) =>
+    `${member.userName ?? ""} ${member.userEmail ?? ""}`.toLocaleLowerCase().includes(staffSearch.trim().toLocaleLowerCase())
+  );
 
   // ワンクリックコピー (2026-07-14 P2-6)。配布導線を楽にする。
   const copy = (text: string, label: string) => {
@@ -125,8 +136,7 @@ export function StaffTab({
   };
 
   return (
-    <div className="min-w-0 max-w-full space-y-6 font-mono text-foreground">
-      {/* 2026-09-27: 表の最小幅を横スクロール領域に閉じて画面全体の拡幅を防ぐ。 */}
+    <div className="space-y-6 font-mono text-foreground">
       <div className="flex justify-between items-center border-b-thick border-border pb-3">
         <h2 className="text-sm font-bold uppercase tracking-wider flex items-center gap-2">
           <Users className="h-4 w-4" />
@@ -272,11 +282,14 @@ export function StaffTab({
       )}
 
       {/* スタッフ一覧 */}
-      <Card className="min-w-0 max-w-full rounded-none bg-background shadow-none">
-        <CardHeader className="p-4 pb-2 border-b-thick border-border bg-muted/20">
+      <Card className=" rounded-none bg-background shadow-none">
+        <CardHeader className="p-4 pb-2 border-b-thick border-border bg-muted/20 flex flex-row items-center justify-between">
           <CardTitle className="text-xs uppercase font-bold">[登録済みスタッフ一覧]</CardTitle>
+          {staffMembers && staffMembers.length > 0 && (
+            <Button variant="outline" onClick={() => setIsStaffTableOpen(true)} className="rounded-none border-thick border-border text-xs">一覧を開く（{staffMembers.length}人）</Button>
+          )}
         </CardHeader>
-        <CardContent className="min-w-0 max-w-full p-0">
+        <CardContent className="p-0">
           {staffLoading ? (
             <div className="p-4 space-y-2">
               {Array.from({ length: 3 }).map((_, i) => (
@@ -288,44 +301,7 @@ export function StaffTab({
               <ErrorState error={error} onRetry={onRetry} />
             </div>
           ) : staffMembers && staffMembers.length > 0 ? (
-            <div className="w-full min-w-0 max-w-full overflow-x-auto border-thin border-border">
-              {/* 2026-09-27: サークル側のメンバー表と同じ列構成にし、狭い画面では表内を横スクロールする。 */}
-              <table className="w-full min-w-[560px] border-collapse text-left font-mono text-xs">
-                <thead className="bg-muted/40 text-[10px] uppercase tracking-wide">
-                  <tr className="border-b-thick border-border">
-                    <th scope="col" className="p-3">スタッフ</th>
-                    <th scope="col" className="p-3">メールアドレス</th>
-                    <th scope="col" className="p-3">ロール</th>
-                    <th scope="col" className="p-3 text-right">操作</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {staffMembers.map((member) => (
-                    <tr key={member.id} className="border-b-thin border-border last:border-b-0 hover:bg-muted/20">
-                      <th scope="row" className="p-3 font-bold text-foreground">{member.userName || "名前未設定"}</th>
-                      <td className="p-3 text-muted-foreground">{member.userEmail}</td>
-                      <td className="p-3">
-                        {/* 2026-09-27: event_manager 等を「スタッフ」に潰さず共通ロール名で表示する。 */}
-                        <Badge variant="default" className="text-[8px] font-mono">
-                          {roleLabel(member.role)}
-                        </Badge>
-                      </td>
-                      <td className="p-3 text-right">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => handleOpenDeactivate(member)}
-                          aria-label={`${member.userName || "スタッフ"} の登録を解除`}
-                          className="border-thick border-border hover:bg-destructive hover:text-destructive-foreground text-[10px] h-7 px-2 rounded-none shadow-none"
-                        >
-                          解除
-                        </Button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <p className="p-4 text-xs text-muted-foreground">{staffMembers.length}人が登録されています。表で検索・解除できます。</p>
           ) : (
             <EmptyState
               icon={Users}
@@ -336,6 +312,30 @@ export function StaffTab({
           )}
         </CardContent>
       </Card>
+
+      {/* 2026-09-27: イベント所属者が増えてもタブを縦に伸ばさず、既存操作を表モーダル内に保つ。 */}
+      <Modal isOpen={isStaffTableOpen} onClose={() => setIsStaffTableOpen(false)} title="[登録済みスタッフ一覧]" subtitle={`${staffMembers?.length ?? 0}人`} maxWidth="xl">
+        <div className="relative">
+          <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+          <Input aria-label="イベントスタッフを検索" value={staffSearch} onChange={(e) => setStaffSearch(e.target.value)} placeholder="名前・メールアドレスで検索" className="pl-9 rounded-none border-thick border-border" />
+        </div>
+        <div className="max-h-[55vh] overflow-auto border-thick border-border">
+          <table className="w-full min-w-[520px] text-xs text-left font-mono">
+            <thead className="sticky top-0 bg-background"><tr className="border-b-thick border-border"><th className="p-3">名前</th><th className="p-3">メール</th><th className="p-3">ロール</th><th className="p-3 text-right">操作</th></tr></thead>
+            <tbody>
+              {filteredStaffMembers.map((member) => (
+                <tr key={member.id} className="border-b-thin border-border">
+                  <td className="p-3 font-bold">{member.userName || "名前未設定"}</td>
+                  <td className="p-3">{member.userEmail}</td>
+                  <td className="p-3"><Badge variant="default" className="rounded-none text-[8px] font-mono border-thick border-border bg-transparent text-foreground uppercase">{roleLabel(member.role)}</Badge></td>
+                  <td className="p-3 text-right"><Button variant="outline" size="sm" onClick={() => handleOpenDeactivate(member)} disabled={deactivateStaffMutation.isPending} className="border-thick border-border hover:bg-destructive hover:text-destructive-foreground text-[10px] h-7 px-2 rounded-none shadow-none">解除</Button></td>
+                </tr>
+              ))}
+              {filteredStaffMembers.length === 0 && <tr><td colSpan={4} className="p-6 text-center text-muted-foreground">該当するスタッフがいません</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      </Modal>
 
       {/* スタッフ招待モーダル */}
       <EventStaffFormModal

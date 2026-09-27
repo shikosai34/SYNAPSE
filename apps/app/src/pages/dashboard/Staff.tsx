@@ -15,6 +15,8 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Modal } from "@/components/ui/Modal";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { ErrorState } from "@/components/ui/ErrorState";
@@ -25,6 +27,7 @@ import {
   Trash2,
   User,
   Users,
+  Search,
 } from "lucide-react";
 
 // スタッフモーダルとカスタムダイアログ
@@ -41,6 +44,8 @@ function StaffManagementContent() {
 
   // モーダル用ステート
   const [isStaffModalOpen, setIsStaffModalOpen] = useState(false);
+  const [isStaffTableOpen, setIsStaffTableOpen] = useState(false);
+  const [staffSearch, setStaffSearch] = useState("");
   const [selectedStaff, setSelectedStaff] = useState<Staff | null>(null);
 
   // 削除確認用ステート
@@ -75,9 +80,14 @@ function StaffManagementContent() {
   };
 
   const handleOpenEdit = (staff: Staff) => {
+    setIsStaffTableOpen(false);
     setSelectedStaff(staff);
     setIsStaffModalOpen(true);
   };
+
+  const filteredStaff = (staffList ?? []).filter((staff) =>
+    staff.name.toLocaleLowerCase().includes(staffSearch.trim().toLocaleLowerCase())
+  );
 
   if (isLoading) {
     return (
@@ -117,53 +127,20 @@ function StaffManagementContent() {
       <div className="space-y-6 font-mono text-foreground">
         {/* スタッフ一覧 */}
         <Card className=" rounded-none bg-background shadow-none">
-          <CardHeader className="p-4 pb-2 border-b-thick border-border">
+          <CardHeader className="p-4 pb-2 border-b-thick border-border flex flex-row items-center justify-between">
             <CardTitle className="flex items-center gap-2 text-xs uppercase font-bold">
               <User className="h-4 w-4" />
               スタッフ一覧 ({staffList?.length || 0})
             </CardTitle>
+            {staffList && staffList.length > 0 && (
+              <Button variant="outline" onClick={() => setIsStaffTableOpen(true)} className="rounded-none border-thick border-border text-xs">
+                一覧を開く
+              </Button>
+            )}
           </CardHeader>
           <CardContent className="p-0">
             {staffList && staffList.length > 0 ? (
-              <div className="divide-y divide-border">
-                {staffList.map((staff) => (
-                  <div
-                    key={staff.id}
-                    className="flex items-center justify-between p-3 text-xs font-mono"
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="h-8 w-8 rounded-none bg-primary/10 flex items-center justify-center border-thick border-border">
-                        <User className="h-4 w-4 text-primary" />
-                      </div>
-                      <div>
-                        <p className="font-bold text-foreground">{staff.name}</p>
-                      </div>
-                    </div>
-                    <PermissionGuard permission="staff:write">
-                      <div className="flex items-center gap-1">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => handleOpenEdit(staff)}
-                          className="h-8 w-8 rounded-none border-thick border-transparent hover:border-border hover:bg-muted"
-                        >
-                          <Edit className="h-4 w-4" />
-                        </Button>
-                        <PermissionGuard permission="staff:delete">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="text-destructive hover:text-destructive h-8 w-8 rounded-none border-thick border-transparent hover:border-border hover:bg-muted"
-                            onClick={() => handleOpenDelete(staff)}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </PermissionGuard>
-                      </div>
-                    </PermissionGuard>
-                  </div>
-                ))}
-              </div>
+              <p className="p-4 text-xs text-muted-foreground">{staffList.length}人の登録スタッフ。表で検索・編集できます。</p>
             ) : (
               <PermissionGuard
                 permission="staff:write"
@@ -180,6 +157,33 @@ function StaffManagementContent() {
           </CardContent>
         </Card>
       </div>
+
+      {/* 2026-09-27: 長いスタッフ一覧は独立した表モーダルに収め、ページの縦長化を防ぐ。 */}
+      <Modal isOpen={isStaffTableOpen} onClose={() => setIsStaffTableOpen(false)} title="[登録スタッフ一覧]" subtitle={`${staffList?.length ?? 0}人`} maxWidth="xl">
+        <div className="relative">
+          <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+          <Input aria-label="スタッフを検索" value={staffSearch} onChange={(e) => setStaffSearch(e.target.value)} placeholder="スタッフ名で検索" className="pl-9 rounded-none border-thick border-border" />
+        </div>
+        <div className="max-h-[55vh] overflow-auto border-thick border-border">
+          <table className="w-full text-xs text-left font-mono">
+            <thead className="sticky top-0 bg-background"><tr className="border-b-thick border-border"><th className="p-3">スタッフ名</th><th className="p-3 text-right">操作</th></tr></thead>
+            <tbody>
+              {filteredStaff.map((staff) => (
+                <tr key={staff.id} className="border-b-thin border-border">
+                  <td className="p-3 font-bold">{staff.name}</td>
+                  <td className="p-3 text-right">
+                    <PermissionGuard permission="staff:write"><span className="inline-flex gap-1">
+                      <Button aria-label={`${staff.name}を編集`} variant="ghost" size="icon" onClick={() => handleOpenEdit(staff)} className="h-8 w-8 rounded-none border-thick border-transparent hover:border-border"><Edit className="h-4 w-4" /></Button>
+                      <PermissionGuard permission="staff:delete"><Button aria-label={`${staff.name}を削除`} variant="ghost" size="icon" onClick={() => handleOpenDelete(staff)} className="h-8 w-8 rounded-none border-thick border-transparent text-destructive"><Trash2 className="h-4 w-4" /></Button></PermissionGuard>
+                    </span></PermissionGuard>
+                  </td>
+                </tr>
+              ))}
+              {filteredStaff.length === 0 && <tr><td colSpan={2} className="p-6 text-center text-muted-foreground">該当するスタッフがいません</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      </Modal>
 
       {/* スタッフ追加・編集モーダル */}
       {circleId && (
