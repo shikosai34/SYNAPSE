@@ -23,6 +23,7 @@ import { SettingsTab } from "@/components/event/SettingsTab";
 import { ContractTab } from "@/components/event/ContractTab";
 import { WristbandsTab } from "@/components/event/WristbandsTab";
 import { ExportTab } from "@/components/event/ExportTab";
+import { EventReviewsTab } from "@/pages/dashboard/Reviews";
 
 export default function EventDashboard() {
   const { eventId } = useAuth();
@@ -134,6 +135,7 @@ export default function EventDashboard() {
 
           {/* TAB: 統計・分析 */}
           {activeTab === "analytics" && <AnalyticsTab eventId={eventId} eventName={eventName} />}
+          {activeTab === "reviews" && <EventReviewsTab eventId={eventId} />}
           {activeTab === "behavior" && <BehaviorTab eventId={eventId} />}
 
           {/* TAB: データエクスポート */}

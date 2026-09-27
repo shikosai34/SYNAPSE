@@ -271,6 +271,30 @@ export const orderApi = {
   },
 };
 
+export interface VisitorReviewTarget {
+  circleId: string;
+  circleName: string;
+  review: { rating: number; comment: string | null } | null;
+}
+
+export interface ManagedReview {
+  circleId?: string;
+  circleName?: string;
+  rating: number;
+  comment: string | null;
+  createdAt: string | number | Date;
+  displayId: number;
+}
+
+// 2026-09-27: 来場者は自分の体験先と投稿状態のみを取得し、管理側は既存の sales:read 権限で一覧を見る。
+export const reviewApi = {
+  mine: (code: string) => fetchApi<VisitorReviewTarget[]>(`/api/reviews/visitor/${encodeURIComponent(code)}`),
+  submit: (code: string, body: { circleId: string; rating: number; comment: string }) =>
+    fetchApi<{ success: boolean }>(`/api/reviews/visitor/${encodeURIComponent(code)}`, { method: "POST", body }),
+  circle: (circleId: string) => fetchApi<ManagedReview[]>(`/api/reviews/circle/${encodeURIComponent(circleId)}`),
+  event: (eventId: string) => fetchApi<ManagedReview[]>(`/api/reviews/event/${encodeURIComponent(eventId)}`),
+};
+
 // Membership API
 export const membershipApi = {
   getRoles: () => fetchApi<RoleInfo[]>("/api/memberships/roles"),

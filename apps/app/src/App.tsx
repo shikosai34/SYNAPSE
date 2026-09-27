@@ -38,6 +38,7 @@ const pageImports = {
 	DashboardAnalytics: () => import("@/pages/dashboard/Analytics"),
 	DashboardExport: () => import("@/pages/dashboard/Export"),
 	DashboardCoupons: () => import("@/pages/dashboard/Coupons"),
+	DashboardReviews: () => import("@/pages/dashboard/Reviews"),
 	StaffOnboarding: () => import("@/pages/StaffOnboarding"),
 	Placeholder: () => import("@/pages/Placeholder"),
 
@@ -49,6 +50,7 @@ const pageImports = {
 	Menu: () => import("@/pages/Menu"),
 	MyPage: () => import("@/pages/MyPage"),
 	Orders: () => import("@/pages/Orders"),
+	VisitorReviews: () => import("@/pages/VisitorReviews"),
 	EventMenu: () => import("@/pages/EventMenu"),
 	CouponRedeem: () => import("@/pages/CouponRedeem"),
 };
@@ -73,6 +75,7 @@ const DashboardStock = lazy(pageImports.DashboardStock);
 const DashboardAnalytics = lazy(pageImports.DashboardAnalytics);
 const DashboardExport = lazy(pageImports.DashboardExport);
 const DashboardCoupons = lazy(pageImports.DashboardCoupons);
+const DashboardReviews = lazy(pageImports.DashboardReviews);
 const Placeholder = lazy(pageImports.Placeholder);
 
 const Branding = lazy(pageImports.Branding);
@@ -83,6 +86,7 @@ const StaffOnboarding = lazy(pageImports.StaffOnboarding);
 const Menu = lazy(pageImports.Menu);
 const MyPage = lazy(pageImports.MyPage);
 const Orders = lazy(pageImports.Orders);
+const VisitorReviews = lazy(pageImports.VisitorReviews);
 const EventMenu = lazy(pageImports.EventMenu);
 const CouponRedeem = lazy(pageImports.CouponRedeem);
 
@@ -200,6 +204,7 @@ export default function App() {
 					<Route element={<VisitorOnboardingGate />}>
 						<Route path="/visitor/mypage" element={<MyPage />} />
 						<Route path="/visitor/orders" element={<Orders />} />
+						<Route path="/visitor/reviews" element={<VisitorReviews />} />
 					</Route>
 
 					{/* Visitor event / menu routes */}
@@ -323,6 +328,10 @@ export default function App() {
 								<DashboardAnalytics />
 							</CircleAuthGuard>
 						}
+					/>
+					<Route
+						path="/circle/dashboard/reviews"
+						element={<CircleAuthGuard><DashboardReviews /></CircleAuthGuard>}
 					/>
 					<Route
 						path="/circle/dashboard/export"
