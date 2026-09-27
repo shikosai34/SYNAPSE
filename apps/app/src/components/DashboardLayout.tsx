@@ -32,6 +32,7 @@ import {
   Download,
   IdCard,
   Activity,
+  Star,
   CreditCard,
   X,
 } from "lucide-react";
@@ -130,7 +131,7 @@ export default function DashboardLayout({
   const lifecycle = layoutEvent?.lifecycleStatus;
   const isReadOnly = lifecycle === "ended" || lifecycle === "archived";
 
-  // サークル管理のメニュー項目 (カテゴリ分け, 2026-07-16)
+  // サークル管理のメニュー項目 (カテゴリ分け, 2026-07-16)。2026-09-27: レビューは売上・分析の範囲で管理者に表示する。
   // 「運営」= 日常的に開く画面、「商品・在庫」= 出す物の管理、
   // 「売上・分析」= お金と数字、「管理」= サークル自体の設定・人。
   // 在庫管理/スタッフ管理は拡張機能のON/OFFで出し分けるため、該当グループの配列末尾に条件付きで足す。
@@ -156,6 +157,7 @@ export default function DashboardLayout({
       items: [
         { title: "売上管理", href: "/circle/dashboard/sales", icon: TrendingUp },
         { title: "統計・分析", href: "/circle/dashboard/analytics", icon: BarChart3 },
+        { title: "レビュー", href: "/circle/dashboard/reviews", icon: Star },
         { title: "データエクスポート", href: "/circle/dashboard/export", icon: Download },
         { title: "クーポン管理", href: "/circle/dashboard/coupons", icon: Ticket },
       ],
@@ -190,6 +192,7 @@ export default function DashboardLayout({
       label: "売上・分析",
       items: [
         { title: "統計・分析", tab: "analytics", icon: BarChart3 },
+        { title: "レビュー", tab: "reviews", icon: Star },
         { title: "来場者行動・混雑", tab: "behavior", icon: Activity },
         { title: "全体売上管理", tab: "sales", icon: TrendingUp },
         { title: "精算", tab: "settlement", icon: Calculator },

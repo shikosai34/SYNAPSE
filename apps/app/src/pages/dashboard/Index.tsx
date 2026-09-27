@@ -46,6 +46,13 @@ function DashboardContent() {
       href: "/circle/dashboard/sales",
       permission: "sales:read" as const,
     },
+    // 2026-09-27: 管理メニューからもレビュー一覧へ直接移動できるようにする。
+    {
+      title: "レビュー",
+      description: "来場者から届いた評価と感想の確認",
+      href: "/circle/dashboard/reviews",
+      permission: "sales:read" as const,
+    },
     {
       title: "統計・分析",
       description: "サークルの売上、注文、人気メニュー、評価、支払い方法の統計",
