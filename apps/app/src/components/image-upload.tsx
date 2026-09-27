@@ -11,6 +11,14 @@ interface ImageUploadProps {
   label?: string;
 }
 
+function isHeic(file: File): boolean {
+  return /\.(heic|heif)$/i.test(file.name) || /image\/(heic|heif)/i.test(file.type);
+}
+
+function isImage(file: File): boolean {
+  return file.type.startsWith("image/") || isHeic(file) || /\.(jpe?g|png|gif|webp)$/i.test(file.name);
+}
+
 export function ImageUpload({
   value,
   onChange,
@@ -26,26 +34,44 @@ export function ImageUpload({
     setError(null);
 
     try {
+      let upload = file;
+      if (isHeic(file)) {
+        // 2026-09-27: Workers/R2へHEICのまま保存すると一般ブラウザで表示できないため、
+        // 必要な時だけブラウザ側でJPEGへ変換し、既存のアップロード経路へ渡す。
+        const { default: heic2any } = await import("heic2any");
+        const converted = await heic2any({ blob: file, toType: "image/jpeg", quality: 0.9 });
+        const jpeg = Array.isArray(converted) ? converted[0] : converted;
+        if (!jpeg) throw new Error("HEIC画像を変換できませんでした");
+        upload = new File([jpeg], file.name.replace(/\.(heic|heif)$/i, ".jpg"), { type: "image/jpeg" });
+      }
       const formData = new FormData();
-      formData.append("file", file);
+      formData.append("file", upload);
 
       // API Worker の既定ポートは 8787 (3001 は visitor フロントのポートで誤り) (2026-07-04)
       const apiUrl = import.meta.env.VITE_API_URL || "http://localhost:8787";
       const response = await fetch(`${apiUrl}/api/upload`, {
         method: "POST",
         body: formData,
+        credentials: "include",
       });
 
       if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.error || "アップロードに失敗しました");
+        const data = await response.json().catch(() => null);
+        throw new Error(data?.message || data?.error || "アップロードに失敗しました");
       }
 
       const data = await response.json();
       onChange(data.path);
     } catch (err) {
+      const detail = err instanceof Error
+        ? err.message
+        : err && typeof err === "object" && "message" in err
+          ? String(err.message)
+          : err && typeof err === "object" && "code" in err
+            ? `変換エラー (${String(err.code)})`
+            : "アップロードに失敗しました";
       setError(
-        err instanceof Error ? err.message : "アップロードに失敗しました"
+        detail
       );
     } finally {
       setIsUploading(false);
@@ -75,7 +101,7 @@ export function ImageUpload({
     setDragActive(false);
 
     const file = e.dataTransfer.files?.[0];
-    if (file && file.type.startsWith("image/")) {
+    if (file && isImage(file)) {
       uploadFile(file);
     } else {
       setError("画像ファイルを選択してください");
@@ -105,6 +131,7 @@ export function ImageUpload({
             size="icon"
             className="absolute top-2 right-2"
             onClick={handleRemove}
+            aria-label="画像を削除"
           >
             <X className="h-4 w-4" />
           </Button>
@@ -126,7 +153,7 @@ export function ImageUpload({
           <input
             ref={inputRef}
             type="file"
-            accept="image/jpeg,image/png,image/gif,image/webp"
+            accept="image/jpeg,image/png,image/gif,image/webp,image/heic,image/heif,.heic,.heif"
             onChange={handleFileChange}
             className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
             disabled={isUploading}
@@ -150,7 +177,7 @@ export function ImageUpload({
                     クリックまたはドラッグ＆ドロップ
                   </p>
                   <p className="text-xs text-muted-foreground">
-                    JPEG, PNG, GIF, WebP (最大5MB)
+                    JPEG, PNG, GIF, WebP, HEIC (最大10MB)
                   </p>
                 </div>
               </>
