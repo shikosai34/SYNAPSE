@@ -22,6 +22,7 @@ import AccountModal from "./account-modal";
 import { PRODUCT_NAME } from "@fesflow/config";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { eventApi, notificationApi, accountApi, systemApi } from "@/lib/api";
+import { resolveAssetUrl } from "@/lib/asset-url";
 import {
   useAuth,
   clearAuthInfo,
@@ -628,7 +629,7 @@ export default function Header() {
     <>
       <div className="flex items-center gap-2 mb-3 pb-3 border-b border-border/20">
         {me?.image ? (
-          <img src={me.image} alt="Avatar" className="w-8 h-8 rounded-none border border-border object-cover shrink-0" />
+          <img src={resolveAssetUrl(me.image)} alt="Avatar" className="w-8 h-8 rounded-none border border-border object-cover shrink-0" />
         ) : (
           <div className="w-8 h-8 border border-border flex items-center justify-center shrink-0">
             <User className="h-4 w-4" />
@@ -827,7 +828,7 @@ export default function Header() {
                   className="flex items-center justify-center gap-1 sm:gap-1.5 bg-muted border-thick border-border px-1.5 sm:px-3 py-1 sm:py-1.5 font-mono text-[11px] font-bold hover:bg-muted/80 select-none cursor-pointer h-8 sm:h-9 rounded-none"
                 >
                   {me?.image ? (
-                    <img src={me.image} alt="Avatar" className="w-5 h-5 rounded-none border border-border object-cover shrink-0" />
+                    <img src={resolveAssetUrl(me.image)} alt="Avatar" className="w-5 h-5 rounded-none border border-border object-cover shrink-0" />
                   ) : (
                     <User className="h-3.5 w-3.5 shrink-0" />
                   )}
@@ -945,7 +946,7 @@ export default function Header() {
                             >
                               <span className="flex items-center gap-2">
                                 {me?.image ? (
-                                  <img src={me.image} alt="Avatar" className="w-4 h-4 rounded-none border border-border object-cover shrink-0" />
+                                  <img src={resolveAssetUrl(me.image)} alt="Avatar" className="w-4 h-4 rounded-none border border-border object-cover shrink-0" />
                                 ) : (
                                   <User className="h-3.5 w-3.5 shrink-0" />
                                 )}

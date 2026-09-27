@@ -15,6 +15,7 @@ import { ErrorState } from "@/components/ui/ErrorState";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { toast } from "sonner";
 import { AlertTriangle, Package, Search, Plus, Minus, XCircle, RotateCcw, Coins } from "lucide-react";
+import { resolveAssetUrl } from "@/lib/asset-url";
 
 const DEFAULT_LOW = 10;
 
@@ -311,7 +312,7 @@ function StockManagementContent() {
                     >
                       <div className="relative h-11 w-11 overflow-hidden shrink-0 border-thick border-border">
                         {m.imagePath ? (
-                          <img src={m.imagePath} alt={m.name} className={`absolute inset-0 h-full w-full object-cover ${m.soldOut ? "opacity-40" : ""}`} />
+                          <img src={resolveAssetUrl(m.imagePath)} alt={m.name} className={`absolute inset-0 h-full w-full object-cover ${m.soldOut ? "opacity-40" : ""}`} />
                         ) : (
                           <div className="flex h-full w-full items-center justify-center bg-muted">
                             <span className="text-[8px] text-muted-foreground">No Image</span>
@@ -414,7 +415,7 @@ function StockManagementContent() {
                       >
                         <div className="relative h-11 w-11 overflow-hidden shrink-0 border-thick border-border">
                           {t.imagePath ? (
-                            <img src={t.imagePath} alt={t.name} className={`absolute inset-0 h-full w-full object-cover ${t.soldOut ? "opacity-40" : ""}`} />
+                            <img src={resolveAssetUrl(t.imagePath)} alt={t.name} className={`absolute inset-0 h-full w-full object-cover ${t.soldOut ? "opacity-40" : ""}`} />
                           ) : (
                             <div className="flex h-full w-full items-center justify-center bg-muted">
                               <span className="text-[8px] text-muted-foreground">No Image</span>

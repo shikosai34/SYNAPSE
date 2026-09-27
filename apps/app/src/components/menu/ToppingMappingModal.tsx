@@ -5,6 +5,7 @@ import { Modal } from "@/components/ui/Modal";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
+import { resolveAssetUrl } from "@/lib/asset-url";
 
 interface ToppingMappingModalProps {
   circleId: string;
@@ -154,7 +155,7 @@ export function ToppingMappingModal({ circleId, isOpen, onClose }: ToppingMappin
                         />
                         {topping.imagePath && (
                           <img
-                            src={topping.imagePath}
+                            src={resolveAssetUrl(topping.imagePath)}
                             alt={topping.name}
                             className="h-8 w-8 object-cover border-thick border-border shrink-0"
                           />

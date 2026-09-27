@@ -289,12 +289,9 @@ app.post("/api/upload", async (c) => {
     cacheControl: "public, max-age=31536000, immutable",
   });
 
-  // 2026-07-04: 本番ドメインに自動追従させるため、リクエストの Origin から動的に公開 URL を生成。
-  // 2026-07-07 単一ドメイン化: 配信パスを /api/uploads/* に統一 (key は "uploads/xxx")。
-  const url = new URL(c.req.url);
-  const publicUrl = `${url.origin}/api/${key}`;
-
-  return c.json({ path: publicUrl, key, ext });
+  // 2026-09-27 Issue #57: 保存値にリクエスト先 host を固定すると、環境移行時や
+  // ローカルで本番データを表示するとき誤った host を参照するため、安定した相対パスを保存する。
+  return c.json({ path: `/api/${key}`, key, ext });
 });
 
 // R2 / MinIO からアップロードファイルを配信するルート。

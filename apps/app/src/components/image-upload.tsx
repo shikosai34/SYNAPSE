@@ -4,6 +4,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Upload, X, Image as ImageIcon, Loader2 } from "lucide-react";
+import { uploadImage } from "@/lib/api";
+import { resolveAssetUrl } from "@/lib/asset-url";
 
 interface ImageUploadProps {
   value: string;
@@ -44,23 +46,8 @@ export function ImageUpload({
         if (!jpeg) throw new Error("HEIC画像を変換できませんでした");
         upload = new File([jpeg], file.name.replace(/\.(heic|heif)$/i, ".jpg"), { type: "image/jpeg" });
       }
-      const formData = new FormData();
-      formData.append("file", upload);
-
-      // API Worker の既定ポートは 8787 (3001 は visitor フロントのポートで誤り) (2026-07-04)
-      const apiUrl = import.meta.env.VITE_API_URL || "http://localhost:8787";
-      const response = await fetch(`${apiUrl}/api/upload`, {
-        method: "POST",
-        body: formData,
-        credentials: "include",
-      });
-
-      if (!response.ok) {
-        const data = await response.json().catch(() => null);
-        throw new Error(data?.message || data?.error || "アップロードに失敗しました");
-      }
-
-      const data = await response.json();
+      // 2026-09-27: HEIC変換後のファイルも共通の認証付きアップロード経路へ渡す。
+      const data = await uploadImage(upload);
       onChange(data.path);
     } catch (err) {
       const detail = err instanceof Error
@@ -123,7 +110,7 @@ export function ImageUpload({
         // プレビュー表示
         <div className="relative">
           <div className="relative h-48 w-full rounded-lg overflow-hidden border">
-            <img src={value} alt="プレビュー" className="absolute inset-0 h-full w-full object-cover" />
+            <img src={resolveAssetUrl(value)} alt="プレビュー" className="absolute inset-0 h-full w-full object-cover" />
           </div>
           <Button
             type="button"

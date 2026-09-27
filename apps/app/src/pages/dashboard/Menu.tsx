@@ -22,6 +22,7 @@ import { Plus, Edit, Trash2, Settings, UtensilsCrossed } from "lucide-react";
 import { MenuFormModal } from "@/components/menu/MenuFormModal";
 import { ToppingFormModal } from "@/components/menu/ToppingFormModal";
 import { ToppingMappingModal } from "@/components/menu/ToppingMappingModal";
+import { resolveAssetUrl } from "@/lib/asset-url";
 
 function MenuManagementContent() {
   // 2026-07-16: circleId/circleName を useState+useEffect(mount時一度きり) で
@@ -203,7 +204,7 @@ function MenuManagementContent() {
                   <div className="relative h-40 w-full overflow-hidden border-b-thick border-border">
                     {menu.imagePath ? (
                       <img
-                        src={menu.imagePath}
+                        src={resolveAssetUrl(menu.imagePath)}
                         alt={menu.name}
                         className={`object-cover absolute inset-0 h-full w-full ${menu.soldOut ? "opacity-40" : ""}`}
                       />
@@ -263,7 +264,7 @@ function MenuManagementContent() {
                           {menu.toppings.map((t) => (
                             <span key={t.id} className={`inline-flex items-center gap-1 text-[9px] px-1.5 py-0.5 border-thin border-border font-bold ${t.soldOut ? "bg-destructive/10 text-destructive line-through" : "bg-muted"}`}>
                               {t.imagePath && (
-                                <img src={t.imagePath} alt="" className="h-3.5 w-3.5 object-cover border-thin border-current shrink-0" />
+                                <img src={resolveAssetUrl(t.imagePath)} alt="" className="h-3.5 w-3.5 object-cover border-thin border-current shrink-0" />
                               )}
                               {t.name}
                             </span>
@@ -330,7 +331,7 @@ function MenuManagementContent() {
                   <div className="relative h-28 w-full overflow-hidden border-b-thick border-border">
                     {topping.imagePath ? (
                       <img
-                        src={topping.imagePath}
+                        src={resolveAssetUrl(topping.imagePath)}
                         alt={topping.name}
                         className={`object-cover absolute inset-0 h-full w-full ${topping.soldOut ? "opacity-40" : ""}`}
                       />

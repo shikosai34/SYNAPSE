@@ -6,6 +6,7 @@ import { visitorApi, eventApi, wristbandApi } from "@/lib/api";
 import { getVisitor, saveVisitor, useVisitor } from "@/hooks/useVisitor";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { resolveAssetUrl } from "@/lib/asset-url";
 
 /**
  * 来場者オンボーディング / プロフィール編集 (2026-07-04, 2026-07-15 編集モード追加)。
@@ -88,7 +89,7 @@ export default function Onboarding() {
       {eventData?.logoUrl && (
         <div className="mb-6 border-[3px] border-border p-2 bg-background">
           <img
-            src={eventData.logoUrl}
+            src={resolveAssetUrl(eventData.logoUrl)}
             alt={eventData.eventName}
             className="w-full h-auto max-h-32 object-contain mx-auto block"
           />
