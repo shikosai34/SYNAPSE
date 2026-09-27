@@ -23,11 +23,15 @@ import { resolveAssetUrl } from "@/lib/asset-url";
 export default function EventMenu() {
   const { eventId: eventIdParam } = useParams();
   const navigate = useNavigate();
-  const { session } = useVisitor();
+  const { session, isLoaded } = useVisitor();
 
   // ルート優先。無ければ入場中リストバンドのイベントを使う。
   const eventId = eventIdParam || session?.eventId || null;
   const isEntered = !!session?.userId;
+
+  if (!isLoaded) {
+    return <div className="mx-auto max-w-4xl p-6 font-mono" role="status" aria-busy="true">読み込み中…</div>;
+  }
 
   // 入場済み来場者は自身のイベント内で注文先を探す。未入場者の公開下見と、
   // リストバンド発行前のイベント選択は従来どおりイベント横断で利用できる (2026-09-27)。

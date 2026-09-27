@@ -74,7 +74,7 @@ export default function Header() {
   const navigate = useNavigate();
   const pathname = useLocation().pathname;
   const queryClient = useQueryClient();
-  const { role, userName, circleName, isLoading, isAuthenticated, isEventAdmin, userEmail, permissions, membershipAuthorityError, retryAuthorization } =
+  const { role, eventId, userName, circleName, isLoading, isAuthenticated, isEventAdmin, userEmail, permissions, membershipAuthorityError, retryAuthorization } =
     useAuth();
   const { data: spaces } = useMySpaces();
 
@@ -187,20 +187,19 @@ export default function Header() {
 
   // 現在のアクティブなスペース名
   const currentSpaceName = useMemo(() => {
-    if (pathname.startsWith("/sys")) {
+    if (role === "super_admin") {
       return "システム管理";
     }
-    if (pathname.startsWith("/event")) {
-      const info = getAuthInfo();
-      const eventId = info?.eventId;
+    if (role === "event_manager") {
       const space = (spaces ?? []).find((m: any) => m.eventId === eventId && !m.circleId);
       return space?.event?.eventName || localStorage.getItem("eventName") || "イベント管理";
     }
-    if (pathname.startsWith("/circle")) {
-      return circleName || "店舗";
+    if (role === "circle_manager" || role === "circle_staff") {
+      const space = (spaces ?? []).find((m: any) => m.circleId === (getAuthInfo()?.circleId ?? null));
+      return space?.circle?.name || circleName || "店舗";
     }
-    return "スペース選択";
-  }, [pathname, spaces, circleName]);
+    return role ? roleLabel(role) : "スペース選択";
+  }, [role, eventId, spaces, circleName]);
 
   // 現在のアクティブな権限 (ラベル対応表は lib/roles.ts に集約)
   const currentSpaceRole = useMemo(() => {
