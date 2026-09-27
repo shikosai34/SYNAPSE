@@ -54,7 +54,7 @@ import { authClient } from "@/lib/auth-client";
 // 開閉する作りは「今どれが開いているか」を見失いやすい。トップレベルのトリガーを3本線1つに
 // 集約し、その中を「通知/組織切り替え/アカウント」を並べた1段目 → タップした項目の中身を
 // 表示する2段目、という構造にする。デスクトップは今までどおり個別トリガー+ホバー/タップを
-// 維持する (md:hidden / hidden md:block で出し分け)。
+// 維持する (lg:hidden / hidden lg:block で出し分け)。
 // 開閉の最上位は引き続き activeMenu (nav = 3本線) で1つだけ開く制御を継続し、3本線の中の
 // 「今どの項目を掘り下げているか」だけを別 state (mobileSection) で管理する。
 type MenuKey = "notif" | "space" | "account" | "nav" | null;
@@ -668,11 +668,11 @@ export default function Header() {
         {/* ロゴ / ブランド */}
         <Link
           to="/"
-          className="font-headline text-base sm:text-lg md:text-xl uppercase tracking-[2px] leading-none select-none hover:opacity-80 flex items-center gap-2 shrink-0"
+          className="font-headline text-base sm:text-lg lg:text-xl uppercase tracking-[2px] leading-none select-none hover:opacity-80 flex items-center gap-2 shrink-0"
         >
           <span className="font-black border-thin border-border px-2 py-1 bg-primary text-primary-foreground text-sm sm:text-base">
             {PRODUCT_NAME.toUpperCase()}
-            <span className="hidden md:inline">
+            <span className="hidden lg:inline">
               {isCircleView && " // BOOTH"}
               {isEventView && " // EVENT"}
               {isAdminView && " // SYSTEM"}
@@ -681,7 +681,7 @@ export default function Header() {
         </Link>
 
         {/* デスクトップナビゲーション (常時ラベル表示のためページリンクなのでそのまま維持) */}
-        <nav className="hidden md:flex items-center gap-1 font-headline text-[13px] uppercase tracking-[1px]">
+        <nav className="hidden lg:flex items-center gap-1 font-headline text-[13px] uppercase tracking-[1px]">
           {links.map(({ to, label }) => (
             <Link
               key={to}
@@ -702,10 +702,10 @@ export default function Header() {
           {isAuthenticated && !isLoading ? (
             <div className="flex items-center gap-1 sm:gap-2 relative">
               {/* 通知ベルメニュー (デスクトップのみ:ホバー / タッチ:タップ 両対応。
-                  モバイル(md未満)は3本線メニューへ集約するためここでは非表示にする 2026-07-16) */}
+                  1024px未満は3本線メニューへ集約するためここでは非表示にする 2026-09-27) */}
               <div
                 ref={notifRef}
-                className="relative hidden md:block"
+                className="relative hidden lg:block"
                 onMouseEnter={() => handleHoverOpen("notif")}
                 onMouseLeave={() => handleHoverClose("notif")}
               >
@@ -762,7 +762,7 @@ export default function Header() {
                   モバイルは3本線メニューへ集約 2026-07-16) */}
               <div
                 ref={spaceRef}
-                className="relative hidden md:block"
+                className="relative hidden lg:block"
               >
                 {/* 2026-09-27 Issue #26: スペース一覧は意図したクリックで開閉し、ポインター通過では勝手に展開しない。 */}
                 <button
@@ -815,7 +815,7 @@ export default function Header() {
                   (① アカウント設定を開く → AccountModal / ② ログアウト) (2026-07-16) */}
               <div
                 ref={accountRef}
-                className="relative hidden md:block"
+                className="relative hidden lg:block"
                 onMouseEnter={() => handleHoverOpen("account")}
                 onMouseLeave={() => handleHoverClose("account")}
               >
@@ -859,7 +859,7 @@ export default function Header() {
                 )}
               </div>
 
-              {/* 3本線メニュー (モバイル(md未満)のみ)。「3本線 → 通知/組織切り替え/アカウント →
+              {/* 3本線メニュー (1024px未満のみ)。「3本線 → 通知/組織切り替え/アカウント →
                   中身」の2段階層に集約する (2026-07-16 要望対応)。
                   デスクトップの各トリガー横並びはスマホだと窮屈な上、それぞれ独立して開閉する
                   作りは今どれが開いているか見失いやすいため、トップレベルを3本線1つにし、
@@ -871,7 +871,7 @@ export default function Header() {
                   そのまま使うため、外側クリック/Esc/1つしか開かない制御はそのまま効く。
                   「一度に開く2段目は1つだけ」は mobileSection (単一 state) で保証し、
                   3本線が閉じるたびに useEffect (mobileSection のリセット) で1段目に戻す。 */}
-              <div ref={navRef} className="relative md:hidden">
+              <div ref={navRef} className="relative lg:hidden">
                 <button
                   onClick={() => toggleMenu("nav")}
                   aria-haspopup="menu"

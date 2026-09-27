@@ -300,7 +300,8 @@ function MembersContent() {
         </PermissionGuard>
       }
     >
-      <div className="space-y-6 font-mono">
+      {/* 2026-09-27: 固定幅の表をスクロール領域内に閉じ、ページ全体の横幅を押し広げない。 */}
+      <div className="min-w-0 max-w-full space-y-6 font-mono">
       {/* メンバー追加モーダル */}
       <Modal
         isOpen={showAddForm}
@@ -379,6 +380,14 @@ function MembersContent() {
                 </option>
               ))}
           </FormSelect>
+          <FormField
+            id="target-email"
+            label="メールアドレス (任意)"
+            type="email"
+            placeholder="user@example.com (任意)"
+            value={inviteSettings.targetEmail}
+            onChange={(e) => setInviteSettings({ ...inviteSettings, targetEmail: e.target.value })}
+          />
           {/* 編集中に 1 未満へ丸めると打ち直しがつっかえるため、空欄(0)を許容する。
               実際の下限は送信時 (handleCreateInvite) に 1 以上へ丸める。 */}
           <FormField
@@ -404,14 +413,6 @@ function MembersContent() {
               setInviteSettings({ ...inviteSettings, expiresInHours: Number.isNaN(n) ? 0 : Math.max(0, Math.min(168, n)) });
             }}
           />
-          <FormField
-            id="target-email"
-            label="メールアドレス (任意)"
-            type="email"
-            placeholder="user@example.com (任意)"
-            value={inviteSettings.targetEmail}
-            onChange={(e) => setInviteSettings({ ...inviteSettings, targetEmail: e.target.value })}
-          />
         </div>
 
         <FormSubmitButton
@@ -424,14 +425,14 @@ function MembersContent() {
       </Modal>
 
       {/* アクティブな招待リンク */}
-      <Card>
+      <Card className="min-w-0 max-w-full">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <LinkIcon className="h-5 w-5" />
             アクティブな招待リンク
           </CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="min-w-0 max-w-full">
           {inviteTokensError ? (
             <ErrorState error={inviteTokensErrorObj} onRetry={() => refetchTokens()} />
           ) : inviteTokens && inviteTokens.length > 0 ? (
@@ -525,7 +526,7 @@ function MembersContent() {
       </Card>
 
       {/* メンバー一覧 */}
-      <Card>
+      <Card className="min-w-0 max-w-full">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Users className="h-5 w-5" />
@@ -535,11 +536,11 @@ function MembersContent() {
             {members?.length || 0}人のメンバーが登録されています
           </CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="min-w-0 max-w-full">
           {membersError ? (
             <ErrorState error={membersErrorObj} onRetry={() => refetchMembers()} />
           ) : members && members.length > 0 ? (
-            <div className="overflow-x-auto border-thin border-border">
+            <div className="w-full min-w-0 max-w-full overflow-x-auto border-thin border-border">
               {/* 2026-09-27: 表形式にして氏名・メール・ロール・状態と操作の対応を追いやすくし、
                   横幅が限られる端末では表だけを横スクロールできるようにする。 */}
               <table className="w-full min-w-[760px] border-collapse text-left font-mono text-xs">

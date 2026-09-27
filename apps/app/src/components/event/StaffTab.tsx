@@ -10,6 +10,7 @@ import { ErrorState } from "@/components/ui/ErrorState";
 import { Users, UserPlus, Copy } from "lucide-react";
 import { toast } from "sonner";
 import { QRCodeSVG } from "qrcode.react";
+import { roleLabel } from "@/lib/roles";
 
 // モーダル
 import { EventStaffFormModal } from "./EventStaffFormModal";
@@ -119,7 +120,8 @@ export function StaffTab({
   };
 
   return (
-    <div className="space-y-6 font-mono text-foreground">
+    <div className="min-w-0 max-w-full space-y-6 font-mono text-foreground">
+      {/* 2026-09-27: 表の最小幅を横スクロール領域に閉じて画面全体の拡幅を防ぐ。 */}
       <div className="flex justify-between items-center border-b-thick border-border pb-3">
         <h2 className="text-sm font-bold uppercase tracking-wider flex items-center gap-2">
           <Users className="h-4 w-4" />
@@ -245,11 +247,11 @@ export function StaffTab({
       )}
 
       {/* スタッフ一覧 */}
-      <Card className=" rounded-none bg-background shadow-none">
+      <Card className="min-w-0 max-w-full rounded-none bg-background shadow-none">
         <CardHeader className="p-4 pb-2 border-b-thick border-border bg-muted/20">
           <CardTitle className="text-xs uppercase font-bold">[登録済みスタッフ一覧]</CardTitle>
         </CardHeader>
-        <CardContent className="p-0">
+        <CardContent className="min-w-0 max-w-full p-0">
           {staffLoading ? (
             <div className="p-4 space-y-2">
               {Array.from({ length: 3 }).map((_, i) => (
@@ -261,7 +263,7 @@ export function StaffTab({
               <ErrorState error={error} onRetry={onRetry} />
             </div>
           ) : staffMembers && staffMembers.length > 0 ? (
-            <div className="overflow-x-auto border-thin border-border">
+            <div className="w-full min-w-0 max-w-full overflow-x-auto border-thin border-border">
               {/* 2026-09-27: サークル側のメンバー表と同じ列構成にし、狭い画面では表内を横スクロールする。 */}
               <table className="w-full min-w-[560px] border-collapse text-left font-mono text-xs">
                 <thead className="bg-muted/40 text-[10px] uppercase tracking-wide">
@@ -278,8 +280,9 @@ export function StaffTab({
                       <th scope="row" className="p-3 font-bold text-foreground">{member.userName || "名前未設定"}</th>
                       <td className="p-3 text-muted-foreground">{member.userEmail}</td>
                       <td className="p-3">
+                        {/* 2026-09-27: event_manager 等を「スタッフ」に潰さず共通ロール名で表示する。 */}
                         <Badge variant="default" className="text-[8px] font-mono">
-                          {member.role === "event_admin" ? "管理者" : "スタッフ"}
+                          {roleLabel(member.role)}
                         </Badge>
                       </td>
                       <td className="p-3 text-right">

@@ -115,10 +115,11 @@ function AdminLayout() {
 	}, []);
 
 	return (
-		<div className="grid grid-rows-[auto_auto_1fr] min-h-svh">
+		<div className="grid grid-cols-1 grid-rows-[auto_auto_1fr] min-h-svh">
 			<Header />
 			<SystemBanner />
-			<main>
+			{/* 2026-09-27: Grid item の自動最小幅で子テーブルが画面全体を押し広げないよう縮小を許可する。 */}
+			<main className="min-w-0 w-full">
 				<Outlet />
 			</main>
 		</div>
