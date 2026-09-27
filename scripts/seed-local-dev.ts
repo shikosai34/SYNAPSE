@@ -1,3 +1,9 @@
+// 2026-09-27: 拡張設定画面も同じデモを読むため、有効フラグだけでなく既存のmanifest契約を満たす。
+const demoMods = JSON.stringify({ installed: { "circle-pre-order-cod": {
+  manifest: { id: "circle-pre-order-cod", name: "事前注文", description: "ローカル確認用の事前注文", version: "1.0.0", settingsSchema: [], hooks: {} },
+  enabled: true, settings: {},
+} } });
+
 const sql = `
 INSERT OR IGNORE INTO event (id, event_name, start_date, end_date, lifecycle_status)
 VALUES ('dev-demo-event', 'FesFlow Demo Festival',
@@ -6,7 +12,11 @@ VALUES ('dev-demo-event', 'FesFlow Demo Festival',
 
 INSERT OR IGNORE INTO circle (id, event_id, name, description, mods, settings)
 VALUES ('dev-demo-circle', 'dev-demo-event', 'Demo Kitchen', 'Local development sample workspace',
-  '{"installed":{"circle-pre-order-cod":{"enabled":true}}}', '{}');
+  '${demoMods}', '{}');
+
+-- 2026-09-27: 旧セットアップが入れた不完全なデモ設定だけを補修し、利用者の編集値は保持する。
+UPDATE circle SET mods = '${demoMods}'
+WHERE id = 'dev-demo-circle' AND mods = '{"installed":{"circle-pre-order-cod":{"enabled":true}}}';
 
 INSERT OR IGNORE INTO membership (id, user_email, user_name, event_id, role, is_active)
 VALUES ('dev-demo-event-membership', 'demo@example.invalid', 'Demo Manager', 'dev-demo-event', 'event_manager', 1);
