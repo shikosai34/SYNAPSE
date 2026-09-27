@@ -105,6 +105,7 @@
     "packages/db": {
       "name": "@fesflow/db",
       "dependencies": {
+        "@fesflow/config": "workspace:*",
         "@libsql/client": "catalog:",
         "drizzle-orm": "^0.45.0",
         "libsql": "catalog:",
@@ -113,7 +114,6 @@
       },
       "devDependencies": {
         "@cloudflare/workers-types": "^4.20250620.0",
-        "@fesflow/config": "workspace:*",
         "drizzle-kit": "^0.31.8",
       },
       "peerDependencies": {
