@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { CircleAuthGuard, useAuth } from "@/hooks/useCircleAuth";
+import { CircleAuthGuard, PermissionGuard, useAuth } from "@/hooks/useCircleAuth";
 import { menuApi, toppingApi, circleApi, parseCircleSettings } from "@/lib/api";
 import DashboardLayout from "@/components/DashboardLayout";
 import {
@@ -434,7 +434,9 @@ function MenuManagementContent() {
 export default function MenuManagementPage() {
   return (
     <CircleAuthGuard>
-      <MenuManagementContent />
+      <PermissionGuard permission="menu:write" showDenied>
+        <MenuManagementContent />
+      </PermissionGuard>
     </CircleAuthGuard>
   );
 }

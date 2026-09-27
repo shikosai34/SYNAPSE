@@ -2,167 +2,20 @@
 import { useNavigate } from "react-router-dom";
 import { useEffect, useState, useCallback } from "react";
 import Loader from "@/components/loader";
-import { useQuery } from "@tanstack/react-query";
-import { membershipApi } from "@/lib/api";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { adminApi, membershipApi } from "@/lib/api";
 import { authClient } from "@/lib/auth-client";
-
-// ロール定義（バックエンドと同期）
-export const ROLES = {
-  SUPER_ADMIN: "super_admin",
-  SYSTEM_MANAGER: "system_manager",
-  SYSTEM_STAFF: "system_staff",
-  EVENT_MANAGER: "event_manager",
-  EVENT_STAFF: "event_staff",
-  CIRCLE_MANAGER: "circle_manager",
-  CIRCLE_STAFF: "circle_staff",
-} as const;
-
-export type RoleType = (typeof ROLES)[keyof typeof ROLES];
+import { hasRolePermission, permissionsForRole, PERMISSION_NAMES, ROLES, type Permission, type RoleType } from "@fesflow/config";
+import { ROLE_LABELS } from "@/lib/roles";
 
 // ロールの日本語名
 export const ROLE_NAMES: Record<RoleType, string> = {
-  [ROLES.SUPER_ADMIN]: "システム最高管理者",
-  [ROLES.SYSTEM_MANAGER]: "システムマネージャー",
-  [ROLES.SYSTEM_STAFF]: "システムスタッフ",
-  [ROLES.EVENT_MANAGER]: "イベントマネージャー",
-  [ROLES.EVENT_STAFF]: "イベントスタッフ",
-  [ROLES.CIRCLE_MANAGER]: "サークルマネージャー",
-  [ROLES.CIRCLE_STAFF]: "サークルスタッフ",
+  [ROLES.SUPER_ADMIN]: ROLE_LABELS.super_admin,
+  [ROLES.EVENT_MANAGER]: ROLE_LABELS.event_manager,
+  [ROLES.CIRCLE_MANAGER]: ROLE_LABELS.circle_manager,
+  [ROLES.CIRCLE_STAFF]: ROLE_LABELS.circle_staff,
 };
-
-// 権限定義
-export const ROLE_PERMISSIONS = {
-  [ROLES.SUPER_ADMIN]: [
-    "system:read",
-    "system:write",
-    "event:read",
-    "event:write",
-    "event:delete",
-    "circle:read",
-    "circle:write",
-    "circle:delete",
-    "menu:read",
-    "menu:write",
-    "menu:delete",
-    "order:read",
-    "order:write",
-    "order:delete",
-    "staff:read",
-    "staff:write",
-    "staff:delete",
-    "stock:read",
-    "stock:write",
-    "sales:read",
-    "member:read",
-    "member:write",
-    "member:delete",
-    "coupon:read",
-    "coupon:write",
-  ],
-  [ROLES.SYSTEM_MANAGER]: [
-    "system:read",
-    "system:write",
-    "event:read",
-    "event:write",
-    "circle:read",
-    "circle:write",
-    "menu:read",
-    "order:read",
-    "sales:read",
-  ],
-  [ROLES.SYSTEM_STAFF]: [
-    "system:read",
-    "event:read",
-    "circle:read",
-  ],
-  [ROLES.EVENT_MANAGER]: [
-    "event:read",
-    "event:write",
-    "circle:read",
-    "circle:write",
-    "circle:delete",
-    "menu:read",
-    "menu:write",
-    "menu:delete",
-    "order:read",
-    "order:write",
-    "order:delete",
-    "staff:read",
-    "staff:write",
-    "staff:delete",
-    "stock:read",
-    "stock:write",
-    "sales:read",
-    "member:read",
-    "member:write",
-    "member:delete",
-    "coupon:read",
-    "coupon:write",
-  ],
-  [ROLES.EVENT_STAFF]: [
-    "event:read",
-    "circle:read",
-    "order:read",
-    "member:read",
-  ],
-  [ROLES.CIRCLE_MANAGER]: [
-    "circle:read",
-    "circle:write",
-    "menu:read",
-    "menu:write",
-    "menu:delete",
-    "order:read",
-    "order:write",
-    "staff:read",
-    "staff:write",
-    "staff:delete",
-    "stock:read",
-    "stock:write",
-    "sales:read",
-    "member:read",
-    "member:write",
-    "coupon:read",
-    "coupon:write",
-  ],
-  [ROLES.CIRCLE_STAFF]: [
-    "circle:read",
-    "menu:read",
-    "order:read",
-    "order:write",
-    "stock:read",
-    "stock:write",
-    "staff:read",
-  ],
-} as const;
-
-export type Permission = (typeof ROLE_PERMISSIONS)[RoleType][number];
-
-// 権限の日本語名
-export const PERMISSION_NAMES: Record<string, string> = {
-  "event:read": "イベント閲覧",
-  "event:write": "イベント編集",
-  "event:delete": "イベント削除",
-  "circle:read": "サークル閲覧",
-  "circle:write": "サークル編集",
-  "circle:delete": "サークル削除",
-  "menu:read": "メニュー閲覧",
-  "menu:write": "メニュー編集",
-  "menu:delete": "メニュー削除",
-  "order:read": "注文閲覧",
-  "order:write": "注文操作",
-  "order:delete": "注文削除",
-  "staff:read": "スタッフ閲覧",
-  "staff:write": "スタッフ編集",
-  "staff:delete": "スタッフ削除",
-  "stock:read": "在庫閲覧",
-  "stock:write": "在庫編集",
-  "sales:read": "売上閲覧",
-  "member:read": "メンバー閲覧",
-  "member:write": "メンバー編集",
-  "member:delete": "メンバー削除",
-  "coupon:read": "クーポン閲覧",
-  "coupon:write": "クーポン編集",
-};
+export { ROLES, PERMISSION_NAMES, type Permission, type RoleType };
 
 // 認証情報の型
 interface AuthInfo {
@@ -246,13 +99,12 @@ export function clearAuthInfo() {
 export function hasPermission(
   role: RoleType | null | undefined,
   permission: string,
-  isEventAdmin?: boolean
+  _isEventAdmin?: boolean
 ): boolean {
-  // event_adminフラグがあれば全権限を持つ
-  if (isEventAdmin) return true;
-  if (!role) return false;
-  const permissions = ROLE_PERMISSIONS[role] as readonly string[];
-  return permissions?.includes(permission) ?? false;
+  // isEventAdmin は表示/導線用の互換値。ドメイン横断の許可根拠にはしない (2026-09-27)。
+  // super_admin のテナント操作は監査付き impersonation の有効ロールでのみ判定する。
+  if (role === ROLES.SUPER_ADMIN) return permission.startsWith("system:");
+  return hasRolePermission(role, permission);
 }
 
 // 複数の権限のいずれかを持っているかチェック
@@ -300,13 +152,18 @@ export function useCircleAuth() {
 // ロール対応の認証フック
 export function useAuth() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [authInfo, setAuthInfo] = useState<AuthInfo | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [authInfoLoaded, setAuthInfoLoaded] = useState(false);
+  const [activeSpaceChecked, setActiveSpaceChecked] = useState(false);
+  const { data: spaces, isLoading: spacesLoading, isError: spacesError, sessionPending, sessionError, retrySession } = useMySpaces();
 
   useEffect(() => {
     const info = getAuthInfo();
     setAuthInfo(info);
     setIsLoading(false);
+    setAuthInfoLoaded(true);
 
     const handleAuthChange = () => {
       setAuthInfo(getAuthInfo());
@@ -327,6 +184,93 @@ export function useAuth() {
     };
   }, []);
 
+  // サーバー側の所属一覧をスペース選択と照合する。停止/削除された所属や
+  // ロール変更を、再読み込みなしで現在の画面にも反映する (2026-09-27)。
+  useEffect(() => {
+    if (!authInfoLoaded) return;
+    if (!authInfo?.membershipId) {
+      setActiveSpaceChecked(true);
+      return;
+    }
+    if (spacesLoading || sessionPending) {
+      setActiveSpaceChecked(false);
+      return;
+    }
+    // 一覧取得エラーは所属失効の証拠ではない。保存済み選択を維持し、権限UIは閉じて再試行を出す。
+    if (spacesError || sessionError) {
+      setActiveSpaceChecked(true);
+      return;
+    }
+
+    const selected = spaces?.find((space: any) => space.id === authInfo.membershipId);
+    if (!selected) {
+      if (getAuthInfo()?.membershipId === authInfo.membershipId) {
+        clearAuthInfo();
+      }
+      setAuthInfo(null);
+      setActiveSpaceChecked(true);
+      navigate("/login", { replace: true });
+      return;
+    }
+
+    // super_admin が監査付き impersonation 中は membership はシステム所属のまま。
+    // 対象ロール/イベントは下のサーバー状態から別に解決する。
+    const impersonating = authInfo.role === ROLES.SUPER_ADMIN && authInfo.isEventAdmin && !!authInfo.eventId;
+    if (!impersonating) {
+      // イベント管理者がイベント画面から特定サークルへ移る場合、実際の所属は
+      // event_manager のまま circleId だけを子イベント内の対象にする。サーバー側も
+      // eventId と circleId の親子関係で許可するため、この選択中サークルを保つ (2026-09-27)。
+      const selectedCircleId = selected.role === ROLES.EVENT_MANAGER && authInfo.eventId === selected.eventId
+        ? authInfo.circleId
+        : selected.circleId ?? null;
+      const selectedCircleName = selected.role === ROLES.EVENT_MANAGER && authInfo.eventId === selected.eventId
+        ? authInfo.circleName
+        : selected.circle?.name ?? null;
+      const nextInfo = {
+        ...authInfo,
+        role: selected.role as RoleType,
+        circleId: selectedCircleId,
+        eventId: selected.eventId ?? null,
+        circleName: selectedCircleName,
+      };
+      if (
+        authInfo.role !== nextInfo.role || authInfo.circleId !== nextInfo.circleId ||
+        authInfo.eventId !== nextInfo.eventId || authInfo.circleName !== nextInfo.circleName
+      ) {
+        saveAuthInfo(nextInfo);
+        setAuthInfo(nextInfo);
+      }
+    }
+    setActiveSpaceChecked(true);
+  }, [authInfo, authInfoLoaded, navigate, sessionError, sessionPending, spaces, spacesError, spacesLoading]);
+
+  const impersonationQuery = useQuery({
+    queryKey: ["impersonation-status"],
+    queryFn: async () => {
+      try {
+        return await adminApi.impersonateStatus();
+      } catch (error) {
+        // 通信失敗を「なりすまし終了」と解釈すると権限表示と画面遷移が誤るため、失敗状態を保つ。
+        throw error;
+      }
+    },
+    enabled: authInfo?.role === ROLES.SUPER_ADMIN && authInfo.isEventAdmin === true && !!authInfo.eventId,
+    refetchOnWindowFocus: true,
+    refetchInterval: 30_000,
+  });
+
+  useEffect(() => {
+    const isLocalImpersonation = authInfo?.role === ROLES.SUPER_ADMIN && authInfo.isEventAdmin && !!authInfo.eventId;
+    if (!isLocalImpersonation || !impersonationQuery.isFetched || impersonationQuery.isFetching || impersonationQuery.isError || impersonationQuery.data?.active) return;
+    const current = getAuthInfo();
+    if (current?.membershipId !== authInfo?.membershipId || current.eventId !== authInfo?.eventId) return;
+    const restored = { ...authInfo!, eventId: null, circleId: null, isEventAdmin: false };
+    saveAuthInfo(restored);
+    setAuthInfo(restored);
+    queryClient.invalidateQueries();
+    navigate("/sys/dashboard", { replace: true });
+  }, [authInfo, impersonationQuery.data, impersonationQuery.isError, impersonationQuery.isFetched, impersonationQuery.isFetching, navigate, queryClient]);
+
   const login = useCallback((info: AuthInfo) => {
     saveAuthInfo(info);
     setAuthInfo(info);
@@ -339,39 +283,59 @@ export function useAuth() {
   }, [navigate]);
 
   // event_manager / super_admin はイベント管理者扱い
-  const effectiveIsEventAdmin =
-    authInfo?.isEventAdmin ||
-    authInfo?.role === "event_manager" ||
-    authInfo?.role === "super_admin";
+  const isLocalImpersonation =
+    authInfo?.role === ROLES.SUPER_ADMIN && authInfo.isEventAdmin === true && !!authInfo.eventId;
+  // disabled query は直前の data を保持するため、現在の選択が system に戻ったら
+  // 過去の active 状態を実効ロール/スコープに流用しない (2026-09-27)。
+  const impersonation = isLocalImpersonation && impersonationQuery.data?.active ? impersonationQuery.data : null;
+  const impersonationVerificationFailed =
+    isLocalImpersonation && impersonationQuery.isError;
+  const authorityUnverified = spacesError || (Boolean(authInfo?.membershipId) && sessionError) || impersonationVerificationFailed;
+  const effectiveRole = authorityUnverified
+    ? null
+    : (impersonation?.role as RoleType | null) ?? authInfo?.role ?? null;
+  const effectiveIsEventAdmin = effectiveRole === ROLES.EVENT_MANAGER;
 
   const checkPermission = useCallback(
     (permission: Permission) => {
-      return hasPermission(authInfo?.role ?? null, permission, effectiveIsEventAdmin);
+      if (authorityUnverified) return false;
+      return hasPermission(effectiveRole, permission);
     },
-    [authInfo?.role, effectiveIsEventAdmin]
+    [effectiveRole, authorityUnverified]
   );
 
   const checkAnyPermission = useCallback(
     (permissions: Permission[]) => {
-      return hasAnyPermission(authInfo?.role ?? null, permissions, effectiveIsEventAdmin);
+      if (authorityUnverified) return false;
+      return hasAnyPermission(effectiveRole, permissions);
     },
-    [authInfo?.role, effectiveIsEventAdmin]
+    [effectiveRole, authorityUnverified]
   );
 
-  // 表示用のロール名: event_manager + circle_manager の場合は両方表示
+  // 表示用の実効ロール名。旧 isEventAdmin フラグからロールを合成しない。
   let displayRoleName: string | null = null;
-  if (authInfo?.role) {
-    displayRoleName = ROLE_NAMES[authInfo.role];
-    if (authInfo.isEventAdmin && authInfo.role !== "event_manager") {
+  if (effectiveRole) {
+    displayRoleName = ROLE_NAMES[effectiveRole];
+    if (impersonation && effectiveRole !== ROLES.EVENT_MANAGER) {
       displayRoleName = `${ROLE_NAMES["event_manager"]} / ${displayRoleName}`;
     }
   }
 
   return {
     ...authInfo,
+    role: effectiveRole,
+    eventId: impersonation?.eventId ?? authInfo?.eventId ?? null,
+    circleId: impersonation?.circleId ?? authInfo?.circleId ?? null,
     isAuthenticated: !!authInfo?.circleId || !!authInfo?.role || !!authInfo?.isEventAdmin,
     isEventAdmin: effectiveIsEventAdmin,
-    isLoading,
+    permissions: authorityUnverified ? [] : permissionsForRole(effectiveRole),
+    membershipAuthorityError: authorityUnverified ? "権限情報を確認できません。再試行してください。" : null,
+    retryAuthorization: () => {
+      void queryClient.invalidateQueries({ queryKey: ["mySpaces"] });
+      void queryClient.invalidateQueries({ queryKey: ["impersonation-status"] });
+      void retrySession();
+    },
+    isLoading: isLoading || !activeSpaceChecked,
     login,
     logout,
     checkPermission,
@@ -387,14 +351,16 @@ export function PermissionGuard({
   permissions,
   requireAll = false,
   fallback = null,
+  showDenied = false,
 }: {
   children: React.ReactNode;
   permission?: string;
   permissions?: string[];
   requireAll?: boolean;
   fallback?: React.ReactNode;
+  showDenied?: boolean;
 }) {
-  const { role, isLoading, isEventAdmin } = useAuth();
+  const { role, isLoading, isEventAdmin, membershipAuthorityError, retryAuthorization } = useAuth();
 
   if (isLoading) {
     return (
@@ -406,7 +372,9 @@ export function PermissionGuard({
 
   let hasAccess = false;
 
-  if (permission) {
+  if (membershipAuthorityError) {
+    hasAccess = false;
+  } else if (permission) {
     hasAccess = hasPermission(role, permission, isEventAdmin);
   } else if (permissions) {
     hasAccess = requireAll
@@ -415,10 +383,37 @@ export function PermissionGuard({
   }
 
   if (!hasAccess) {
-    return <>{fallback}</>;
+    if (membershipAuthorityError) {
+      return <AuthorizationUnavailable onRetry={retryAuthorization} />;
+    }
+    if (!showDenied) return <>{fallback}</>;
+    const needed = permission
+      ? [permission]
+      : permissions ?? [];
+    return (
+      <section role="alert" className="mx-auto my-6 max-w-2xl border-thick border-border bg-muted p-5 font-mono">
+        <h2 className="text-lg font-black">アクセス権限がありません</h2>
+        <p className="mt-2 text-sm text-muted-foreground">
+          この画面を利用するには、次の権限が必要です。
+        </p>
+        <ul className="mt-2 list-disc pl-5 text-sm">
+          {needed.map((item) => <li key={item}>{PERMISSION_NAMES[item] ?? item}</li>)}
+        </ul>
+      </section>
+    );
   }
 
   return <>{children}</>;
+}
+
+function AuthorizationUnavailable({ onRetry }: { onRetry: () => void }) {
+  return (
+    <section role="alert" className="mx-auto my-6 max-w-xl border-thick border-border bg-muted p-5 text-center font-mono">
+      <h2 className="text-lg font-black">権限情報を確認できません</h2>
+      <p className="my-2 text-sm">接続を確認してから、もう一度お試しください。</p>
+      <button className="underline" onClick={onRetry}>再試行</button>
+    </section>
+  );
 }
 
 // 認証ガードコンポーネント (2026-07-04 SaaS簡素化)
@@ -431,15 +426,14 @@ export function PermissionGuard({
 // localStorage 値を返すため、これに乗り換えて再マウントに依存せず反映されるようにする。
 export function CircleAuthGuard({ children }: { children: React.ReactNode }) {
   const navigate = useNavigate();
-  const { circleId, role, isLoading } = useAuth();
-  const isBypassAdmin = role === "super_admin" || role === "event_manager";
+  const { circleId, isAuthenticated, isLoading, membershipAuthorityError, retryAuthorization } = useAuth();
 
   useEffect(() => {
     if (isLoading) return;
-    if (!circleId && !isBypassAdmin) {
+    if (!isAuthenticated) {
       navigate("/login");
     }
-  }, [isLoading, circleId, isBypassAdmin, navigate]);
+  }, [isLoading, isAuthenticated, navigate]);
 
   if (isLoading) {
     return (
@@ -449,8 +443,23 @@ export function CircleAuthGuard({ children }: { children: React.ReactNode }) {
     );
   }
 
-  if (!circleId && !isBypassAdmin) {
+  if (!isAuthenticated) {
     return null;
+  }
+
+  if (membershipAuthorityError) {
+    return <AuthorizationUnavailable onRetry={retryAuthorization} />;
+  }
+
+  if (!circleId) {
+    return (
+      <div role="status" className="mx-auto my-8 max-w-xl border-thick border-border bg-muted p-6 text-center font-mono">
+        <h2 className="text-lg font-black">サークルスペースが選択されていません</h2>
+        <p className="mt-2 text-sm text-muted-foreground">
+          ヘッダーのスペース切り替えから、操作するサークルを選択してください。
+        </p>
+      </div>
+    );
   }
 
   return <>{children}</>;
@@ -466,7 +475,7 @@ export function RoleGuard({
   allowedRoles: RoleType[];
   fallback?: React.ReactNode;
 }) {
-  const { role, isLoading, isEventAdmin } = useAuth();
+  const { role, isLoading, membershipAuthorityError, retryAuthorization } = useAuth();
 
   if (isLoading) {
     return (
@@ -476,13 +485,15 @@ export function RoleGuard({
     );
   }
 
-  // event_admin は全ロールガードを通過
-  if (isEventAdmin) {
-    return <>{children}</>;
-  }
-
-  if (!role || !allowedRoles.includes(role)) {
-    return <>{fallback}</>;
+  if (membershipAuthorityError || !role || !allowedRoles.includes(role)) {
+    if (fallback !== null) return <>{fallback}</>;
+    if (membershipAuthorityError) return <AuthorizationUnavailable onRetry={retryAuthorization} />;
+    return (
+      <section role="alert" className="mx-auto my-6 max-w-2xl border-thick border-border bg-muted p-5 font-mono">
+        <h2 className="text-lg font-black">アクセス権限がありません</h2>
+        <p className="mt-2 text-sm text-muted-foreground">選択中のスペースではこの機能を利用できません。</p>
+      </section>
+    );
   }
 
   return <>{children}</>;
@@ -491,7 +502,7 @@ export function RoleGuard({
 // システム最高管理者専用ガード (2026-07-04 SaaS権限分離)
 export function SystemAdminGuard({ children }: { children: React.ReactNode }) {
   const navigate = useNavigate();
-  const { role, isLoading, isAuthenticated } = useAuth();
+  const { role, isLoading, isAuthenticated, membershipAuthorityError, retryAuthorization } = useAuth();
 
   // 未認証のときだけ /login へ送る。認証済みでロールが合わない場合は下の
   // インラインの「権限がありません」を表示し、リダイレクトしない。権限スイッチの
@@ -510,6 +521,8 @@ export function SystemAdminGuard({ children }: { children: React.ReactNode }) {
     );
   }
 
+  if (membershipAuthorityError) return <AuthorizationUnavailable onRetry={retryAuthorization} />;
+
   if (!isAuthenticated || role !== "super_admin") {
     return (
       <div className="flex min-h-[400px] flex-col items-center justify-center gap-4 text-center p-4">
@@ -526,10 +539,10 @@ export function SystemAdminGuard({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
-// イベント管理者専用ガード (2026-07-04 SaaS権限分離)
+// イベント管理者ガード。super_admin は有効な impersonation 中だけ event_manager として通す (2026-09-27)。
 export function EventAdminGuard({ children }: { children: React.ReactNode }) {
   const navigate = useNavigate();
-  const { role, isLoading, isAuthenticated } = useAuth();
+  const { role, isLoading, isAuthenticated, membershipAuthorityError, retryAuthorization } = useAuth();
 
   // 未認証のときだけ /login へ送る (SystemAdminGuard と同じ理由)
   useEffect(() => {
@@ -546,7 +559,9 @@ export function EventAdminGuard({ children }: { children: React.ReactNode }) {
     );
   }
 
-  const isAllowed = role === "event_manager" || role === "super_admin";
+  if (membershipAuthorityError) return <AuthorizationUnavailable onRetry={retryAuthorization} />;
+
+  const isAllowed = role === ROLES.EVENT_MANAGER;
   if (!isAuthenticated || !isAllowed) {
     return (
       <div className="flex min-h-[400px] flex-col items-center justify-center gap-4 text-center p-4">
@@ -571,17 +586,28 @@ export function EventAdminGuard({ children }: { children: React.ReactNode }) {
 // 「所属していません」と誤表示していた。サーバの /my は元々クエリの userEmail を無視して
 // セッションの email で判定するため、セッション基準に揃えるのが正しい。
 export function useMySpaces() {
-  const { data: session } = authClient.useSession();
+  const queryClient = useQueryClient();
+  const { data: session, isPending: sessionPending, error: sessionError, refetch: retrySession } = authClient.useSession();
   const email = session?.user?.email ?? null;
 
-  return useQuery({
+  useEffect(() => {
+    const refreshMemberships = () => {
+      void queryClient.invalidateQueries({ queryKey: ["mySpaces"] }, { cancelRefetch: false });
+    };
+    window.addEventListener("membershipsChanged", refreshMemberships);
+    return () => window.removeEventListener("membershipsChanged", refreshMemberships);
+  }, [queryClient]);
+
+  const query = useQuery({
     queryKey: ["mySpaces", email],
     queryFn: async () => {
       if (!email) return [];
       return await membershipApi.listMy(email);
     },
     enabled: !!email,
+    refetchOnWindowFocus: true,
   });
+  return { ...query, sessionPending, sessionError: !!sessionError, retrySession };
 }
 
 // サインイン/サインアップ直後に所属(memberships)を解決し、アクティブスペースを

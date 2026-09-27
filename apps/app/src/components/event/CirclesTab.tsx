@@ -14,6 +14,7 @@ import { toast } from "sonner";
 import { CircleFormModal } from "./CircleFormModal";
 import { CircleManageModal } from "./CircleManageModal";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { getAuthInfo, saveAuthInfo } from "@/hooks/useCircleAuth";
 
 interface CirclesTabProps {
   eventId: string;
@@ -76,24 +77,15 @@ export function CirclesTab({
 
   // サークル管理画面へ切り替え
   const handleSwitchToCircle = (circle: any) => {
-    const authStored = localStorage.getItem("circleAuth");
-    if (authStored) {
-      try {
-        const authInfo = JSON.parse(authStored);
-        localStorage.setItem(
-          "circleAuth",
-          JSON.stringify({
-            ...authInfo,
-            circleId: circle.id,
-            circleName: circle.name,
-            role: "circle_manager",
-          })
-        );
-        localStorage.setItem("circleId", circle.id);
-        toast.success(`「${circle.name}」のダッシュボードに切り替えました`);
-        navigate("/circle/dashboard");
-      } catch (_) {}
-    }
+    const authInfo = getAuthInfo();
+    if (!authInfo || authInfo.role !== "event_manager" || authInfo.eventId !== eventId) return;
+    // イベント管理者のサークル切替でも、権限の正本はイベント所属に保つ。
+    // eventId と circleId の組み合わせでサーバーが同一イベント内か検証し、フロントも
+    // role を circle_manager に偽装しない (2026-09-27 ドメイン境界修正)。
+    saveAuthInfo({ ...authInfo, circleId: circle.id, circleName: circle.name, eventId });
+    void queryClient.invalidateQueries({ queryKey: ["circle", circle.id] });
+    toast.success(`「${circle.name}」のダッシュボードに切り替えました`);
+    navigate("/circle/dashboard");
   };
 
   const uniqueCircles = circles

@@ -21,7 +21,7 @@ import {
 import AccountModal from "./account-modal";
 import { PRODUCT_NAME } from "@fesflow/config";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { eventApi, notificationApi, accountApi, systemApi } from "@/lib/api";
+import { adminApi, notificationApi, accountApi, systemApi } from "@/lib/api";
 import {
   useAuth,
   clearAuthInfo,
@@ -31,6 +31,7 @@ import {
   getAuthInfo,
 } from "@/hooks/useCircleAuth";
 import { roleLabel, roleBadge } from "@/lib/roles";
+import { PERMISSION_NAMES } from "@fesflow/config";
 import { authClient } from "@/lib/auth-client";
 
 // 2026-07-07 単一ドメイン化: register の circle/event/sys はすべて同一オリジンの同一SPA。
@@ -71,7 +72,7 @@ export default function Header() {
   const navigate = useNavigate();
   const pathname = useLocation().pathname;
   const queryClient = useQueryClient();
-  const { role, userName, circleName, isLoading, isAuthenticated, isEventAdmin, userEmail } =
+  const { role, userName, circleName, isLoading, isAuthenticated, isEventAdmin, userEmail, permissions, membershipAuthorityError, retryAuthorization } =
     useAuth();
   const { data: spaces } = useMySpaces();
 
@@ -221,13 +222,6 @@ export default function Header() {
     refetchInterval: 5 * 60_000,
   });
 
-  // 全イベント取得 (super_admin用)
-  const { data: allEvents } = useQuery({
-    queryKey: ["allEvents"],
-    queryFn: () => eventApi.list(),
-    enabled: isAuthenticated && isAccountSuperAdmin,
-  });
-
   // 通知を既読にするミューテーション (2026-07-16)。
   // invite 型は承認/辞退の応答時に respond エンドポイント側で既読化されるため専用ボタンは出さない。
   // それ以外(announcement 等)は応答アクションが無いため、ここで明示的に既読化する導線が必要だった。
@@ -295,10 +289,11 @@ export default function Header() {
       eventId?: string | null;
     }> = [];
 
-    // 1. システム管理 (アカウントが super_admin の場合)
+    // 1. システム管理 (実在する super_admin 所属を選択可能なスペースとして使う)
     if (isAccountSuperAdmin) {
+      const membership = (spaces ?? []).find((m: any) => m.role === "super_admin");
       list.push({
-        id: "super_admin_system",
+        id: membership?.id ?? "",
         type: "system",
         name: "システム管理",
         role: "super_admin",
@@ -332,25 +327,10 @@ export default function Header() {
       }
     });
 
-    // 3. 全イベントを管理 (super_admin の場合の特別追加)
-    if (isAccountSuperAdmin && allEvents) {
-      allEvents.forEach((evt: any) => {
-        if (!list.some(x => x.type === "event" && x.eventId === evt.id)) {
-          list.push({
-            id: `super_event_${evt.id}`,
-            type: "event",
-            name: evt.eventName,
-            role: "event_manager",
-            eventId: evt.id,
-          });
-        }
-      });
-    }
-
     return list;
-  }, [spaces, allEvents, isAccountSuperAdmin]);
+  }, [spaces, isAccountSuperAdmin]);
 
-  const handleSwitchSpace = (space: any) => {
+  const handleSwitchSpace = async (space: any) => {
     const email = userEmail || "";
     const name = userName || null;
 
@@ -375,7 +355,7 @@ export default function Header() {
         role: space.role,
         membershipId: space.id,
         circleName: null,
-        isEventAdmin: true,
+        isEventAdmin: false,
       };
     } else if (space.type === "event") {
       target = "/event/dashboard";
@@ -409,6 +389,19 @@ export default function Header() {
     setActiveMenu(null);
 
     if (!payload) return;
+
+    // なりすまし中にスペースだけ切り替えると、サーバー側の代理権限が残ったままになる。
+    // 明示的なスペース選択を終了操作として扱い、停止成功後にのみ新しい所属へ移る (2026-09-27)。
+    const currentAuth = getAuthInfo();
+    if (currentAuth?.role === "super_admin" && currentAuth.isEventAdmin && currentAuth.eventId) {
+      try {
+        await adminApi.impersonateStop();
+        queryClient.invalidateQueries({ queryKey: ["impersonation-status"] });
+      } catch (error: any) {
+        toast.error(error?.message || "なりすましを終了できませんでした。現在のスペースに留まります。");
+        return;
+      }
+    }
 
     // 2026-07-16: 権限・メンバーシップ関連のキャッシュを無効化する。
     // useAuth 側の role/circleId は saveAuthInfo が dispatch する authChange イベントで
@@ -565,6 +558,32 @@ export default function Header() {
   // スペース切り替えパネルの中身 (デスクトップのホバーパネル / モバイル3本線の2段目で共用) (2026-07-16)
   const spacePanelBody = (
     <>
+      {membershipAuthorityError && (
+        <div role="alert" className="mb-3 border-thick border-border bg-muted p-3 text-[10px]">
+          <p>{membershipAuthorityError}</p>
+          <button className="mt-1 underline" onClick={retryAuthorization}>再試行</button>
+        </div>
+      )}
+      <div className="mb-3 border-b-thin border-border pb-3">
+        <div className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">現在の権限</div>
+        <div className="mt-1 text-xs font-bold">{currentSpaceName}</div>
+        <div className="text-[10px] text-muted-foreground">{role ? roleLabel(role) : "スペース未選択"}</div>
+        {permissions.length > 0 && (
+          <details className="mt-2">
+            <summary className="cursor-pointer text-[10px] font-bold underline underline-offset-2">
+              このスペースでできること ({permissions.length})
+            </summary>
+            <ul className="mt-2 grid grid-cols-1 gap-1 text-[10px] sm:grid-cols-2">
+              {permissions.map((permission: string) => (
+                <li key={permission} className="flex items-start gap-1.5">
+                  <span aria-hidden="true">✓</span>
+                  <span>{PERMISSION_NAMES[permission] ?? permission}</span>
+                </li>
+              ))}
+            </ul>
+          </details>
+        )}
+      </div>
       <div className="max-h-72 overflow-y-auto space-y-3">
         {availableSpaces.length > 0 ? (
           ([
