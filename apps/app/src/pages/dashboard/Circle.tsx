@@ -112,9 +112,10 @@ function CircleSettingsContent() {
     enabled: !!circleId,
   });
 
+  // 2026-09-27: Members画面と同じquery keyを使い、メンバー追加/権限更新後の候補一覧を共有キャッシュで同期する。
   // サークルメンバー (オーナー譲渡用)
   const { data: members } = useQuery({
-    queryKey: ["circleMembers", circleId],
+    queryKey: ["members", circleId],
     queryFn: () => membershipApi.listByCircle(circleId),
     enabled: !!circleId,
   });
@@ -203,7 +204,7 @@ function CircleSettingsContent() {
       circleApi.transferOwner(circleId, targetMembershipId),
     onSuccess: () => {
       toast.success("オーナー権限を譲渡しました");
-      queryClient.invalidateQueries({ queryKey: ["circleMembers", circleId] });
+      queryClient.invalidateQueries({ queryKey: ["members", circleId] });
       setPendingTransfer(null);
     },
     onError: (error: any) => {
@@ -237,9 +238,10 @@ function CircleSettingsContent() {
 
   const activeMembers = (members ?? []).filter((m: any) => m.isActive !== false);
   const currentOwner = activeMembers.find((m: any) => m.role === "circle_manager");
-  // 譲渡先候補: 現オーナー以外のアクティブメンバー
+  // 2026-09-27: transfer-owner APIは既存circle_managerを降格して指定先を昇格できるため、
+  // 追加済みの別オーナーも候補に含める。自分自身と停止中メンバーだけを除外する。
   const transferCandidates = activeMembers.filter(
-    (m: any) => m.role !== "circle_manager" && m.id !== membershipId
+    (m: any) => m.id !== membershipId
   );
 
   if (isLoading) {
