@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { CircleAuthGuard, useAuth } from "@/hooks/useCircleAuth";
+import { CircleAuthGuard, PermissionGuard, useAuth } from "@/hooks/useCircleAuth";
 import { menuApi, toppingApi, type Menu, type Topping } from "@/lib/api";
 import DashboardLayout from "@/components/DashboardLayout";
 import {
@@ -491,7 +491,9 @@ function StockManagementContent() {
 export default function StockManagementPage() {
   return (
     <CircleAuthGuard>
-      <StockManagementContent />
+      <PermissionGuard permission="stock:write" showDenied>
+        <StockManagementContent />
+      </PermissionGuard>
     </CircleAuthGuard>
   );
 }

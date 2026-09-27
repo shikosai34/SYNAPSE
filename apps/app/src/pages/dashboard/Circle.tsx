@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { CircleAuthGuard, getAuthInfo, saveAuthInfo, useAuth } from "@/hooks/useCircleAuth";
+import { CircleAuthGuard, PermissionGuard, getAuthInfo, saveAuthInfo, useAuth } from "@/hooks/useCircleAuth";
 import {
   circleApi,
   eventApi,
@@ -585,7 +585,9 @@ function ExtensionToggle({
 export default function CircleSettingsPage() {
   return (
     <CircleAuthGuard>
-      <CircleSettingsContent />
+      <PermissionGuard permission="circle:write" showDenied>
+        <CircleSettingsContent />
+      </PermissionGuard>
     </CircleAuthGuard>
   );
 }

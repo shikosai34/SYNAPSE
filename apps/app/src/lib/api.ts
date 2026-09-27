@@ -1,5 +1,6 @@
 import { apiErrorFromResponse, networkApiError } from "./api-error";
 import { readAuthContext } from "./auth-context";
+import type { RoleType } from "@fesflow/config";
 
 export function getApiBaseUrl(): string {
   let url = import.meta.env.VITE_API_URL || "https://localhost:8787";
@@ -65,7 +66,17 @@ async function fetchApi<T>(
     throw await apiErrorFromResponse(response);
   }
 
-  return await response.json();
+  const data = await response.json();
+  // メンバーの追加/変更/停止は選択可能な所属も変えるため、useMySpaces に即時再取得を通知する。
+  // 対象は成功した書き込みだけに絞り、招待受諾による新規所属も同じ経路で反映する (2026-09-27)。
+  if (
+    typeof window !== "undefined" &&
+    endpoint.startsWith("/api/memberships") &&
+    method !== "GET"
+  ) {
+    window.dispatchEvent(new Event("membershipsChanged"));
+  }
+  return data;
 }
 
 // Event API
@@ -809,20 +820,8 @@ export interface SalesStats {
 // 招待/メンバー追加でこれらを送ると 400 になっていた (実装が「間に合っていない」ように見えた原因)。
 // まずバックエンド正規ロールを先頭に加えて型と実挙動を一致させる。旧・イベント系ロールは
 // 参照箇所 (EventStaffFormModal 等) が残っているため当面は残置し、別途整理する。
-export type Role =
-  // --- バックエンド正規ロール ---
-  | "super_admin"
-  | "event_manager"
-  | "circle_manager"
-  | "circle_staff"
-  // --- 旧/イベント系 (段階的に廃止予定。lib と backend の乖離が残る箇所) ---
-  | "event_admin"
-  | "event_staff"
-  | "cashier"
-  | "kitchen_staff"
-  | "waiter"
-  | "stock_manager"
-  | "viewer";
+// API が受理する正規ロールを共有定義から参照し、未対応ロールを送信可能な型に残さない。
+export type Role = RoleType;
 
 export interface RoleInfo {
   role: Role;
