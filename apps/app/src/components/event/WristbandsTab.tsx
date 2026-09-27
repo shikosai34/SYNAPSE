@@ -38,6 +38,7 @@ export function WristbandsTab({ eventId }: WristbandsTabProps) {
   // 検索・表示関連の状態
   const [searchInput, setSearchInput] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
+  const [isVisitorTableOpen, setIsVisitorTableOpen] = useState(false);
 
   // モーダル開閉状態
   const [isScanModalOpen, setIsScanModalOpen] = useState(false);
@@ -284,6 +285,18 @@ export function WristbandsTab({ eventId }: WristbandsTabProps) {
         </div>
       </div>
 
+      <Card className="rounded-none bg-background shadow-none border-thick border-border">
+        <CardHeader className="p-4 flex flex-row items-center justify-between">
+          <div>
+            <CardTitle className="text-xs uppercase font-bold">[登録来場者一覧]</CardTitle>
+            <CardDescription className="text-[10px]">{visitors.length}件を表示中{searchQuery ? "（検索条件あり）" : ""}</CardDescription>
+          </div>
+          <Button onClick={() => setIsVisitorTableOpen(true)} variant="outline" className="border-thick border-border h-9 text-xs font-bold rounded-none">一覧を開く（{visitors.length}件）</Button>
+        </CardHeader>
+      </Card>
+
+      {/* 2026-09-27: 来場者の行が画面を押し下げないよう、検索と編集操作を表モーダルにまとめる。 */}
+      <Modal isOpen={isVisitorTableOpen} onClose={() => setIsVisitorTableOpen(false)} title="[登録来場者一覧]" subtitle={`${visitors.length}件`} maxWidth="xl">
       {/* 検索バー */}
       <Card className="rounded-none bg-background shadow-none border-thick border-border">
         <CardContent className="p-4">
@@ -341,7 +354,7 @@ export function WristbandsTab({ eventId }: WristbandsTabProps) {
           </Badge>
         </CardHeader>
         <CardContent className="p-0">
-          <div className="overflow-x-auto">
+          <div className="max-h-[55vh] overflow-auto">
             {isLoading ? (
               <div className="p-8 text-center text-xs text-muted-foreground flex items-center justify-center gap-2">
                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -352,7 +365,7 @@ export function WristbandsTab({ eventId }: WristbandsTabProps) {
                 該当する来場者が見つかりません。
               </div>
             ) : (
-              <table className="w-full text-xs text-left border-collapse">
+              <table className="w-full min-w-[880px] text-xs text-left border-collapse">
                 <thead>
                   <tr className="border-b-thin border-border bg-muted/10 font-bold font-mono">
                     <th className="p-3">呼出ID</th>
@@ -414,7 +427,11 @@ export function WristbandsTab({ eventId }: WristbandsTabProps) {
                           <Button
                             size="sm"
                             variant="outline"
-                            onClick={() => handleReportLost(res.wristband.id)}
+                            onClick={() => {
+                              // 2026-09-27: 確認操作の前に一覧モーダルを閉じ、Escape の対象を一つに保つ。
+                              setIsVisitorTableOpen(false);
+                              handleReportLost(res.wristband.id);
+                            }}
                             className="h-7 text-[10px] rounded-none border-thick border-border bg-background hover:bg-destructive hover:text-white"
                           >
                             ロック
@@ -424,6 +441,8 @@ export function WristbandsTab({ eventId }: WristbandsTabProps) {
                           size="sm"
                           variant="outline"
                           onClick={() => {
+                            // 2026-09-27: 詳細編集モーダルと一覧モーダルを重ねない。
+                            setIsVisitorTableOpen(false);
                             setSelectedUser(res);
                             setIsDetailsModalOpen(true);
                           }}
@@ -440,6 +459,7 @@ export function WristbandsTab({ eventId }: WristbandsTabProps) {
           </div>
         </CardContent>
       </Card>
+      </Modal>
 
       {/* セルフ登録用QRの出力エリア */}
       <Card className="rounded-none bg-background shadow-none border-thick border-border">

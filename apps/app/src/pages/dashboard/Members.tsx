@@ -20,6 +20,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Modal } from "@/components/ui/Modal";
 import {
@@ -40,6 +41,7 @@ import {
   Users,
   Ban,
   RotateCcw,
+  Search,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -53,6 +55,8 @@ function MembersContent() {
   const [showAddForm, setShowAddForm] = useState(false);
   const [showInviteForm, setShowInviteForm] = useState(false);
   const [copiedToken, setCopiedToken] = useState<string | null>(null);
+  const [isMembersTableOpen, setIsMembersTableOpen] = useState(false);
+  const [memberSearch, setMemberSearch] = useState("");
 
   // 削除確認ダイアログ用ステート (メンバー除名 / 招待リンク削除)
 
@@ -89,6 +93,9 @@ function MembersContent() {
     queryFn: () => membershipApi.listByCircle(circleId!),
     enabled: !!circleId,
   });
+  const filteredMembers = (members ?? []).filter((member) =>
+    `${member.userName} ${member.userEmail}`.toLocaleLowerCase().includes(memberSearch.trim().toLocaleLowerCase())
+  );
 
   const {
     data: inviteTokens,
@@ -523,39 +530,53 @@ function MembersContent() {
         </CardContent>
       </Card>
 
-      {/* メンバー一覧 */}
+      {/* 2026-09-27: メンバーが増えても他の管理情報へスクロールし続けず、表を独立して開けるようにする。 */}
       <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Users className="h-5 w-5" />
-            メンバー一覧
-          </CardTitle>
-          <CardDescription>
-            {members?.length || 0}人のメンバーが登録されています
-          </CardDescription>
+        <CardHeader className="flex flex-row items-center justify-between">
+          <div>
+            <CardTitle className="flex items-center gap-2">
+              <Users className="h-5 w-5" />
+              メンバー一覧
+            </CardTitle>
+            <CardDescription>
+              {members?.length || 0}人のメンバーが登録されています
+            </CardDescription>
+          </div>
+          {members && members.length > 0 && (
+            <Button variant="outline" onClick={() => setIsMembersTableOpen(true)} className="border-thick border-border">
+              一覧を開く
+            </Button>
+          )}
         </CardHeader>
-        <CardContent>
+        <CardContent className="p-0">
           {membersError ? (
             <ErrorState error={membersErrorObj} onRetry={() => refetchMembers()} />
           ) : members && members.length > 0 ? (
-            <div className="space-y-3">
-              {members.map((member) => (
-                <div
-                  key={member.id}
-                  className="flex items-center justify-between p-4 border-thick border-border"
-                >
-                  <div className="flex items-center gap-4">
-                    <div className="h-10 w-10 border-thick border-border bg-secondary flex items-center justify-center">
-                      <Shield className="h-5 w-5 text-muted-foreground" />
-                    </div>
-                    <div>
-                      <p className="font-medium">{member.userName}</p>
-                      <p className="text-sm text-muted-foreground">
-                        {member.userEmail}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-3">
+            <p className="p-4 text-xs text-muted-foreground">{members.length}人が登録されています。表で権限変更・停止・除名を行えます。</p>
+          ) : (
+            <EmptyState
+              icon={Users}
+              message="まだメンバーがいません"
+            />
+          )}
+        </CardContent>
+      </Card>
+
+      {/* 2026-09-27: 一覧操作をモーダル内にまとめ、管理ページの高さをメンバー数に左右されないようにする。 */}
+      <Modal isOpen={isMembersTableOpen} onClose={() => setIsMembersTableOpen(false)} title="[メンバー一覧]" subtitle={`${members?.length ?? 0}人`} maxWidth="xl">
+        <div className="relative">
+          <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+          <Input aria-label="メンバーを検索" value={memberSearch} onChange={(e) => setMemberSearch(e.target.value)} placeholder="名前・メールアドレスで検索" className="pl-9 border-thick border-border" />
+        </div>
+        <div className="max-h-[55vh] overflow-auto border-thick border-border">
+          <table className="w-full min-w-[720px] text-xs text-left font-mono">
+            <thead className="sticky top-0 bg-background"><tr className="border-b-thick border-border"><th className="p-3">名前</th><th className="p-3">メールアドレス</th><th className="p-3">ロール</th><th className="p-3">状態</th><th className="p-3 text-right">操作</th></tr></thead>
+            <tbody>
+              {filteredMembers.map((member) => (
+                <tr key={member.id} className="border-b-thin border-border">
+                  <td className="p-3 font-bold">{member.userName}</td>
+                  <td className="p-3">{member.userEmail}</td>
+                  <td className="p-3">
                     {/* ロール変更 (2026-07-15)。サークルロールのメンバーはインラインで昇格/降格できる。
                         イベント/システムロールは読み取り専用バッジのまま。最後の管理者は降格不可。 */}
                     <PermissionGuard
@@ -588,15 +609,16 @@ function MembersContent() {
                         </Badge>
                       )}
                     </PermissionGuard>
-                    {!member.isActive && (
-                      <Badge variant="warning">停止中</Badge>
-                    )}
+                  </td>
+                  <td className="p-3">{member.isActive ? <Badge variant="active">有効</Badge> : <Badge variant="warning">停止中</Badge>}</td>
+                  <td className="p-3 text-right">
                     {/* アカウント停止/復帰 (2026-07-15)。停止すると権限が即無効化される。
                         最後のアクティブ管理者は停止不可 (ロックアウト防止)。 */}
                     <PermissionGuard permission="member:write">
                       <Button
                         size="sm"
                         variant="ghost"
+                        aria-label={`${member.userName}を${member.isActive ? "停止" : "復帰"}`}
                         disabled={setActiveMutation.isPending || (member.isActive && isLastManager(member))}
                         title={
                           member.isActive
@@ -618,6 +640,7 @@ function MembersContent() {
                       <Button
                         size="sm"
                         variant="ghost"
+                        aria-label={`${member.userName}を除名`}
                         disabled={isLastManager(member)}
                         title={isLastManager(member) ? "最後の管理者は除名できません" : undefined}
                         onClick={() => handleRemoveMember(member)}
@@ -625,18 +648,14 @@ function MembersContent() {
                         <Trash2 className="h-4 w-4 text-destructive" />
                       </Button>
                     </PermissionGuard>
-                  </div>
-                </div>
+                  </td>
+                </tr>
               ))}
-            </div>
-          ) : (
-            <EmptyState
-              icon={Users}
-              message="まだメンバーがいません"
-            />
-          )}
-        </CardContent>
-      </Card>
+              {filteredMembers.length === 0 && <tr><td colSpan={5} className="p-6 text-center text-muted-foreground">該当するメンバーがいません</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      </Modal>
 
       {/* ロール説明 */}
       <Card>
