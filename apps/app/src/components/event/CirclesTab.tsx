@@ -95,23 +95,23 @@ export function CirclesTab({
 
   return (
     <div className="space-y-6 font-mono text-foreground">
-      <div className="flex justify-between items-center border-b-thick border-border pb-3">
+      <div className="flex flex-col items-start gap-3 border-b-thick border-border pb-3 sm:flex-row sm:items-center sm:justify-between">
         <h2 className="text-sm font-bold uppercase tracking-wider flex items-center gap-2">
           <Building2 className="h-4 w-4" />
           サークル一覧 ({uniqueCircles?.length || 0})
         </h2>
-        <div className="flex flex-wrap justify-end gap-2">
+        <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
           <Button
             onClick={() => setIsCreateLinkOpen(true)}
             variant="outline"
-            className="rounded-none border-thick h-8 text-[11px] uppercase font-bold transition-all shadow-none px-3"
+            className="w-full rounded-none border-thick h-8 text-[11px] uppercase font-bold transition-all shadow-none px-3 sm:w-auto"
           >
             <Link2 className="mr-1.5 h-3.5 w-3.5" />
             サークル作成リンクを作成
           </Button>
           <Button
             onClick={handleOpenAdd}
-            className="rounded-none border-thick border-primary bg-primary text-primary-foreground hover:bg-background hover:text-foreground h-8 text-[11px] uppercase font-bold transition-all shadow-none px-3"
+            className="w-full rounded-none border-thick border-primary bg-primary text-primary-foreground hover:bg-background hover:text-foreground h-8 text-[11px] uppercase font-bold transition-all shadow-none px-3 sm:w-auto"
           >
             <Plus className="mr-1.5 h-3.5 w-3.5" />
             新規追加
