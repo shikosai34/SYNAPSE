@@ -21,7 +21,8 @@ import {
   XCircle,
   HelpCircle,
   Copy,
-  ChevronRight
+  ChevronRight,
+  Edit
 } from "lucide-react";
 import { toast } from "sonner";
 import { QrScannerModal } from "@/components/pos/qr-scanner-modal";
@@ -228,6 +229,13 @@ export function WristbandsTab({ eventId }: WristbandsTabProps) {
     setSelectedUser(null);
   };
 
+  // 2026-10-01: 登録来場者一覧の先頭列からプロフィール編集を開けるようにする。
+  const handleOpenVisitorDetails = (visitor: any) => {
+    setIsVisitorTableOpen(false);
+    setSelectedUser(visitor);
+    setIsDetailsModalOpen(true);
+  };
+
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setSearchQuery(searchInput.trim());
@@ -379,13 +387,27 @@ export function WristbandsTab({ eventId }: WristbandsTabProps) {
                     <th className="p-3">アカウント状態</th>
                     <th className="p-3">紐付くバンドID</th>
                     <th className="p-3">バンド状態</th>
-                    <th className="p-3 text-right">操作</th>
+                    <th className="p-3 text-right">バンド操作</th>
                   </tr>
                 </thead>
                 <tbody>
                   {visitors.map((res: any) => (
                     <tr key={res.user.id} className="border-b-thin border-border hover:bg-muted/5 font-mono">
-                      <td className="p-3 font-bold">#{res.user.displayId}</td>
+                      <td className="p-3 font-bold">
+                        <div className="flex items-center gap-2">
+                          <span>#{res.user.displayId}</span>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handleOpenVisitorDetails(res)}
+                            aria-label={`来場者 #${res.user.displayId}を編集`}
+                            className="h-7 rounded-none border-thick border-border px-2 text-[10px]"
+                          >
+                            <Edit className="mr-1 h-3 w-3" />
+                            編集
+                          </Button>
+                        </div>
+                      </td>
                       <td className="p-3">{res.user.nickname || <span className="text-muted-foreground text-[10px]">未登録</span>}</td>
                       <td className="p-3">{res.user.favoriteDate || <span className="text-muted-foreground text-[10px]">未登録</span>}</td>
                       <td className="p-3">
@@ -442,19 +464,6 @@ export function WristbandsTab({ eventId }: WristbandsTabProps) {
                             ロック
                           </Button>
                         )}
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => {
-                            // 2026-09-27: 詳細編集モーダルと一覧モーダルを重ねない。
-                            setIsVisitorTableOpen(false);
-                            setSelectedUser(res);
-                            setIsDetailsModalOpen(true);
-                          }}
-                          className="h-7 text-[10px] rounded-none border-thick border-border bg-background hover:bg-primary hover:text-primary-foreground"
-                        >
-                          詳細・編集
-                        </Button>
                       </td>
                     </tr>
                   ))}
