@@ -95,8 +95,10 @@ export default function InvitePage() {
               <UserPlus className="h-6 w-6 text-primary" />
             </div>
             <CardTitle>スペースへの招待</CardTitle>
+            {/* 2026-10-01: 未登録者にアカウント作成後も招待へ戻れる流れを明示する。 */}
             <CardDescription>
-              招待を受け取るには、まずログイン（またはアカウント作成）してください。
+              招待を受け取るには、まずログインしてください。アカウントがない方は、Googleログインで作成できます。
+              ログイン後、この招待に戻ってサークル作成を続けられます。
             </CardDescription>
           </CardHeader>
           <CardContent>

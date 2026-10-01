@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { circleApi } from "@/lib/api";
@@ -24,7 +24,6 @@ interface CirclesTabProps {
   circlesError?: boolean;
   error?: unknown;
   onRetry?: () => void;
-  openCreate?: boolean;
 }
 
 export function CirclesTab({
@@ -34,7 +33,6 @@ export function CirclesTab({
   circlesError,
   error,
   onRetry,
-  openCreate = false,
 }: CirclesTabProps) {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
@@ -48,13 +46,6 @@ export function CirclesTab({
 
   // サークル運営管理 (拡張機能ON/OFF + メンバーのロール)
   const [manageCircle, setManageCircle] = useState<any | null>(null);
-
-  // 2026-10-01: 共有された作成リンクから、新規登録フォームを直接表示する。
-  useEffect(() => {
-    if (!openCreate) return;
-    setSelectedCircle(null);
-    setIsFormOpen(true);
-  }, [openCreate]);
 
   // サークル削除 API
   const deleteCircleMutation = useMutation({
