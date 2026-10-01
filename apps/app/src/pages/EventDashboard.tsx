@@ -1,8 +1,7 @@
 import { useState, useEffect } from "react";
-import { useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { eventApi, circleApi, orderApi, membershipApi } from "@/lib/api";
-import { EventAdminGuard, saveAuthInfo, useAuth, useMySpaces } from "@/hooks/useCircleAuth";
+import { EventAdminGuard, useAuth } from "@/hooks/useCircleAuth";
 import DashboardLayout from "@/components/DashboardLayout";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -27,35 +26,9 @@ import { ExportTab } from "@/components/event/ExportTab";
 import { EventReviewsTab } from "@/pages/dashboard/Reviews";
 
 export default function EventDashboard() {
-  const auth = useAuth();
-  const { data: mySpaces } = useMySpaces();
-  const [searchParams] = useSearchParams();
-  const requestedEventId = searchParams.get("eventId");
-  const shouldCreateCircle = searchParams.get("action") === "create-circle";
-  const { eventId } = auth;
+  const { eventId } = useAuth();
   const [activeTab, setActiveTab] = useState<string>("circles");
   const [eventName, setEventName] = useState<string>("イベントダッシュボード");
-
-  // 2026-10-01: イベントID付き作成リンクは、ログイン中ユーザーの所属から対象イベントを選ぶ。
-  // URLのIDだけで権限を付与しないよう、本人のイベント所属が見つかった場合だけ切り替える。
-  useEffect(() => {
-    if (!requestedEventId || requestedEventId === eventId || !mySpaces) return;
-    const space = mySpaces.find(
-      (item: any) => item.type === "event" && item.eventId === requestedEventId,
-    );
-    if (!space || (space.role !== "event_manager" && space.role !== "super_admin")) return;
-
-    saveAuthInfo({
-      circleId: null,
-      eventId: space.eventId,
-      userEmail: auth.userEmail ?? null,
-      userName: auth.userName ?? null,
-      role: space.role,
-      membershipId: space.id,
-      circleName: null,
-      isEventAdmin: true,
-    });
-  }, [auth.userEmail, auth.userName, eventId, mySpaces, requestedEventId]);
 
   // イベント情報取得
   const { data: eventData } = useQuery({
@@ -195,7 +168,6 @@ export default function EventDashboard() {
               circlesError={circlesError}
               error={circlesErrorObj}
               onRetry={() => refetchCircles()}
-              openCreate={shouldCreateCircle && eventId === requestedEventId}
             />
           )}
 
