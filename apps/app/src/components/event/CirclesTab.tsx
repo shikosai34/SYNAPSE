@@ -7,11 +7,12 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { ErrorState } from "@/components/ui/ErrorState";
-import { Building2, Plus, Edit, Trash2, Users, Settings2 } from "lucide-react";
+import { Building2, Plus, Edit, Trash2, Users, Settings2, Link2 } from "lucide-react";
 import { toast } from "sonner";
 
 // モーダル
 import { CircleFormModal } from "./CircleFormModal";
+import { CircleCreateLinkModal } from "./CircleCreateLinkModal";
 import { CircleManageModal } from "./CircleManageModal";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { getAuthInfo, saveAuthInfo, useAuth } from "@/hooks/useCircleAuth";
@@ -40,6 +41,7 @@ export function CirclesTab({
 
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [selectedCircle, setSelectedCircle] = useState<any | null>(null);
+  const [isCreateLinkOpen, setIsCreateLinkOpen] = useState(false);
 
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const [circleToDelete, setCircleToDelete] = useState<any | null>(null);
@@ -98,13 +100,23 @@ export function CirclesTab({
           <Building2 className="h-4 w-4" />
           サークル一覧 ({uniqueCircles?.length || 0})
         </h2>
-        <Button
-          onClick={handleOpenAdd}
-          className="rounded-none border-thick border-primary bg-primary text-primary-foreground hover:bg-background hover:text-foreground h-8 text-[11px] uppercase font-bold transition-all shadow-none px-3"
-        >
-          <Plus className="mr-1.5 h-3.5 w-3.5" />
-          新規追加
-        </Button>
+        <div className="flex flex-wrap justify-end gap-2">
+          <Button
+            onClick={() => setIsCreateLinkOpen(true)}
+            variant="outline"
+            className="rounded-none border-thick h-8 text-[11px] uppercase font-bold transition-all shadow-none px-3"
+          >
+            <Link2 className="mr-1.5 h-3.5 w-3.5" />
+            サークル作成リンクを作成
+          </Button>
+          <Button
+            onClick={handleOpenAdd}
+            className="rounded-none border-thick border-primary bg-primary text-primary-foreground hover:bg-background hover:text-foreground h-8 text-[11px] uppercase font-bold transition-all shadow-none px-3"
+          >
+            <Plus className="mr-1.5 h-3.5 w-3.5" />
+            新規追加
+          </Button>
+        </div>
       </div>
 
       {circlesLoading ? (
@@ -192,6 +204,12 @@ export function CirclesTab({
         isOpen={isFormOpen}
         onClose={() => setIsFormOpen(false)}
         circle={selectedCircle}
+      />
+
+      <CircleCreateLinkModal
+        eventId={eventId}
+        isOpen={isCreateLinkOpen}
+        onClose={() => setIsCreateLinkOpen(false)}
       />
 
       {/* サークル運営管理モーダル (拡張機能ON/OFF + ロール調整) */}
