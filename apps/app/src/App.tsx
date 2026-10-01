@@ -40,7 +40,7 @@ const pageImports = {
 	DashboardCoupons: () => import("@/pages/dashboard/Coupons"),
 	DashboardReviews: () => import("@/pages/dashboard/Reviews"),
 	StaffOnboarding: () => import("@/pages/StaffOnboarding"),
-	Placeholder: () => import("@/pages/Placeholder"),
+	NotFound: () => import("@/pages/NotFound"),
 
 	// 来場者用画面 (基本プリロード不要)
 	Branding: () => import("@/pages/Branding"),
@@ -76,7 +76,7 @@ const DashboardAnalytics = lazy(pageImports.DashboardAnalytics);
 const DashboardExport = lazy(pageImports.DashboardExport);
 const DashboardCoupons = lazy(pageImports.DashboardCoupons);
 const DashboardReviews = lazy(pageImports.DashboardReviews);
-const Placeholder = lazy(pageImports.Placeholder);
+const NotFound = lazy(pageImports.NotFound);
 
 const Branding = lazy(pageImports.Branding);
 const VisitorHome = lazy(pageImports.VisitorHome);
@@ -98,7 +98,7 @@ export function preloadStaffPages() {
 		"Home", "Login", "Register", "Backyard", "Checkin", "Invite", "Admin", 
 		"EventDashboard", "DashboardIndex", "DashboardCircle", "DashboardMembers", 
 		"DashboardMenu", "DashboardQr", "DashboardSales", "DashboardStaff",
-		"DashboardStock", "DashboardAnalytics", "DashboardExport", "DashboardCoupons", "StaffOnboarding", "Placeholder"
+		"DashboardStock", "DashboardAnalytics", "DashboardExport", "DashboardCoupons", "StaffOnboarding"
 	];
 	
 	staffKeys.forEach((key) => {
@@ -366,8 +366,10 @@ export default function App() {
 						}
 					/>
 
-					<Route path="*" element={<Placeholder />} />
 				</Route>
+
+				{/* 2026-10-01: 未対応画面用の案内を404と誤認させないよう、未定義URLは専用ページへ送る。 */}
+				<Route path="*" element={<NotFound />} />
 			</Routes>
 			</Suspense>
 		</Providers>
