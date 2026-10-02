@@ -22,7 +22,8 @@ import {
   HelpCircle,
   Copy,
   ChevronRight,
-  Edit
+  Edit,
+  FileUp
 } from "lucide-react";
 import { toast } from "sonner";
 import { QrScannerModal } from "@/components/pos/qr-scanner-modal";
@@ -45,6 +46,7 @@ export function WristbandsTab({ eventId }: WristbandsTabProps) {
   // モーダル開閉状態
   const [isScanModalOpen, setIsScanModalOpen] = useState(false);
   const [isIssueModalOpen, setIsIssueModalOpen] = useState(false);
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [isDetailsModalOpen, setIsDetailsModalOpen] = useState(false);
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [scannerTarget, setScannerTarget] = useState<"search" | "reissue" | "lookup">("lookup");
@@ -187,6 +189,33 @@ export function WristbandsTab({ eventId }: WristbandsTabProps) {
     },
   });
 
+  const importUrlsMutation = useMutation({
+    mutationFn: (urls: string[]) => wristbandApi.importUrls(eventId, urls),
+    onSuccess: (data) => {
+      toast.success(`${data.imported}件のリストバンドURLを登録しました`);
+      setIsImportModalOpen(false);
+      queryClient.invalidateQueries({ queryKey: ["eventVisitors"] });
+    },
+    onError: (err: any) => toast.error(err.message || "CSVの取り込みに失敗しました"),
+  });
+
+  const handleImportCsv = async (file: File) => {
+    const text = (await file.text()).replace(/^\uFEFF/, "");
+    const urls = text
+      .split(/\r?\n/)
+      .map((line) => line.trim().replace(/^"|"$/g, ""))
+      .filter((line) => line && line.toLowerCase() !== "url");
+    if (urls.length === 0) {
+      toast.error("URLが見つかりません");
+      return;
+    }
+    if (urls.length > 5000) {
+      toast.error("一度に取り込めるURLは5000件までです");
+      return;
+    }
+    importUrlsMutation.mutate(urls);
+  };
+
   // 紛失ロックの簡易実行
   const handleReportLost = (wbId: string) => {
     if (!window.confirm("このリストバンドを紛失としてロックしますか？")) return;
@@ -285,6 +314,14 @@ export function WristbandsTab({ eventId }: WristbandsTabProps) {
             コード照会 / QRスキャン
           </Button>
           <Button
+            onClick={() => setIsImportModalOpen(true)}
+            variant="outline"
+            className="w-full sm:w-auto border-thick border-border h-9 text-xs font-bold rounded-none shadow-none px-3"
+          >
+            <FileUp className="h-4 w-4 mr-1.5" />
+            URL CSV取り込み
+          </Button>
+          <Button
             onClick={() => {
               setIssuedUser(null);
               setIsIssueModalOpen(true);
@@ -296,6 +333,43 @@ export function WristbandsTab({ eventId }: WristbandsTabProps) {
           </Button>
         </div>
       </div>
+
+      <Modal
+        isOpen={isImportModalOpen}
+        title="[リストバンドURL CSV取り込み]"
+        subtitle="印刷用URL CSVを取り込むと、このイベントの来場者とリストバンドを一括登録します。"
+        onClose={() => !importUrlsMutation.isPending && setIsImportModalOpen(false)}
+        maxWidth="md"
+      >
+        <div className="space-y-4">
+          <div className="border-thin border-border bg-muted/20 p-3 text-[11px] leading-relaxed">
+            <p className="font-bold">対応形式</p>
+            <p>1列目がURLのCSV（ヘッダー「url」は任意）</p>
+            <p>例: https://fesflow.shikosai.net/w/34-0001</p>
+            <p className="text-muted-foreground">重複URL、登録済みID、5000件超過は取り込みません。</p>
+          </div>
+          <label className="flex cursor-pointer items-center justify-center gap-2 border-thick border-dashed border-border p-6 text-xs font-bold hover:bg-muted/30">
+            <FileUp className="h-5 w-5" />
+            CSVファイルを選択
+            <input
+              type="file"
+              accept=".csv,text/csv"
+              className="sr-only"
+              disabled={importUrlsMutation.isPending}
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                if (file) void handleImportCsv(file);
+                event.target.value = "";
+              }}
+            />
+          </label>
+          {importUrlsMutation.isPending && (
+            <p className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" /> 登録中...
+            </p>
+          )}
+        </div>
+      </Modal>
 
       <Card className="rounded-none bg-background shadow-none border-thick border-border">
         <CardHeader className="p-4 flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
