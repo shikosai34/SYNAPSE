@@ -11,7 +11,6 @@ import {
   RefreshCw,
   Users,
   Camera,
-  QrCode,
   Plus,
   Smartphone,
   Loader2,
@@ -35,12 +34,24 @@ interface WristbandsTabProps {
   eventId: string;
 }
 
+type VisitorFilters = {
+  bandType: "all" | "physical" | "smartphone" | "unlinked";
+  accountStatus: "all" | "available" | "banned";
+  profileStatus: "all" | "complete" | "pending";
+};
+
 export function WristbandsTab({ eventId }: WristbandsTabProps) {
   const queryClient = useQueryClient();
 
   // 検索・表示関連の状態
   const [searchInput, setSearchInput] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
+  // 2026-10-02: 5000件規模の来場者でも状態別に探せるよう、一覧APIに絞り込み条件を渡す。
+  const [filters, setFilters] = useState<VisitorFilters>({
+    bandType: "all",
+    accountStatus: "all",
+    profileStatus: "all",
+  });
   const [isVisitorTableOpen, setIsVisitorTableOpen] = useState(false);
 
   // モーダル開閉状態
@@ -67,8 +78,8 @@ export function WristbandsTab({ eventId }: WristbandsTabProps) {
 
   // 来場者一覧・検索クエリ (React Query を使って自動フェッチ&キャッシュ)
   const { data: visitors = [], isLoading, refetch } = useQuery({
-    queryKey: ["eventVisitors", eventId, searchQuery],
-    queryFn: () => wristbandApi.search(eventId, searchQuery),
+    queryKey: ["eventVisitors", eventId, searchQuery, filters],
+    queryFn: () => wristbandApi.search(eventId, searchQuery, filters),
   });
 
   // 詳細編集モーダルのデータ同期
@@ -209,10 +220,6 @@ export function WristbandsTab({ eventId }: WristbandsTabProps) {
       toast.error("URLが見つかりません");
       return;
     }
-    if (urls.length > 5000) {
-      toast.error("一度に取り込めるURLは5000件までです");
-      return;
-    }
     importUrlsMutation.mutate(urls);
   };
 
@@ -275,6 +282,10 @@ export function WristbandsTab({ eventId }: WristbandsTabProps) {
     setSearchQuery("");
   };
 
+  const handleResetFilters = () => {
+    setFilters({ bandType: "all", accountStatus: "all", profileStatus: "all" });
+  };
+
   const getVisitorLink = (userId: string) => {
     const visitorBase = import.meta.env.VITE_VISITOR_URL || window.location.origin.replace("3000", "3001");
     return `${visitorBase}/w/${userId}`;
@@ -300,8 +311,7 @@ export function WristbandsTab({ eventId }: WristbandsTabProps) {
             来場者アカウント情報の変更、紛失リストバンドのロック・再発行、スマホデジタルIDの発行などを一括管理します。
           </p>
         </div>
-        {/* 2026-09-27: タブレット幅でも見出しと操作列を分け、ボタンも利用可能幅で折り返す。 */}
-        <div className="flex w-full max-w-full flex-col gap-2 sm:flex-row sm:flex-wrap lg:w-auto lg:flex-nowrap lg:shrink-0">
+        <div className="flex w-full max-w-full flex-col gap-2 sm:w-auto sm:flex-row">
           <Button
             onClick={() => {
               setLookupCode("");
@@ -313,26 +323,86 @@ export function WristbandsTab({ eventId }: WristbandsTabProps) {
             <Camera className="h-4 w-4 mr-1.5" />
             コード照会 / QRスキャン
           </Button>
-          <Button
-            onClick={() => setIsImportModalOpen(true)}
-            variant="outline"
-            className="w-full sm:w-auto border-thick border-border h-9 text-xs font-bold rounded-none shadow-none px-3"
-          >
-            <FileUp className="h-4 w-4 mr-1.5" />
-            URL CSV取り込み
-          </Button>
-          <Button
-            onClick={() => {
-              setIssuedUser(null);
-              setIsIssueModalOpen(true);
-            }}
-            className="w-full sm:w-auto border-thick border-primary bg-primary text-primary-foreground hover:bg-background hover:text-foreground h-9 text-xs font-bold rounded-none shadow-none px-3"
-          >
-            <Plus className="h-4 w-4 mr-1" />
-            スマホ年来場者発行
-          </Button>
         </div>
       </div>
+
+      {/* 2026-10-02: 発行方法を先に二つの独立した領域で示し、スマホ発行と物理バンド取込を迷わず選べるようにする。 */}
+      <section aria-labelledby="wristband-provisioning-title" className="space-y-3">
+        <h3 id="wristband-provisioning-title" className="text-xs font-bold uppercase tracking-wider">
+          来場者の登録方法を選択
+        </h3>
+        <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+          <Card className="rounded-none bg-background shadow-none border-thick border-border">
+            <CardHeader className="p-4 border-b-thin border-border bg-info/5">
+              <CardTitle className="flex items-center gap-2 text-xs font-bold uppercase">
+                <Smartphone className="h-4 w-4" />
+                [スマホで登録]
+              </CardTitle>
+              <CardDescription className="text-[10px]">
+                物理バンドを使わず、スマートフォンでQRを読み取って来場者登録します。
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4 p-4">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <p className="text-[10px] leading-relaxed text-muted-foreground">
+                  受付にQRを掲示するか、スタッフが個別に来場者アカウントを発行できます。
+                </p>
+                <Button
+                  onClick={() => {
+                    setIssuedUser(null);
+                    setIsIssueModalOpen(true);
+                  }}
+                  className="w-full shrink-0 border-thick border-primary bg-primary px-3 text-xs font-bold text-primary-foreground hover:bg-background hover:text-foreground sm:w-auto"
+                >
+                  <Plus className="mr-1 h-4 w-4" />
+                  個別に発行
+                </Button>
+              </div>
+              <div className="border-t-thin border-border pt-4">
+                <div className="flex flex-col items-center gap-4 md:flex-row">
+                  <div className="shrink-0 border-thick border-border bg-white p-3">
+                    <QRCodeSVG value={selfIssueUrl} size={128} level="M" />
+                  </div>
+                  <div className="min-w-0 space-y-2 text-xs">
+                    <p className="font-bold underline">受付用セルフ登録QR</p>
+                    <p className="break-all border border-border bg-muted p-2 select-all">{selfIssueUrl}</p>
+                    <p className="text-[10px] leading-relaxed text-muted-foreground">
+                      来場者が読み取るとスマホ用IDが発行され、プロフィール登録へ進みます。
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="rounded-none bg-background shadow-none border-thick border-border">
+            <CardHeader className="p-4 border-b-thin border-border bg-success/5">
+              <CardTitle className="flex items-center gap-2 text-xs font-bold uppercase">
+                <IdCard className="h-4 w-4" />
+                [物理リストバンドで登録]
+              </CardTitle>
+              <CardDescription className="text-[10px]">
+                印刷したバンドのURLを先に取り込み、来場者がバンドのQRを読み取って登録します。
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="flex flex-1 flex-col gap-4 p-4">
+              <div className="space-y-2 text-[10px] leading-relaxed text-muted-foreground">
+                <p>1. 印刷用CSVを取り込み、URLと来場者枠を登録します。</p>
+                <p>2. 印刷したリストバンドを来場者へ渡します。</p>
+                <p>3. バンドのQR読み取り後、初回プロフィール登録へ進みます。</p>
+              </div>
+              <Button
+                onClick={() => setIsImportModalOpen(true)}
+                variant="outline"
+                className="w-full self-start border-thick border-border text-xs font-bold sm:w-auto"
+              >
+                <FileUp className="mr-1.5 h-4 w-4" />
+                リストバンドURL CSVを取り込む
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+      </section>
 
       <Modal
         isOpen={isImportModalOpen}
@@ -346,7 +416,7 @@ export function WristbandsTab({ eventId }: WristbandsTabProps) {
             <p className="font-bold">対応形式</p>
             <p>1列目がURLのCSV（ヘッダー「url」は任意）</p>
             <p>例: https://fesflow.shikosai.net/w/34-0001</p>
-            <p className="text-muted-foreground">重複URL、登録済みID、5000件超過は取り込みません。</p>
+            <p className="text-muted-foreground">CSV内の重複URLと登録済みIDは取り込みません。</p>
           </div>
           <label className="flex cursor-pointer items-center justify-center gap-2 border-thick border-dashed border-border p-6 text-xs font-bold hover:bg-muted/30">
             <FileUp className="h-5 w-5" />
@@ -427,13 +497,74 @@ export function WristbandsTab({ eventId }: WristbandsTabProps) {
         </CardContent>
       </Card>
 
+      <Card className="rounded-none bg-background shadow-none border-thick border-border">
+        <CardContent className="space-y-3 p-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-xs font-bold uppercase">一覧を絞り込む</p>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={handleResetFilters}
+              disabled={filters.bandType === "all" && filters.accountStatus === "all" && filters.profileStatus === "all"}
+              className="h-8 border-thick border-border px-3 text-[10px] font-bold"
+            >
+              フィルターをクリア
+            </Button>
+          </div>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <label className="space-y-1 text-[10px] font-bold">
+              <span className="block">登録方法</span>
+              <select
+                aria-label="登録方法で絞り込む"
+                value={filters.bandType}
+                onChange={(event) => setFilters((current) => ({ ...current, bandType: event.target.value as VisitorFilters["bandType"] }))}
+                className="h-10 w-full border-thick border-border bg-background px-2 text-xs font-mono focus-visible:outline-2 focus-visible:outline-offset-2"
+              >
+                <option value="all">すべて</option>
+                <option value="physical">物理リストバンド</option>
+                <option value="smartphone">スマホ</option>
+                <option value="unlinked">有効なIDなし</option>
+              </select>
+            </label>
+            <label className="space-y-1 text-[10px] font-bold">
+              <span className="block">アカウント状態</span>
+              <select
+                aria-label="アカウント状態で絞り込む"
+                value={filters.accountStatus}
+                onChange={(event) => setFilters((current) => ({ ...current, accountStatus: event.target.value as VisitorFilters["accountStatus"] }))}
+                className="h-10 w-full border-thick border-border bg-background px-2 text-xs font-mono focus-visible:outline-2 focus-visible:outline-offset-2"
+              >
+                <option value="all">すべて</option>
+                <option value="available">利用可能</option>
+                <option value="banned">利用停止</option>
+              </select>
+            </label>
+            <label className="space-y-1 text-[10px] font-bold">
+              <span className="block">プロフィール登録</span>
+              <select
+                aria-label="プロフィール登録状態で絞り込む"
+                value={filters.profileStatus}
+                onChange={(event) => setFilters((current) => ({ ...current, profileStatus: event.target.value as VisitorFilters["profileStatus"] }))}
+                className="h-10 w-full border-thick border-border bg-background px-2 text-xs font-mono focus-visible:outline-2 focus-visible:outline-offset-2"
+              >
+                <option value="all">すべて</option>
+                <option value="complete">登録済み</option>
+                <option value="pending">未登録</option>
+              </select>
+            </label>
+          </div>
+        </CardContent>
+      </Card>
+
       {/* 来場者一覧テーブル */}
       <Card className="rounded-none bg-background shadow-none border-thick border-border">
         <CardHeader className="p-4 pb-2 border-b-thin border-border bg-muted/20 flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <CardTitle className="text-xs uppercase font-bold">[登録来場者一覧]</CardTitle>
             <CardDescription className="text-[10px]">
-              {searchQuery ? `検索条件「${searchQuery}」の検索結果` : "最近登録された来場者（最大50件）"}
+              {searchQuery
+                ? `検索条件「${searchQuery}」とフィルターの検索結果（最大50件）`
+                : "フィルター条件に一致した最近の来場者（最大50件）"}
             </CardDescription>
           </div>
           <Badge variant="default" className="border-thick border-border font-bold text-[10px] rounded-none">
@@ -548,37 +679,6 @@ export function WristbandsTab({ eventId }: WristbandsTabProps) {
         </CardContent>
       </Card>
       </Modal>
-
-      {/* セルフ登録用QRの出力エリア */}
-      <Card className="rounded-none bg-background shadow-none border-thick border-border">
-        <CardHeader className="p-4 pb-2 border-b-thin border-border bg-muted/20">
-          <CardTitle className="text-xs uppercase font-bold flex items-center gap-1.5">
-            <QrCode className="h-4 w-4" />
-            [来場者向け・マイデジタルQR発行QRコード]
-          </CardTitle>
-          <CardDescription className="text-[10px]">来場者が自身のスマートフォンでスキャンし、マイデジタルQRをセルフ発行するための受付用QRです。</CardDescription>
-        </CardHeader>
-        <CardContent className="p-6 flex flex-col md:flex-row items-center gap-6">
-          <div className="border-thick border-border p-3 bg-white shrink-0">
-            <QRCodeSVG
-              value={selfIssueUrl}
-              size={150}
-              level="M"
-            />
-          </div>
-          <div className="space-y-2 text-xs font-mono">
-            <p className="font-bold underline text-primary">セルフ登録用URL (デジタル受付):</p>
-            <p className="bg-muted p-2 select-all break-all border border-border">
-              {selfIssueUrl}
-            </p>
-            <div className="text-[10px] text-muted-foreground leading-normal space-y-1 pt-2 font-sans">
-              <p>1. 受付にこのQRコードを掲示するか、URLを来場者に共有してください。</p>
-              <p>2. 来場者がスキャンすると、自動的に「スマホデジタルID（リストバンド代替）」が新規発行され、マイページで支払いやスタンプラリーが使えるようになります。</p>
-              <p>※ 物理リストバンドを使わない「スマホ単体イベント」では、このQRだけで受付を完全セルフ化できます。</p>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
 
       {/* ==========================================
           1. 照会・スキャンモーダル
