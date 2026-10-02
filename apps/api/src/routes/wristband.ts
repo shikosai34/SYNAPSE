@@ -637,4 +637,62 @@ wristbandRoutes.post(
   }
 );
 
+// 2026-10-02: 印刷会社から戻ったリストバンドURL CSVをイベント単位で一括登録する。
+// 任意のURLアクセスでユーザーを自動生成すると、推測されたIDで来場者枠を無制限に
+// 作成できるため、スタッフ権限のある管理画面から先に発行・紐付ける方式に固定する。
+wristbandRoutes.post(
+  "/import",
+  zBody(
+    z.object({
+      eventId: z.string().min(1),
+      urls: z.array(z.string().trim().min(1)).min(1).max(5000),
+    })
+  ),
+  async (c) => {
+    const db = c.get("db");
+    const { eventId, urls } = c.req.valid("json");
+    const allowed = await hasPermission(c, null, "member:write", eventId);
+    if (!allowed) apiError("FORBIDDEN", "この操作にはイベントの編集権限が必要です");
+
+    const events = await db.select().from(event).where(eq(event.id, eventId));
+    if (events.length === 0) apiError("NOT_FOUND", "イベントが見つかりません");
+
+    const ids = urls.map((url) => {
+      const match = url.match(/\/w\/([a-zA-Z0-9_-]+)(?:[?#].*)?$/);
+      return match?.[1] ?? (url.match(/^[a-zA-Z0-9_-]+$/)?.[0] ?? null);
+    });
+    if (ids.some((id) => !id)) {
+      apiError("BAD_REQUEST", "CSVには /w/ID 形式のURLだけを入力してください");
+    }
+    const wristbandIds = ids as string[];
+    const uniqueIds = [...new Set(wristbandIds)];
+    if (uniqueIds.length !== wristbandIds.length) {
+      apiError("CONFLICT", "CSV内に重複したリストバンドURLがあります");
+    }
+
+    const existing = await db.select().from(wristband).where(or(...uniqueIds.map((id) => eq(wristband.id, id))));
+    if (existing.length > 0) {
+      apiError("CONFLICT", `登録済みのリストバンドが ${existing.length} 件あります`);
+    }
+
+    const startDisplayId = await nextDisplayId(db, eventId);
+    const userRows = wristbandIds.map((_, index) => ({
+      id: `usr_${nanoid(12)}`,
+      eventId,
+      displayId: startDisplayId + index,
+      status: "available",
+    }));
+    const bandRows = wristbandIds.map((id, index) => ({
+      id,
+      userId: userRows[index]!.id,
+      status: "active",
+    }));
+
+    // D1の対話型トランザクションは使えないため、FKの親→子順でbulk insertする。
+    await db.insert(eventUser).values(userRows);
+    await db.insert(wristband).values(bandRows);
+    return c.json({ imported: wristbandIds.length, firstDisplayId: startDisplayId });
+  }
+);
+
 export default wristbandRoutes;

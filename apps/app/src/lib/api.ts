@@ -1092,6 +1092,11 @@ export const wristbandApi = {
       method: "POST",
       body: { eventId, wristbandId },
     }),
+  importUrls: (eventId: string, urls: string[]) =>
+    fetchApi<{ imported: number; firstDisplayId: number }>("/api/wristbands/import", {
+      method: "POST",
+      body: { eventId, urls },
+    }),
   update: (id: string, data: { status: "active" | "lost" | "replaced" | "revoked" | "smartphone"; userId?: string }) =>
     fetchApi<{ success: boolean }>(`/api/wristbands/${encodeURIComponent(id)}`, {
       method: "PATCH",
