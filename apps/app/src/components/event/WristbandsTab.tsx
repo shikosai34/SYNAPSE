@@ -40,6 +40,8 @@ type VisitorFilters = {
   profileStatus: "all" | "complete" | "pending";
 };
 
+const VISITOR_PAGE_SIZE = 50;
+
 export function WristbandsTab({ eventId }: WristbandsTabProps) {
   const queryClient = useQueryClient();
 
@@ -52,6 +54,8 @@ export function WristbandsTab({ eventId }: WristbandsTabProps) {
     accountStatus: "all",
     profileStatus: "all",
   });
+  // 2026-10-02: 一度に描画する行数は抑えながら、ページ移動で全検索結果を参照できるようにする。
+  const [visitorPage, setVisitorPage] = useState(0);
   const [isVisitorTableOpen, setIsVisitorTableOpen] = useState(false);
 
   // モーダル開閉状態
@@ -77,10 +81,17 @@ export function WristbandsTab({ eventId }: WristbandsTabProps) {
   const [issuedUser, setIssuedUser] = useState<{ userId: string; displayId: number } | null>(null);
 
   // 来場者一覧・検索クエリ (React Query を使って自動フェッチ&キャッシュ)
-  const { data: visitors = [], isLoading, refetch } = useQuery({
-    queryKey: ["eventVisitors", eventId, searchQuery, filters],
-    queryFn: () => wristbandApi.search(eventId, searchQuery, filters),
+  const { data: visitorSearch = { items: [], total: 0, offset: 0, limit: VISITOR_PAGE_SIZE }, isLoading, refetch } = useQuery({
+    queryKey: ["eventVisitors", eventId, searchQuery, filters, visitorPage],
+    queryFn: () => wristbandApi.search(eventId, searchQuery, filters, {
+      offset: visitorPage * VISITOR_PAGE_SIZE,
+      limit: VISITOR_PAGE_SIZE,
+    }),
   });
+  const visitors = visitorSearch.items;
+  const totalPages = Math.max(1, Math.ceil(visitorSearch.total / VISITOR_PAGE_SIZE));
+  const firstVisibleVisitor = visitorSearch.total === 0 ? 0 : visitorPage * VISITOR_PAGE_SIZE + 1;
+  const lastVisibleVisitor = Math.min((visitorPage + 1) * VISITOR_PAGE_SIZE, visitorSearch.total);
 
   // 詳細編集モーダルのデータ同期
   useEffect(() => {
@@ -244,6 +255,7 @@ export function WristbandsTab({ eventId }: WristbandsTabProps) {
     } else if (scannerTarget === "search") {
       setSearchInput(code);
       setSearchQuery(code);
+      setVisitorPage(0);
     }
   };
 
@@ -275,15 +287,18 @@ export function WristbandsTab({ eventId }: WristbandsTabProps) {
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setSearchQuery(searchInput.trim());
+    setVisitorPage(0);
   };
 
   const handleResetSearch = () => {
     setSearchInput("");
     setSearchQuery("");
+    setVisitorPage(0);
   };
 
   const handleResetFilters = () => {
     setFilters({ bandType: "all", accountStatus: "all", profileStatus: "all" });
+    setVisitorPage(0);
   };
 
   const getVisitorLink = (userId: string) => {
@@ -452,7 +467,7 @@ export function WristbandsTab({ eventId }: WristbandsTabProps) {
       </Card>
 
       {/* 2026-09-27: 来場者の行が画面を押し下げないよう、検索と編集操作を表モーダルにまとめる。 */}
-      <Modal isOpen={isVisitorTableOpen} onClose={() => setIsVisitorTableOpen(false)} title="[登録来場者一覧]" subtitle={`${visitors.length}件`} maxWidth="xl">
+      <Modal isOpen={isVisitorTableOpen} onClose={() => setIsVisitorTableOpen(false)} title="[登録来場者一覧]" subtitle={`${visitors.length}件`} maxWidth="full">
       {/* 検索バー */}
       <Card className="rounded-none bg-background shadow-none border-thick border-border">
         <CardContent className="p-4">
@@ -517,7 +532,10 @@ export function WristbandsTab({ eventId }: WristbandsTabProps) {
               <select
                 aria-label="登録方法で絞り込む"
                 value={filters.bandType}
-                onChange={(event) => setFilters((current) => ({ ...current, bandType: event.target.value as VisitorFilters["bandType"] }))}
+                onChange={(event) => {
+                  setVisitorPage(0);
+                  setFilters((current) => ({ ...current, bandType: event.target.value as VisitorFilters["bandType"] }));
+                }}
                 className="h-10 w-full border-thick border-border bg-background px-2 text-xs font-mono focus-visible:outline-2 focus-visible:outline-offset-2"
               >
                 <option value="all">すべて</option>
@@ -531,7 +549,10 @@ export function WristbandsTab({ eventId }: WristbandsTabProps) {
               <select
                 aria-label="アカウント状態で絞り込む"
                 value={filters.accountStatus}
-                onChange={(event) => setFilters((current) => ({ ...current, accountStatus: event.target.value as VisitorFilters["accountStatus"] }))}
+                onChange={(event) => {
+                  setVisitorPage(0);
+                  setFilters((current) => ({ ...current, accountStatus: event.target.value as VisitorFilters["accountStatus"] }));
+                }}
                 className="h-10 w-full border-thick border-border bg-background px-2 text-xs font-mono focus-visible:outline-2 focus-visible:outline-offset-2"
               >
                 <option value="all">すべて</option>
@@ -544,7 +565,10 @@ export function WristbandsTab({ eventId }: WristbandsTabProps) {
               <select
                 aria-label="プロフィール登録状態で絞り込む"
                 value={filters.profileStatus}
-                onChange={(event) => setFilters((current) => ({ ...current, profileStatus: event.target.value as VisitorFilters["profileStatus"] }))}
+                onChange={(event) => {
+                  setVisitorPage(0);
+                  setFilters((current) => ({ ...current, profileStatus: event.target.value as VisitorFilters["profileStatus"] }));
+                }}
                 className="h-10 w-full border-thick border-border bg-background px-2 text-xs font-mono focus-visible:outline-2 focus-visible:outline-offset-2"
               >
                 <option value="all">すべて</option>
@@ -563,12 +587,13 @@ export function WristbandsTab({ eventId }: WristbandsTabProps) {
             <CardTitle className="text-xs uppercase font-bold">[登録来場者一覧]</CardTitle>
             <CardDescription className="text-[10px]">
               {searchQuery
-                ? `検索条件「${searchQuery}」とフィルターの検索結果（最大50件）`
-                : "フィルター条件に一致した最近の来場者（最大50件）"}
+                ? `検索条件「${searchQuery}」とフィルターの検索結果`
+                : "フィルター条件に一致した最近の来場者"}
+              {`（${firstVisibleVisitor}–${lastVisibleVisitor}件目 / 全${visitorSearch.total}件）`}
             </CardDescription>
           </div>
           <Badge variant="default" className="border-thick border-border font-bold text-[10px] rounded-none">
-            {visitors.length} 件
+            {visitorSearch.total} 件
           </Badge>
         </CardHeader>
         <CardContent className="p-0">
@@ -675,6 +700,31 @@ export function WristbandsTab({ eventId }: WristbandsTabProps) {
                 </tbody>
               </table>
             )}
+          </div>
+          <div className="flex flex-col gap-3 border-t-thin border-border p-3 sm:flex-row sm:items-center sm:justify-between">
+            <p role="status" aria-live="polite" className="text-[10px] text-muted-foreground">
+              {visitorPage + 1} / {totalPages} ページ
+            </p>
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setVisitorPage((page) => Math.max(0, page - 1))}
+                disabled={visitorPage === 0 || isLoading}
+                className="h-10 flex-1 border-thick border-border px-3 text-xs font-bold sm:flex-none"
+              >
+                前の50件
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setVisitorPage((page) => Math.min(totalPages - 1, page + 1))}
+                disabled={visitorPage >= totalPages - 1 || isLoading}
+                className="h-10 flex-1 border-thick border-border px-3 text-xs font-bold sm:flex-none"
+              >
+                次の50件
+              </Button>
+            </div>
           </div>
         </CardContent>
       </Card>

@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { z } from "zod";
 import { wristband, eventUser, event, type DB } from "@fesflow/db";
-import { eq, and, desc, or, like, isNull, isNotNull } from "drizzle-orm";
+import { eq, and, desc, or, like, isNull, isNotNull, countDistinct } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { hasPermission } from "../utils/auth";
 import { zBody, zQuery } from "../z-validator";
@@ -22,11 +22,13 @@ wristbandRoutes.get(
       bandType: z.enum(["all", "physical", "smartphone", "unlinked"]).optional().default("all"),
       accountStatus: z.enum(["all", "available", "banned"]).optional().default("all"),
       profileStatus: z.enum(["all", "complete", "pending"]).optional().default("all"),
+      offset: z.coerce.number().int().min(0).optional().default(0),
+      limit: z.coerce.number().int().min(1).max(100).optional().default(50),
     })
   ),
   async (c) => {
     const db = c.get("db");
-    const { eventId, query, bandType, accountStatus, profileStatus } = c.req.valid("query");
+    const { eventId, query, bandType, accountStatus, profileStatus, offset, limit } = c.req.valid("query");
 
     // 権限チェック (イベントスタッフ権限 member:read が必要)
     const allowed = await hasPermission(c, null, "member:read", eventId);
@@ -50,6 +52,7 @@ wristbandRoutes.get(
       const orConditions = [
         like(eventUser.nickname, `%${query}%`),
         like(eventUser.favoriteDate, `%${query}%`),
+        like(wristband.id, `%${query}%`),
       ];
 
       if (isNum) {
@@ -61,6 +64,19 @@ wristbandRoutes.get(
         conditions.push(orOp);
       }
     }
+
+    // 2026-10-02: 50件を超える来場者もページ移動で検索できるよう、条件一致件数を返しAPIでは1ページ分だけ取得する。
+    const totalRows = await db
+      .select({ total: countDistinct(eventUser.id) })
+      .from(eventUser)
+      .leftJoin(
+        wristband,
+        and(
+          eq(wristband.userId, eventUser.id),
+          or(eq(wristband.status, "active"), eq(wristband.status, "smartphone"))
+        )
+      )
+      .where(and(...conditions));
 
     const rows = await db
       .select({
@@ -76,15 +92,19 @@ wristbandRoutes.get(
         )
       )
       .where(and(...conditions))
-      .orderBy(desc(eventUser.createdAt))
-      .limit(50);
+      .orderBy(desc(eventUser.createdAt), desc(eventUser.id))
+      .limit(limit)
+      .offset(offset);
 
-    return c.json(
-      rows.map((r) => ({
+    return c.json({
+      items: rows.map((r) => ({
         user: r.user,
         wristband: r.wristband,
-      }))
-    );
+      })),
+      total: totalRows[0]?.total ?? 0,
+      offset,
+      limit,
+    });
   }
 );
 
