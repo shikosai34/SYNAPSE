@@ -1,5 +1,5 @@
-import { useState, useEffect } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState, useEffect, useRef } from "react";
+import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { wristbandApi } from "@/lib/api";
 import { extractIdFromCode } from "@/lib/utils";
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/components/ui/card";
@@ -40,7 +40,17 @@ type VisitorFilters = {
   profileStatus: "all" | "complete" | "pending";
 };
 
-const VISITOR_PAGE_SIZE = 50;
+type VisitorSortField = "createdAt" | "displayId" | "nickname" | "favoriteDate" | "accountStatus" | "wristbandId" | "bandStatus";
+
+const VISITOR_PAGE_SIZE = 500;
+const VISITOR_SORT_COLUMNS: { label: string; field: Exclude<VisitorSortField, "createdAt"> }[] = [
+  { label: "呼出ID", field: "displayId" },
+  { label: "ニックネーム", field: "nickname" },
+  { label: "お好きな日付", field: "favoriteDate" },
+  { label: "アカウント状態", field: "accountStatus" },
+  { label: "紐付くバンドID", field: "wristbandId" },
+  { label: "バンド状態", field: "bandStatus" },
+];
 
 export function WristbandsTab({ eventId }: WristbandsTabProps) {
   const queryClient = useQueryClient();
@@ -54,9 +64,14 @@ export function WristbandsTab({ eventId }: WristbandsTabProps) {
     accountStatus: "all",
     profileStatus: "all",
   });
-  // 2026-10-02: 一度に描画する行数は抑えながら、ページ移動で全検索結果を参照できるようにする。
-  const [visitorPage, setVisitorPage] = useState(0);
+  // 2026-10-02: 多数の来場者を連続して確認できるよう、500件ずつ追加取得する。
+  const [visitorSort, setVisitorSort] = useState<{ field: VisitorSortField; direction: "asc" | "desc" }>({
+    field: "createdAt",
+    direction: "desc",
+  });
   const [isVisitorTableOpen, setIsVisitorTableOpen] = useState(false);
+  const visitorScrollContainerRef = useRef<HTMLDivElement>(null);
+  const visitorLoadMoreRef = useRef<HTMLDivElement>(null);
 
   // モーダル開閉状態
   const [isScanModalOpen, setIsScanModalOpen] = useState(false);
@@ -81,17 +96,54 @@ export function WristbandsTab({ eventId }: WristbandsTabProps) {
   const [issuedUser, setIssuedUser] = useState<{ userId: string; displayId: number } | null>(null);
 
   // 来場者一覧・検索クエリ (React Query を使って自動フェッチ&キャッシュ)
-  const { data: visitorSearch = { items: [], total: 0, offset: 0, limit: VISITOR_PAGE_SIZE }, isLoading, refetch } = useQuery({
-    queryKey: ["eventVisitors", eventId, searchQuery, filters, visitorPage],
-    queryFn: () => wristbandApi.search(eventId, searchQuery, filters, {
-      offset: visitorPage * VISITOR_PAGE_SIZE,
+  const {
+    data: visitorSearch,
+    isLoading,
+    isFetchingNextPage,
+    hasNextPage,
+    fetchNextPage,
+    refetch,
+  } = useInfiniteQuery({
+    queryKey: ["eventVisitors", eventId, searchQuery, filters, visitorSort],
+    initialPageParam: 0,
+    queryFn: ({ pageParam }) => wristbandApi.search(eventId, searchQuery, filters, {
+      offset: pageParam,
       limit: VISITOR_PAGE_SIZE,
+    }, {
+      sortBy: visitorSort.field,
+      sortDirection: visitorSort.direction,
     }),
+    getNextPageParam: (lastPage) => {
+      const nextOffset = lastPage.offset + lastPage.items.length;
+      return nextOffset < lastPage.total ? nextOffset : undefined;
+    },
   });
-  const visitors = visitorSearch.items;
-  const totalPages = Math.max(1, Math.ceil(visitorSearch.total / VISITOR_PAGE_SIZE));
-  const firstVisibleVisitor = visitorSearch.total === 0 ? 0 : visitorPage * VISITOR_PAGE_SIZE + 1;
-  const lastVisibleVisitor = Math.min((visitorPage + 1) * VISITOR_PAGE_SIZE, visitorSearch.total);
+  const visitors = visitorSearch?.pages.flatMap((page) => page.items) ?? [];
+  const visitorTotal = visitorSearch?.pages[0]?.total ?? 0;
+
+  // 2026-10-02: 条件変更後は先頭から読み進め、前のスクロール位置による連続取得を防ぐ。
+  useEffect(() => {
+    if (isVisitorTableOpen && visitorScrollContainerRef.current) {
+      visitorScrollContainerRef.current.scrollTop = 0;
+    }
+  }, [filters, isVisitorTableOpen, searchQuery, visitorSort]);
+
+  // 2026-10-02: 一覧のスクロール領域末尾を監視し、次の500件を自動取得する。ボタン操作も併設してキーボード利用を保つ。
+  useEffect(() => {
+    const root = visitorScrollContainerRef.current;
+    const target = visitorLoadMoreRef.current;
+    if (!isVisitorTableOpen || !root || !target || !hasNextPage || isFetchingNextPage) return;
+    if (typeof IntersectionObserver === "undefined") return;
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) void fetchNextPage();
+      },
+      { root, rootMargin: "0px 0px 200px" },
+    );
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, [fetchNextPage, hasNextPage, isFetchingNextPage, isVisitorTableOpen]);
 
   // 詳細編集モーダルのデータ同期
   useEffect(() => {
@@ -255,7 +307,6 @@ export function WristbandsTab({ eventId }: WristbandsTabProps) {
     } else if (scannerTarget === "search") {
       setSearchInput(code);
       setSearchQuery(code);
-      setVisitorPage(0);
     }
   };
 
@@ -287,18 +338,15 @@ export function WristbandsTab({ eventId }: WristbandsTabProps) {
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setSearchQuery(searchInput.trim());
-    setVisitorPage(0);
   };
 
   const handleResetSearch = () => {
     setSearchInput("");
     setSearchQuery("");
-    setVisitorPage(0);
   };
 
   const handleResetFilters = () => {
     setFilters({ bandType: "all", accountStatus: "all", profileStatus: "all" });
-    setVisitorPage(0);
   };
 
   const getVisitorLink = (userId: string) => {
@@ -311,6 +359,13 @@ export function WristbandsTab({ eventId }: WristbandsTabProps) {
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
     toast.success("クリップボードにコピーしました");
+  };
+
+  const handleVisitorSort = (field: Exclude<VisitorSortField, "createdAt">) => {
+    setVisitorSort((current) => ({
+      field,
+      direction: current.field === field && current.direction === "asc" ? "desc" : "asc",
+    }));
   };
 
   return (
@@ -460,14 +515,16 @@ export function WristbandsTab({ eventId }: WristbandsTabProps) {
         <CardHeader className="p-4 flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <CardTitle className="text-xs uppercase font-bold">[登録来場者一覧]</CardTitle>
-            <CardDescription className="text-[10px]">{visitors.length}件を表示中{searchQuery ? "（検索条件あり）" : ""}</CardDescription>
+            <CardDescription className="text-[10px]">
+              {visitors.length}件読み込み済み / 全{visitorTotal}件{searchQuery ? "（検索条件あり）" : ""}
+            </CardDescription>
           </div>
-          <Button onClick={() => setIsVisitorTableOpen(true)} variant="outline" className="border-thick border-border h-9 text-xs font-bold rounded-none">一覧を開く（{visitors.length}件）</Button>
+          <Button onClick={() => setIsVisitorTableOpen(true)} variant="outline" className="border-thick border-border h-9 text-xs font-bold rounded-none">一覧を開く（全{visitorTotal}件）</Button>
         </CardHeader>
       </Card>
 
       {/* 2026-09-27: 来場者の行が画面を押し下げないよう、検索と編集操作を表モーダルにまとめる。 */}
-      <Modal isOpen={isVisitorTableOpen} onClose={() => setIsVisitorTableOpen(false)} title="[登録来場者一覧]" subtitle={`${visitors.length}件`} maxWidth="full">
+      <Modal isOpen={isVisitorTableOpen} onClose={() => setIsVisitorTableOpen(false)} title="[登録来場者一覧]" subtitle={`全${visitorTotal}件`} maxWidth="full">
       {/* 検索バー */}
       <Card className="rounded-none bg-background shadow-none border-thick border-border">
         <CardContent className="p-4">
@@ -533,7 +590,6 @@ export function WristbandsTab({ eventId }: WristbandsTabProps) {
                 aria-label="登録方法で絞り込む"
                 value={filters.bandType}
                 onChange={(event) => {
-                  setVisitorPage(0);
                   setFilters((current) => ({ ...current, bandType: event.target.value as VisitorFilters["bandType"] }));
                 }}
                 className="h-10 w-full border-thick border-border bg-background px-2 text-xs font-mono focus-visible:outline-2 focus-visible:outline-offset-2"
@@ -550,7 +606,6 @@ export function WristbandsTab({ eventId }: WristbandsTabProps) {
                 aria-label="アカウント状態で絞り込む"
                 value={filters.accountStatus}
                 onChange={(event) => {
-                  setVisitorPage(0);
                   setFilters((current) => ({ ...current, accountStatus: event.target.value as VisitorFilters["accountStatus"] }));
                 }}
                 className="h-10 w-full border-thick border-border bg-background px-2 text-xs font-mono focus-visible:outline-2 focus-visible:outline-offset-2"
@@ -566,7 +621,6 @@ export function WristbandsTab({ eventId }: WristbandsTabProps) {
                 aria-label="プロフィール登録状態で絞り込む"
                 value={filters.profileStatus}
                 onChange={(event) => {
-                  setVisitorPage(0);
                   setFilters((current) => ({ ...current, profileStatus: event.target.value as VisitorFilters["profileStatus"] }));
                 }}
                 className="h-10 w-full border-thick border-border bg-background px-2 text-xs font-mono focus-visible:outline-2 focus-visible:outline-offset-2"
@@ -589,15 +643,15 @@ export function WristbandsTab({ eventId }: WristbandsTabProps) {
               {searchQuery
                 ? `検索条件「${searchQuery}」とフィルターの検索結果`
                 : "フィルター条件に一致した最近の来場者"}
-              {`（${firstVisibleVisitor}–${lastVisibleVisitor}件目 / 全${visitorSearch.total}件）`}
+              {`（${visitors.length}件読み込み済み / 全${visitorTotal}件）`}
             </CardDescription>
           </div>
           <Badge variant="default" className="border-thick border-border font-bold text-[10px] rounded-none">
-            {visitorSearch.total} 件
+            {visitorTotal} 件
           </Badge>
         </CardHeader>
         <CardContent className="p-0">
-          <div className="max-h-[55vh] overflow-auto">
+          <div ref={visitorScrollContainerRef} className="max-h-[55vh] overflow-auto">
             {isLoading ? (
               <div className="p-8 text-center text-xs text-muted-foreground flex items-center justify-center gap-2">
                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -609,14 +663,25 @@ export function WristbandsTab({ eventId }: WristbandsTabProps) {
               </div>
             ) : (
               <table className="w-full min-w-[880px] text-xs text-left border-collapse">
-                <thead>
+                <thead className="sticky top-0 z-10 bg-background">
                   <tr className="border-b-thin border-border bg-muted/10 font-bold font-mono">
-                    <th className="p-3">呼出ID</th>
-                    <th className="p-3">ニックネーム</th>
-                    <th className="p-3">お好きな日付</th>
-                    <th className="p-3">アカウント状態</th>
-                    <th className="p-3">紐付くバンドID</th>
-                    <th className="p-3">バンド状態</th>
+                    {VISITOR_SORT_COLUMNS.map(({ label, field }) => (
+                      <th
+                        key={field}
+                        scope="col"
+                        aria-sort={visitorSort.field === field ? (visitorSort.direction === "asc" ? "ascending" : "descending") : "none"}
+                        className="p-3"
+                      >
+                        <button
+                          type="button"
+                          onClick={() => handleVisitorSort(field)}
+                          className="inline-flex items-center gap-1 text-left hover:underline focus-visible:outline-2 focus-visible:outline-offset-2"
+                        >
+                          {label}
+                          <span aria-hidden="true">{visitorSort.field === field ? (visitorSort.direction === "asc" ? "↑" : "↓") : "↕"}</span>
+                        </button>
+                      </th>
+                    ))}
                     <th className="p-3 text-right">バンド操作</th>
                   </tr>
                 </thead>
@@ -700,31 +765,29 @@ export function WristbandsTab({ eventId }: WristbandsTabProps) {
                 </tbody>
               </table>
             )}
-          </div>
-          <div className="flex flex-col gap-3 border-t-thin border-border p-3 sm:flex-row sm:items-center sm:justify-between">
-            <p role="status" aria-live="polite" className="text-[10px] text-muted-foreground">
-              {visitorPage + 1} / {totalPages} ページ
-            </p>
-            <div className="flex gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setVisitorPage((page) => Math.max(0, page - 1))}
-                disabled={visitorPage === 0 || isLoading}
-                className="h-10 flex-1 border-thick border-border px-3 text-xs font-bold sm:flex-none"
-              >
-                前の50件
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setVisitorPage((page) => Math.min(totalPages - 1, page + 1))}
-                disabled={visitorPage >= totalPages - 1 || isLoading}
-                className="h-10 flex-1 border-thick border-border px-3 text-xs font-bold sm:flex-none"
-              >
-                次の50件
-              </Button>
-            </div>
+            {!isLoading && visitors.length > 0 && (
+              <div ref={visitorLoadMoreRef} className="flex flex-col items-center gap-2 border-t-thin border-border p-4 text-center">
+                <p role="status" aria-live="polite" className="text-[10px] text-muted-foreground">
+                  {isFetchingNextPage
+                    ? `${visitors.length} / ${visitorTotal} 件を表示中 — 続きを読み込み中...`
+                    : hasNextPage
+                    ? `${visitors.length} / ${visitorTotal} 件を表示中 — 下へスクロールすると続きが読み込まれます`
+                    : `全${visitorTotal}件を表示しました`}
+                </p>
+                {hasNextPage && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => void fetchNextPage()}
+                    disabled={isFetchingNextPage}
+                    className="h-10 border-thick border-border px-4 text-xs font-bold"
+                  >
+                    {isFetchingNextPage ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                    {isFetchingNextPage ? "読み込み中..." : `さらに${VISITOR_PAGE_SIZE}件を読み込む`}
+                  </Button>
+                )}
+              </div>
+            )}
           </div>
         </CardContent>
       </Card>

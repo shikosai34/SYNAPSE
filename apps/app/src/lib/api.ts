@@ -1075,7 +1075,11 @@ export const wristbandApi = {
       accountStatus: "all" | "available" | "banned";
       profileStatus: "all" | "complete" | "pending";
     },
-    pagination: { offset: number; limit: number }
+    pagination: { offset: number; limit: number },
+    sorting: {
+      sortBy: "createdAt" | "displayId" | "nickname" | "favoriteDate" | "accountStatus" | "wristbandId" | "bandStatus";
+      sortDirection: "asc" | "desc";
+    }
   ) =>
     fetchApi<{
       items: WristbandLookupResult[];
@@ -1085,7 +1089,8 @@ export const wristbandApi = {
     }>(
       `/api/wristbands/search?eventId=${encodeURIComponent(eventId)}&query=${encodeURIComponent(query)}` +
         `&bandType=${filters.bandType}&accountStatus=${filters.accountStatus}&profileStatus=${filters.profileStatus}` +
-        `&offset=${pagination.offset}&limit=${pagination.limit}`
+        `&offset=${pagination.offset}&limit=${pagination.limit}` +
+        `&sortBy=${sorting.sortBy}&sortDirection=${sorting.sortDirection}`
     ).catch(() => ({ items: [], total: 0, ...pagination })),
   register: (userId: string, wristbandId: string) =>
     fetchApi<{ success: boolean; wristbandId: string }>("/api/wristbands/register", {

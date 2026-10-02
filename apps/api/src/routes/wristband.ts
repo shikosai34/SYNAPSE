@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { z } from "zod";
 import { wristband, eventUser, event, type DB } from "@fesflow/db";
-import { eq, and, desc, or, like, isNull, isNotNull, countDistinct } from "drizzle-orm";
+import { eq, and, asc, desc, or, like, isNull, isNotNull, countDistinct } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { hasPermission } from "../utils/auth";
 import { zBody, zQuery } from "../z-validator";
@@ -23,12 +23,17 @@ wristbandRoutes.get(
       accountStatus: z.enum(["all", "available", "banned"]).optional().default("all"),
       profileStatus: z.enum(["all", "complete", "pending"]).optional().default("all"),
       offset: z.coerce.number().int().min(0).optional().default(0),
-      limit: z.coerce.number().int().min(1).max(100).optional().default(50),
+      limit: z.coerce.number().int().min(1).max(500).optional().default(50),
+      sortBy: z
+        .enum(["createdAt", "displayId", "nickname", "favoriteDate", "accountStatus", "wristbandId", "bandStatus"])
+        .optional()
+        .default("createdAt"),
+      sortDirection: z.enum(["asc", "desc"]).optional().default("desc"),
     })
   ),
   async (c) => {
     const db = c.get("db");
-    const { eventId, query, bandType, accountStatus, profileStatus, offset, limit } = c.req.valid("query");
+    const { eventId, query, bandType, accountStatus, profileStatus, offset, limit, sortBy, sortDirection } = c.req.valid("query");
 
     // 権限チェック (イベントスタッフ権限 member:read が必要)
     const allowed = await hasPermission(c, null, "member:read", eventId);
@@ -78,6 +83,18 @@ wristbandRoutes.get(
       )
       .where(and(...conditions));
 
+    // 2026-10-02: 並べ替えはページ取得より前のSQLで行い、ページをまたいでも全結果の順序を保つ。
+    const sortColumn = {
+      createdAt: eventUser.createdAt,
+      displayId: eventUser.displayId,
+      nickname: eventUser.nickname,
+      favoriteDate: eventUser.favoriteDate,
+      accountStatus: eventUser.status,
+      wristbandId: wristband.id,
+      bandStatus: wristband.status,
+    }[sortBy];
+    const primaryOrder = sortDirection === "asc" ? asc(sortColumn) : desc(sortColumn);
+
     const rows = await db
       .select({
         user: eventUser,
@@ -92,7 +109,7 @@ wristbandRoutes.get(
         )
       )
       .where(and(...conditions))
-      .orderBy(desc(eventUser.createdAt), desc(eventUser.id))
+      .orderBy(primaryOrder, desc(eventUser.createdAt), desc(eventUser.id))
       .limit(limit)
       .offset(offset);
 
