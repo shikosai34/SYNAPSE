@@ -1067,9 +1067,18 @@ export const wristbandApi = {
   // 呼び出し側 (Entry の入場エラー / MyPage の ErrorState) で扱う。
   lookup: (code: string) =>
     fetchApi<WristbandLookupResult>(`/api/wristbands/lookup/${encodeURIComponent(code)}`),
-  search: (eventId: string, query: string) =>
+  search: (
+    eventId: string,
+    query: string,
+    filters: {
+      bandType: "all" | "physical" | "smartphone" | "unlinked";
+      accountStatus: "all" | "available" | "banned";
+      profileStatus: "all" | "complete" | "pending";
+    }
+  ) =>
     fetchApi<WristbandLookupResult[]>(
-      `/api/wristbands/search?eventId=${encodeURIComponent(eventId)}&query=${encodeURIComponent(query)}`
+      `/api/wristbands/search?eventId=${encodeURIComponent(eventId)}&query=${encodeURIComponent(query)}` +
+        `&bandType=${filters.bandType}&accountStatus=${filters.accountStatus}&profileStatus=${filters.profileStatus}`
     ).catch(() => []),
   register: (userId: string, wristbandId: string) =>
     fetchApi<{ success: boolean; wristbandId: string }>("/api/wristbands/register", {

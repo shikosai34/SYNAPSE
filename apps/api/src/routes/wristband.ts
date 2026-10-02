@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { z } from "zod";
 import { wristband, eventUser, event, type DB } from "@fesflow/db";
-import { eq, and, desc, or, like } from "drizzle-orm";
+import { eq, and, desc, or, like, isNull, isNotNull } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { hasPermission } from "../utils/auth";
 import { zBody, zQuery } from "../z-validator";
@@ -19,11 +19,14 @@ wristbandRoutes.get(
     z.object({
       eventId: z.string().min(1),
       query: z.string().optional().default(""),
+      bandType: z.enum(["all", "physical", "smartphone", "unlinked"]).optional().default("all"),
+      accountStatus: z.enum(["all", "available", "banned"]).optional().default("all"),
+      profileStatus: z.enum(["all", "complete", "pending"]).optional().default("all"),
     })
   ),
   async (c) => {
     const db = c.get("db");
-    const { eventId, query } = c.req.valid("query");
+    const { eventId, query, bandType, accountStatus, profileStatus } = c.req.valid("query");
 
     // 権限チェック (イベントスタッフ権限 member:read が必要)
     const allowed = await hasPermission(c, null, "member:read", eventId);
@@ -32,6 +35,13 @@ wristbandRoutes.get(
     }
 
     const conditions = [eq(eventUser.eventId, eventId)];
+
+    if (bandType === "physical") conditions.push(eq(wristband.status, "active"));
+    if (bandType === "smartphone") conditions.push(eq(wristband.status, "smartphone"));
+    if (bandType === "unlinked") conditions.push(isNull(wristband.id));
+    if (accountStatus !== "all") conditions.push(eq(eventUser.status, accountStatus));
+    if (profileStatus === "complete") conditions.push(isNotNull(eventUser.onboardedAt));
+    if (profileStatus === "pending") conditions.push(isNull(eventUser.onboardedAt));
 
     if (query && query.trim().length > 0) {
       const queryNum = parseInt(query, 10);
