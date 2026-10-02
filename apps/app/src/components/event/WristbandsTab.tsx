@@ -209,10 +209,6 @@ export function WristbandsTab({ eventId }: WristbandsTabProps) {
       toast.error("URLが見つかりません");
       return;
     }
-    if (urls.length > 5000) {
-      toast.error("一度に取り込めるURLは5000件までです");
-      return;
-    }
     importUrlsMutation.mutate(urls);
   };
 
@@ -346,7 +342,7 @@ export function WristbandsTab({ eventId }: WristbandsTabProps) {
             <p className="font-bold">対応形式</p>
             <p>1列目がURLのCSV（ヘッダー「url」は任意）</p>
             <p>例: https://fesflow.shikosai.net/w/34-0001</p>
-            <p className="text-muted-foreground">重複URL、登録済みID、5000件超過は取り込みません。</p>
+            <p className="text-muted-foreground">重複URLと登録済みIDは取り込みません。</p>
           </div>
           <label className="flex cursor-pointer items-center justify-center gap-2 border-thick border-dashed border-border p-6 text-xs font-bold hover:bg-muted/30">
             <FileUp className="h-5 w-5" />

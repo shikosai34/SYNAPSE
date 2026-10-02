@@ -645,7 +645,7 @@ wristbandRoutes.post(
   zBody(
     z.object({
       eventId: z.string().min(1),
-      urls: z.array(z.string().trim().min(1)).min(1).max(5000),
+      urls: z.array(z.string().trim().min(1)).min(1),
     })
   ),
   async (c) => {
@@ -670,9 +670,17 @@ wristbandRoutes.post(
       apiError("CONFLICT", "CSV内に重複したリストバンドURLがあります");
     }
 
-    const existing = await db.select().from(wristband).where(or(...uniqueIds.map((id) => eq(wristband.id, id))));
-    if (existing.length > 0) {
-      apiError("CONFLICT", `登録済みのリストバンドが ${existing.length} 件あります`);
+    // D1のSQLバインド数上限に収まるよう、重複確認と書き込みは小分けにする。
+    const chunkSize = 100;
+    for (let offset = 0; offset < uniqueIds.length; offset += chunkSize) {
+      const chunk = uniqueIds.slice(offset, offset + chunkSize);
+      const existing = await db
+        .select()
+        .from(wristband)
+        .where(or(...chunk.map((id) => eq(wristband.id, id))));
+      if (existing.length > 0) {
+        apiError("CONFLICT", `登録済みのリストバンドが ${existing.length} 件あります`);
+      }
     }
 
     const startDisplayId = await nextDisplayId(db, eventId);
@@ -688,9 +696,13 @@ wristbandRoutes.post(
       status: "active",
     }));
 
-    // D1の対話型トランザクションは使えないため、FKの親→子順でbulk insertする。
-    await db.insert(eventUser).values(userRows);
-    await db.insert(wristband).values(bandRows);
+    // D1の対話型トランザクションは使えないため、FKの親→子順で小分けにbulk insertする。
+    for (let offset = 0; offset < userRows.length; offset += chunkSize) {
+      await db.insert(eventUser).values(userRows.slice(offset, offset + chunkSize));
+    }
+    for (let offset = 0; offset < bandRows.length; offset += chunkSize) {
+      await db.insert(wristband).values(bandRows.slice(offset, offset + chunkSize));
+    }
     return c.json({ imported: wristbandIds.length, firstDisplayId: startDisplayId });
   }
 );
