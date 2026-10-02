@@ -1074,12 +1074,19 @@ export const wristbandApi = {
       bandType: "all" | "physical" | "smartphone" | "unlinked";
       accountStatus: "all" | "available" | "banned";
       profileStatus: "all" | "complete" | "pending";
-    }
+    },
+    pagination: { offset: number; limit: number }
   ) =>
-    fetchApi<WristbandLookupResult[]>(
+    fetchApi<{
+      items: WristbandLookupResult[];
+      total: number;
+      offset: number;
+      limit: number;
+    }>(
       `/api/wristbands/search?eventId=${encodeURIComponent(eventId)}&query=${encodeURIComponent(query)}` +
-        `&bandType=${filters.bandType}&accountStatus=${filters.accountStatus}&profileStatus=${filters.profileStatus}`
-    ).catch(() => []),
+        `&bandType=${filters.bandType}&accountStatus=${filters.accountStatus}&profileStatus=${filters.profileStatus}` +
+        `&offset=${pagination.offset}&limit=${pagination.limit}`
+    ).catch(() => ({ items: [], total: 0, ...pagination })),
   register: (userId: string, wristbandId: string) =>
     fetchApi<{ success: boolean; wristbandId: string }>("/api/wristbands/register", {
       method: "POST",
