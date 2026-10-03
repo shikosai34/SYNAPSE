@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "exceptions": [
+    {
+      "id": "GHSA-67mh-4wv8-2f99",
+      "package": "esbuild",
+      "versions": ["0.18.20"],
+      "expires": "2026-11-02",
+      "reason": "2026-10-03: drizzle-kit -> @esbuild-kit/esm-loader の開発用依存。脆弱性の esbuild serve API は使用せず、Workers/SPA の成果物にも含まれない。0.18 系からの強制 override は loader 互換性を未検証のため避け、drizzle-kit の依存移行後に削除する。DB Studio/開発サーバーはローカルのみで実行する。",
+      "issue": "https://github.com/shikosai34/SYNAPSE/issues/93"
+    }
+  ]
+}
