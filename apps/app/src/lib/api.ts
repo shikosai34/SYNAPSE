@@ -1,6 +1,8 @@
 import { apiErrorFromResponse, networkApiError } from "./api-error";
 import { readAuthContext } from "./auth-context";
 import type { RoleType } from "@fesflow/config";
+import { createOrderResultSchema, type CreateOrderInput, type CreateOrderResult, type OrderStatus } from "@fesflow/config/order-contract";
+export type { CreateOrderInput, CreateOrderResult, OrderStatus } from "@fesflow/config/order-contract";
 
 export function getApiBaseUrl(): string {
   let url = import.meta.env.VITE_API_URL || "https://localhost:8787";
@@ -255,11 +257,13 @@ export const orderApi = {
     fetchApi<Order>(
       `/api/orders/by-number/${orderNumber}?circleId=${circleId}`
     ),
-  create: (data: CreateOrderInput) =>
-    fetchApi<{ id: string; orderNumber: string }>("/api/orders", {
+  // 2026-10-03: 再試行のキーは画面の会計単位で生成・保持し、レスポンスも共有契約で検証する。
+  create: async (data: CreateOrderInput, idempotencyKey: string): Promise<CreateOrderResult> =>
+    createOrderResultSchema.parse(await fetchApi<unknown>("/api/orders", {
       method: "POST",
       body: data,
-    }),
+      headers: { "Idempotency-Key": idempotencyKey },
+    })),
   updateStatus: (id: string, status: OrderStatus) =>
     fetchApi<{ success: boolean }>(`/api/orders/${id}/status`, {
       method: "PATCH",
@@ -737,13 +741,6 @@ export interface Staff {
   updatedAt: Date;
 }
 
-export type OrderStatus =
-  | "pending"
-  | "preparing"
-  | "ready"
-  | "completed"
-  | "cancelled";
-
 export interface Order {
   id: string;
   circleId: string;
@@ -952,26 +949,6 @@ export interface CreateStaffInput {
 
 export interface UpdateStaffInput {
   name?: string;
-}
-
-export interface CreateOrderInput {
-  circleId: string;
-  userId: string; // 2026-07-04: リストバンド/QR必須化のため追加
-  // レジ担当者の識別子 (現状はログイン中スタッフのメールアドレス)。
-  // DB には order.cashier_id として保存される。
-  // 2026-07-16: 以前あった未使用の `staffId?` はサーバ側が受け取っておらず
-  // (order テーブルに staff_id カラム自体が存在しない) 死んでいたフィールドだったため、
-  // 実際にサーバが受け取る cashierId に置き換えて撤去した。
-  cashierId?: string;
-  peopleCount?: number;
-  items: {
-    menuId: string;
-    quantity: number;
-    toppingIds?: string[];
-  }[];
-  notes?: string;
-  // 支払い方法 (2026-07-12)。省略時はサーバがサークルの単一対応方法を補完する。
-  paymentMethod?: string;
 }
 
 export interface CheckPermissionInput {

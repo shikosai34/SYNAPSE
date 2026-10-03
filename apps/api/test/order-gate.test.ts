@@ -50,7 +50,8 @@ describe("注文の wristband ゲート", () => {
 		const res = await postJson("/api/orders", {
 			circleId,
 			userId,
-			items: [],
+			// 2026-10-03: 入力契約が空注文を拒否するため、サークル到達性の検証には有効形の注文を使う。
+			items: [{ menuId: "m1", quantity: 1 }],
 		});
 		// メニュー未登録のため注文自体の成否はここでは問わない。
 		// ゲート (403/リストバンド) を通過していることだけを確認する。
@@ -61,7 +62,8 @@ describe("注文の wristband ゲート", () => {
 		const res = await postJson("/api/orders", {
 			circleId: uid("no-such-circle"),
 			userId: uid("u"),
-			items: [],
+			// 2026-10-03: バリデーションよりサークル不在の404が先に処理されることを検証する。
+			items: [{ menuId: "m1", quantity: 1 }],
 		});
 		expect(res.status).toBe(404);
 	});
