@@ -4,9 +4,10 @@ import { TrendingUp } from "lucide-react";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/button";
 import { ErrorState } from "@/components/ui/ErrorState";
+import type { CircleSalesOrders } from "@/features/event-dashboard/sales";
 
 interface SalesTabProps {
-  allCirclesOrders: any[] | undefined;
+  allCirclesOrders: CircleSalesOrders[] | undefined;
   ordersLoading: boolean;
   /** 全サークル注文取得の isError (省略時はエラー分岐を表示しない) */
   ordersError?: boolean;
@@ -30,9 +31,9 @@ export function SalesTab({
     let completedOrdersCount = 0;
     let totalOrdersCount = 0;
 
-    allCirclesOrders.forEach((item: any) => {
+    allCirclesOrders.forEach((item) => {
       totalOrdersCount += item.orders.length;
-      item.orders.forEach((o: any) => {
+      item.orders.forEach((o) => {
         if (o.status === "completed") {
           totalSales += o.totalPrice || 0;
           completedOrdersCount += 1;
@@ -47,9 +48,9 @@ export function SalesTab({
   const circleSalesData = (() => {
     if (!allCirclesOrders) return [];
     return allCirclesOrders
-      .map((item: any) => {
+      .map((item) => {
         const sales = item.orders
-          .filter((o: any) => o.status === "completed")
+          .filter((o) => o.status === "completed")
           .reduce((sum: number, o: any) => sum + (o.totalPrice || 0), 0);
         return { name: item.circleName, sales };
       })
@@ -66,8 +67,8 @@ export function SalesTab({
     }));
 
     if (allCirclesOrders) {
-      allCirclesOrders.forEach((item: any) => {
-        item.orders.forEach((o: any) => {
+      allCirclesOrders.forEach((item) => {
+        item.orders.forEach((o) => {
           if (o.status === "completed" && o.createdAt) {
             const hour = new Date(o.createdAt).getHours();
             if (hour >= 9 && hour <= 18) {
