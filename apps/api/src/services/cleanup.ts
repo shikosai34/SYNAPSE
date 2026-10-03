@@ -1,13 +1,39 @@
 import type { WorkerEnv } from "@fesflow/db";
 
-// 2026-10-03 (#83): 既存の60日保持は変えず、終了状態を必須にする。
-// 保存期間・会計資料を含む削除範囲の正式な方針は docs/OPERATIONS.md で別途決定する。
-export const RETENTION_MS = 60 * 24 * 60 * 60 * 1000;
+// 2026-10-04 (#83): 初期値はユーザー指定の1年。管理画面から30日〜10年に調整できる。
+// 値は候補期限だけを変え、CLEANUP_ENABLEDによる削除禁止ゲートは別に維持する。
+export const DEFAULT_RETENTION_DAYS = 365;
+export const MIN_RETENTION_DAYS = 30;
+export const MAX_RETENTION_DAYS = 3650;
+export const RETENTION_SETTING_KEY = "cleanup_retention";
+const DAY_MS = 24 * 60 * 60 * 1000;
+export const RETENTION_MS = DEFAULT_RETENTION_DAYS * DAY_MS;
 const MAX_EVENTS_PER_RUN = 20;
 const CIRCLE_TABLES = ["orders", "pre_order", "circle_visit", "numbered_ticket", "review", "user_stamp"] as const;
 const EVENT_TABLES = ["event_user", "lottery"] as const;
 const TABLES = [...CIRCLE_TABLES, ...EVENT_TABLES] as const;
 type CleanupTable = (typeof TABLES)[number];
+
+/** 不正・旧形式設定は安全な既定保持期間へ戻す。API更新時は別途範囲外を拒否する。 */
+export function normalizeRetentionDays(value: unknown): number {
+  return typeof value === "number" && Number.isInteger(value) &&
+    value >= MIN_RETENTION_DAYS && value <= MAX_RETENTION_DAYS
+    ? value
+    : DEFAULT_RETENTION_DAYS;
+}
+
+/** 管理設定とCronが同じJSON値を読む。未知・壊れた値は365日にフォールバックする。 */
+export async function readCleanupRetentionDays(db: WorkerEnv["DB"]): Promise<number> {
+  const row = await db.prepare("SELECT value FROM system_setting WHERE key = ?")
+    .bind(RETENTION_SETTING_KEY).first<{ value: string }>();
+  if (!row) return DEFAULT_RETENTION_DAYS;
+  try {
+    const stored = JSON.parse(row.value) as { retentionDays?: unknown };
+    return normalizeRetentionDays(stored.retentionDays);
+  } catch {
+    return DEFAULT_RETENTION_DAYS;
+  }
+}
 
 /** 2026-10-03 (#83): school/accounting retention policy must be approved before production deletion. */
 export function cleanupMustDryRun(env: Pick<WorkerEnv, "CLEANUP_ENABLED" | "CLEANUP_DRY_RUN">): boolean {
@@ -38,10 +64,11 @@ export function cleanupStatements(db: WorkerEnv["DB"], eventId: string, cutoff: 
 
 export async function runCleanup(
   db: WorkerEnv["DB"],
-  options: { now?: number; dryRun?: boolean } = {},
+  options: { now?: number; dryRun?: boolean; retentionDays?: number } = {},
 ): Promise<CleanupResult> {
   const runId = crypto.randomUUID();
-  const cutoff = (options.now ?? Date.now()) - RETENTION_MS;
+  const retentionDays = normalizeRetentionDays(options.retentionDays ?? await readCleanupRetentionDays(db));
+  const cutoff = (options.now ?? Date.now()) - retentionDays * DAY_MS;
   const dryRun = options.dryRun ?? false;
   const result: CleanupResult = {
     dryRun, candidateEvents: 0, processedEvents: 0,

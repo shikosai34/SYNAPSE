@@ -3,11 +3,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { env } from "cloudflare:test";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
-import { authAttempt, event, circle, eventUser, order, lottery } from "@fesflow/db";
+import { authAttempt, event, circle, eventUser, order, lottery, systemSetting } from "@fesflow/db";
 import { eq } from "drizzle-orm";
 import { AppError, registerErrorHandlers } from "../src/http-error";
 import { requestObservability, successSampleRate } from "../src/middleware/observability";
-import { cleanupMustDryRun, cleanupStatements, RETENTION_MS, runCleanup } from "../src/services/cleanup";
+import { cleanupMustDryRun, cleanupStatements, normalizeRetentionDays, RETENTION_MS, RETENTION_SETTING_KEY, runCleanup } from "../src/services/cleanup";
 import { identityAttemptKey, recordFailure, retryAfterSeconds, clearAttempts } from "../src/utils/rate-limit";
 import type { AppEnv } from "../src/types";
 import { testDb, uid } from "./helpers";
@@ -113,6 +113,17 @@ describe("event deletion approval gate", () => {
 	});
 });
 
+describe("event retention setting", () => {
+	it("defaults to one year and accepts only whole days from 30 days to 10 years", () => {
+		expect(normalizeRetentionDays(undefined)).toBe(365);
+		expect(normalizeRetentionDays(30)).toBe(30);
+		expect(normalizeRetentionDays(3650)).toBe(3650);
+		for (const invalid of [null, "365", 29, 3651, 1.5, Number.NaN]) {
+			expect(normalizeRetentionDays(invalid)).toBe(365);
+		}
+	});
+});
+
 describe("lifecycle-safe retention", () => {
   const seeded: string[] = [];
   const now = 1_800_000_000_000;
@@ -158,6 +169,23 @@ describe("lifecycle-safe retention", () => {
     await testDb().update(event).set({ lifecycleStatus: "live" }).where(eq(event.id, fixture.eventId));
     await env.DB.batch(statements);
     expect(await userExists(fixture.userId)).toBe(true);
+  });
+  it("uses the configured day count when previewing eligible records", async () => {
+    vi.spyOn(console, "info").mockImplementation(() => {});
+    const db = testDb();
+    await db.insert(systemSetting).values({ key: RETENTION_SETTING_KEY, value: JSON.stringify({ retentionDays: 30 }) })
+      .onConflictDoUpdate({ target: systemSetting.key, set: { value: JSON.stringify({ retentionDays: 30 }) } });
+    try {
+      const older = await seed("ended", now - 31 * 24 * 60 * 60 * 1000);
+      const boundary = await seed("ended", now - 30 * 24 * 60 * 60 * 1000);
+      const preview = await runCleanup(env.DB, { now, dryRun: true });
+      expect(preview.changes.event_user).toBeGreaterThanOrEqual(1);
+      expect(await userExists(older.userId)).toBe(true);
+      expect(await userExists(boundary.userId)).toBe(true);
+      expect(preview.candidateEvents).toBeGreaterThanOrEqual(1);
+    } finally {
+      await db.delete(systemSetting).where(eq(systemSetting.key, RETENTION_SETTING_KEY));
+    }
   });
   it("rolls back all tables for an event when a late deletion fails", async () => {
     const fixture = await seed("ended");

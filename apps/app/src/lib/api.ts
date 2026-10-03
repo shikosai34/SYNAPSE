@@ -1293,6 +1293,15 @@ export interface SystemSettings {
   maintenance: { enabled: boolean; message: string };
 }
 
+export interface AdminSystemSettings extends SystemSettings {
+  cleanup: { retentionDays: number; minDays: number; maxDays: number; dryRun: boolean };
+}
+
+export type AdminSystemSettingsUpdate = {
+  maintenance?: SystemSettings["maintenance"];
+  cleanup?: { retentionDays: number };
+};
+
 export type AnnouncementLevel = "info" | "warning" | "critical";
 
 export interface PublicAnnouncement {
@@ -1332,8 +1341,8 @@ export const adminApi = {
   listLockouts: () => fetchApi<SystemLockout[]>("/api/admin/lockouts"),
   clearLockout: (id: string) =>
     fetchApi<{ success: boolean }>(`/api/admin/lockouts/${id}`, { method: "DELETE" }),
-  getSettings: () => fetchApi<SystemSettings>("/api/admin/settings"),
-  updateSettings: (data: Partial<SystemSettings>) =>
+  getSettings: () => fetchApi<AdminSystemSettings>("/api/admin/settings"),
+  updateSettings: (data: AdminSystemSettingsUpdate) =>
     fetchApi<{ success: boolean }>("/api/admin/settings", { method: "PUT", body: data }),
   // お知らせ CMS
   listAnnouncements: () => fetchApi<AdminAnnouncement[]>("/api/admin/announcements"),
