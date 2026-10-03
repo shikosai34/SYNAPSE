@@ -33,6 +33,14 @@ import {
   IMPERSONATION_TTL_MS,
 } from "../utils/sudo";
 import type { AppEnv, AppVariables } from "../types";
+import {
+  cleanupMustDryRun,
+  DEFAULT_RETENTION_DAYS,
+  MAX_RETENTION_DAYS,
+  MIN_RETENTION_DAYS,
+  normalizeRetentionDays,
+  RETENTION_SETTING_KEY,
+} from "../services/cleanup";
 
 // ── 公開システム設定 (メンテナンス/お知らせ) ────────────────────────────
 // 全アプリが起動時に読む。認証不要。value は JSON 文字列で保存。
@@ -112,10 +120,20 @@ adminRoutes.use("*", async (c, next) => {
 });
 
 // メンテナンス設定の取得 (管理画面用)
+// 2026-10-04 (#83): 保持日数と削除可否を分離し、設定変更だけで本番削除が有効にならないようにする。
 adminRoutes.get("/settings", async (c) => {
   const db = c.get("db");
   const maintenance = await readSetting(db, MAINT_KEY, DEFAULT_MAINT);
-  return c.json({ maintenance });
+  const cleanupSetting = await readSetting(db, RETENTION_SETTING_KEY, { retentionDays: DEFAULT_RETENTION_DAYS });
+  return c.json({
+    maintenance,
+    cleanup: {
+      retentionDays: normalizeRetentionDays(cleanupSetting.retentionDays),
+      minDays: MIN_RETENTION_DAYS,
+      maxDays: MAX_RETENTION_DAYS,
+      dryRun: cleanupMustDryRun(c.env),
+    },
+  });
 });
 
 // メンテナンス設定の更新
@@ -126,12 +144,27 @@ adminRoutes.put(
       maintenance: z
         .object({ enabled: z.boolean(), message: z.string().max(500) })
         .optional(),
+      cleanup: z.object({
+        retentionDays: z.number().int().min(MIN_RETENTION_DAYS).max(MAX_RETENTION_DAYS),
+      }).optional(),
     }),
   ),
   async (c) => {
     const db = c.get("db");
     const input = c.req.valid("json");
     if (input.maintenance) await writeSetting(db, MAINT_KEY, input.maintenance);
+    if (input.cleanup) await writeSetting(db, RETENTION_SETTING_KEY, input.cleanup);
+    if (input.maintenance || input.cleanup) {
+      await audit(c, {
+        actorEmail: c.get("adminEmail"),
+        action: "system_setting_update",
+        method: "PUT",
+        path: "/api/admin/settings",
+        summary: input.cleanup
+          ? `イベントデータ保持期間を${input.cleanup.retentionDays}日に変更`
+          : "メンテナンス設定を変更",
+      });
+    }
     return c.json({ success: true });
   },
 );

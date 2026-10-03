@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { zBody } from "../z-validator";
 import { AppError, apiError } from "../http-error";
 import { z } from "zod";
+import { createOrderSchema, type CreateOrderResult } from "@fesflow/config/order-contract";
 import {
   order,
   orderItem,
@@ -9,17 +10,17 @@ import {
   menu,
   menuTopping,
   topping,
-  userStamp,
   circle,
   event,
   eventUser,
   wristband,
-  type DB,
+  orderCommit,
 } from "@fesflow/db";
-import { eq, and, or, desc, sql, inArray } from "drizzle-orm";
+import { eq, and, or, desc, inArray, sql } from "drizzle-orm";
 import { ulid } from "ulidx";
 import { hasPermission } from "../utils/auth";
-import { decrementStockWithGuard } from "../utils/stock";
+import { commitOrder, committedOrder, orderCommand } from "../services/order-commit";
+import { updateOrderStatus } from "../services/order-status";
 import type { AppEnv } from "../types";
 
 const orderRoutes = new Hono<AppEnv>();
@@ -34,42 +35,6 @@ const ORDER_STATUS_TRANSITIONS: Record<string, string[]> = {
   completed: [],
   cancelled: [],
 };
-
-// 注文番号を生成（サークル内で連番）
-// 2026-07-08 (Phase5): db をモジュール Proxy ではなく引数で受け取る (Context を持たない
-// トップレベル関数のため、計画通り db を明示的な引数にした)。
-async function generateOrderNumber(db: DB, circleId: string): Promise<string> {
-  // 今日の日本時間の開始時刻を取得
-  const now = new Date();
-  const jstOffset = 9 * 60 * 60 * 1000; // JST is UTC+9
-  const jstNow = new Date(now.getTime() + jstOffset);
-  const todayJST = new Date(
-    jstNow.getFullYear(),
-    jstNow.getMonth(),
-    jstNow.getDate()
-  );
-  const todayUTC = new Date(todayJST.getTime() - jstOffset);
-
-  const todayOrders = await db
-    .select({ orderNumber: order.orderNumber })
-    .from(order)
-    .where(
-      and(
-        eq(order.circleId, circleId),
-        sql`${order.createdAt} >= ${todayUTC.getTime()}`
-      )
-    );
-
-  const nextNumber = todayOrders.length + 1;
-  // サークルID先頭4文字 + 日付 + 連番で一意性を確保
-  const dateStr = `${(jstNow.getMonth() + 1)
-    .toString()
-    .padStart(2, "0")}${jstNow.getDate().toString().padStart(2, "0")}`;
-  return `${circleId.slice(0, 4)}-${dateStr}-${String(nextNumber).padStart(
-    3,
-    "0"
-  )}`;
-}
 
 // 注文一覧取得
 orderRoutes.get("/", async (c) => {
@@ -87,21 +52,19 @@ orderRoutes.get("/", async (c) => {
     apiError("FORBIDDEN", "権限がありません");
   }
 
-  let query = db
+  // 2026-10-03 (#22): 状態で厨房が絞り込む注文を、配列化前にD1で限定する。
+  const query = db
     .select()
     .from(order)
-    .where(eq(order.circleId, circleId))
+    .where(status
+      ? and(eq(order.circleId, circleId), eq(order.status, status))
+      : eq(order.circleId, circleId))
     .orderBy(desc(order.createdAt));
 
   const orders = await query;
 
-  // statusでフィルタリング
-  const filteredOrders = status
-    ? orders.filter((o) => o.status === status)
-    : orders;
-
   // 各注文のアイテムを取得
-  const orderIds = filteredOrders.map((o) => o.id);
+  const orderIds = orders.map((o) => o.id);
 
   if (orderIds.length === 0) {
     return c.json([]);
@@ -110,23 +73,35 @@ orderRoutes.get("/", async (c) => {
   const items = await db
     .select()
     .from(orderItem)
-    .where(inArray(orderItem.orderId, orderIds));
+    // 2026-10-03: D1のbound parameter上限を超えないよう、可変IDをJSON 1 bindにする。
+    .where(inArray(orderItem.orderId, sql`SELECT value FROM json_each(${JSON.stringify(orderIds)})`));
 
   const itemIds = items.map((i) => i.id);
   const allItemToppings = itemIds.length > 0
     ? await db
         .select()
         .from(orderItemTopping)
-        .where(inArray(orderItemTopping.orderItemId, itemIds))
+        .where(inArray(orderItemTopping.orderItemId, sql`SELECT value FROM json_each(${JSON.stringify(itemIds)})`))
     : [];
 
   // 注文にアイテムを追加
-  const ordersWithItems = filteredOrders.map((o) => ({
+  const toppingsByItem = new Map<string, typeof allItemToppings>();
+  for (const itemTopping of allItemToppings) {
+    const list = toppingsByItem.get(itemTopping.orderItemId) ?? [];
+    list.push(itemTopping);
+    toppingsByItem.set(itemTopping.orderItemId, list);
+  }
+  const itemsByOrder = new Map<string, typeof items>();
+  for (const item of items) {
+    const list = itemsByOrder.get(item.orderId) ?? [];
+    list.push(item);
+    itemsByOrder.set(item.orderId, list);
+  }
+  const ordersWithItems = orders.map((o) => ({
     ...o,
-    items: items.filter((i) => i.orderId === o.id).map((item) => ({
+    items: (itemsByOrder.get(o.id) ?? []).map((item) => ({
       ...item,
-      toppings: allItemToppings
-        .filter((t) => t.orderItemId === item.id)
+      toppings: (toppingsByItem.get(item.id) ?? [])
         .map((t) => ({
           ...t,
           name: t.toppingName,
@@ -333,53 +308,61 @@ orderRoutes.get("/by-number/:orderNumber", async (c) => {
 // 注文作成
 orderRoutes.post(
   "/",
-  zBody(
-    z.object({
-      circleId: z.string(),
-      cashierId: z.string().optional(),
-      userId: z.string(), // ゲストID (2026-07-04: リストバンド/QR必須化のため必須化)
-      peopleCount: z.number().min(1).default(1),
-      // 支払い方法 (2026-07-12): レジで選択された方法。省略時はサークルの対応方法が
-      // 1つならサーバが補完する (単一方法はレジで選択させないため)。
-      paymentMethod: z.string().max(30).optional(),
-      items: z.array(
-        z.object({
-          menuId: z.string(),
-          quantity: z.number().min(1),
-          toppingIds: z.array(z.string()).optional(),
-        })
-      ),
-    })
-  ),
+  zBody(createOrderSchema),
   async (c) => {
     const db = c.get("db");
     try {
       const input = c.req.valid("json");
       const orderId = ulid();
+      // 2026-10-03: 再送結果は在庫/価格の再検証前に返し、成功後のレスポンス紛失にも対応する。
+      const command = await orderCommand(`pos:${input.circleId}:${input.userId}`, c.req.header("Idempotency-Key"), input);
 
-      // 2026-07-04: D1 の外部キー制約エラー回避のため、必要に応じて eventUser を自動作成する
-      const circles = await db
-        .select()
+      // 2026-10-03: 再送照会と注文コンテキストを1つのJOINにまとめ、D1の直列readを1回減らす。
+      // 保存済み注文は再検証より先に返す。サークル削除後の再送だけは下のfallback照会で維持する。
+      const contextRows = await db
+        .select({
+          circle: { id: circle.id, eventId: circle.eventId, settings: circle.settings },
+          event: {
+            id: event.id,
+            deletedAt: event.deletedAt,
+            billingStatus: event.billingStatus,
+            lifecycleStatus: event.lifecycleStatus,
+            endDate: event.endDate,
+          },
+          user: { id: eventUser.id, eventId: eventUser.eventId, status: eventUser.status },
+          committed: { id: order.id, orderNumber: order.orderNumber, fingerprint: orderCommit.fingerprint },
+        })
         .from(circle)
-        .where(eq(circle.id, input.circleId));
-      if (circles.length === 0) {
+        .leftJoin(event, eq(event.id, circle.eventId))
+        .leftJoin(eventUser, eq(eventUser.id, input.userId))
+        .leftJoin(orderCommit, eq(orderCommit.key, command.key))
+        .leftJoin(order, eq(order.id, orderCommit.orderId))
+        .where(eq(circle.id, input.circleId))
+        .limit(1);
+      if (contextRows.length === 0) {
+        const saved = await committedOrder(c.env.DB, command);
+        if (saved) return c.json(saved, 201);
         apiError("NOT_FOUND", `サークル ${input.circleId} が存在しません`);
       }
-      const eventId = circles[0]!.eventId;
+      const context = contextRows[0]!;
+      if (context.committed?.id) {
+        if (context.committed.fingerprint !== command.fingerprint) {
+          apiError("CONFLICT", "同じ注文キーで内容を変更することはできません");
+        }
+        return c.json({ id: context.committed.id, orderNumber: context.committed.orderNumber }, 201);
+      }
+      const eventId = context.circle.eventId;
 
-      // 2026-07-15: イベントの停止/削除を注文時にハードゲートする。
-      // 従来 billingStatus==="suspended" はサークル作成時しか見ておらず、停止済みイベントでも
-      // 注文が通ってしまう「UIと実挙動の乖離」があった。停止(suspended)・論理削除(deletedAt)の
-      // どちらでも新規注文を受け付けない。
-      const eventRows = await db.select().from(event).where(eq(event.id, eventId));
-      if (eventRows.length === 0 || eventRows[0]!.deletedAt) {
+      // 開催状態・利用停止・来場者BANは同じJOIN結果で確認し、いずれも注文確定時にも再検証する。
+      const eventRow = context.event;
+      if (!eventRow?.id || eventRow.deletedAt) {
         apiError("BAD_REQUEST", "このイベントは終了しています");
       }
-      if (eventRows[0]!.billingStatus === "suspended") {
+      if (eventRow.billingStatus === "suspended") {
         apiError("BAD_REQUEST", "このイベントは現在停止中のため注文を受け付けていません");
       }
       // 開催ライフサイクル状態が live 以外なら注文を受け付けない (状態が正本)。
-      const lifecycle = eventRows[0]!.lifecycleStatus;
+      const lifecycle = eventRow.lifecycleStatus;
       if (lifecycle === "upcoming") {
         apiError("BAD_REQUEST", "このイベントはまだ開催前のため注文を受け付けていません");
       }
@@ -387,7 +370,7 @@ orderRoutes.post(
         apiError("BAD_REQUEST", "このイベントは終了しているため注文を受け付けていません");
       }
       // 期間(endDate)超過は自動締切のセーフティネット (状態を live のままにしていても止まる)。
-      const eventEnd = eventRows[0]!.endDate;
+      const eventEnd = eventRow.endDate;
       if (eventEnd && eventEnd.getTime() < Date.now()) {
         apiError("BAD_REQUEST", "このイベントは開催期間を終了しているため注文を受け付けていません");
       }
@@ -398,7 +381,7 @@ orderRoutes.post(
       //   "completed"  : 受付と同時に即完成 (厨房を経由しない模擬店向け)
       let orderFlowMode: "pending" | "preparing" | "completed" = "pending";
       try {
-        const parsed = JSON.parse(circles[0]!.settings || "{}");
+        const parsed = JSON.parse(context.circle.settings || "{}");
         if (
           parsed?.orderFlowMode === "preparing" ||
           parsed?.orderFlowMode === "completed"
@@ -409,11 +392,8 @@ orderRoutes.post(
         // 設定が壊れていても既定(pending)で継続する
       }
 
-      const existingUser = await db
-        .select()
-        .from(eventUser)
-        .where(eq(eventUser.id, input.userId));
-      if (existingUser.length === 0) {
+      const existingUser = context.user;
+      if (!existingUser?.id) {
         // 2026-07-06: 「発行しないと使えない」方針。任意の userId から eventUser を
         // 自動作成する経路(自己発行の抜け穴)を撤去。正規の来場者IDは受付での発行
         // (POST /wristbands/issue) か物理バンドのスキャン(lookup)でのみ得られる。
@@ -422,11 +402,11 @@ orderRoutes.post(
           "FORBIDDEN",
           "リストバンドが発行されていません。受付でリストバンドの発行を受けるか、店頭でスタッフにお申し付けください。",
         );
-      } else if (existingUser[0]!.status === "banned") {
+      } else if (existingUser.status === "banned") {
         // 2026-07-15: BAN された来場者の注文を拒否する。従来 status:"banned" は
         // 更新APIのenum値としてのみ存在し、どこでも検査されず「BANできない」状態だった。
         apiError("FORBIDDEN", "このリストバンドは利用できません。受付・本部にお問い合わせください。");
-      } else if (existingUser[0]!.eventId !== eventId) {
+      } else if (existingUser.eventId !== eventId) {
         // 2026-07-06: クロスイベント混入対策 (H-3, ベストエフォート)。
         // userId は認証を伴わないベアラー値のため、既存の userId を任意に指定して
         // 他人へのなりすましスタンプ付与/抽選不正を狙える。完全な防止にはセッションが
@@ -435,35 +415,21 @@ orderRoutes.post(
         apiError("BAD_REQUEST", "ユーザーとサークルのイベントが一致しません");
       }
 
-      // 注文番号を生成
-      const orderNumber = await generateOrderNumber(db, input.circleId);
 
       // メニューの価格を取得
       const menuIds = input.items.map((i) => i.menuId);
-      const menus = await db
-        .select()
-        .from(menu)
-        .where(inArray(menu.id, menuIds));
-
-      // トッピングの価格を取得
       const allToppingIds = input.items.flatMap((i) => i.toppingIds || []);
-      const toppings =
-        allToppingIds.length > 0
-          ? await db
-              .select()
-              .from(topping)
-              .where(inArray(topping.id, allToppingIds))
-          : [];
-
       // 2026-07-05: 指定トッピングが対象メニューに実際に紐付いているかを検証するため
-      // menu_topping の関連を取得しておく
-      const menuToppingLinks =
+      // menu_topping の関連を取得しておく。2026-10-03: 独立した読取を同時に開始する。
+      const [menus, toppings, menuToppingLinks] = await Promise.all([
+        db.select().from(menu).where(inArray(menu.id, menuIds)),
         allToppingIds.length > 0
-          ? await db
-              .select()
-              .from(menuTopping)
-              .where(inArray(menuTopping.menuId, menuIds))
-          : [];
+          ? db.select().from(topping).where(inArray(topping.id, allToppingIds))
+          : Promise.resolve([]),
+        allToppingIds.length > 0
+          ? db.select().from(menuTopping).where(inArray(menuTopping.menuId, menuIds))
+          : Promise.resolve([]),
+      ]);
 
       // 合計金額を計算
       let totalPrice = 0;
@@ -474,6 +440,7 @@ orderRoutes.post(
         menuName: string;
         menuPrice: number;
         quantity: number;
+        inventoryEnabled: boolean;
         toppingIds?: string[];
       }[] = [];
       // 商品ごとに在庫管理が有効なメニューの必要数を集計する。数量0も在庫切れとして扱う。
@@ -559,45 +526,20 @@ orderRoutes.post(
           menuName: menuItem.name,
           menuPrice: menuItem.price,
           quantity: item.quantity,
+          inventoryEnabled: menuItem.inventoryEnabled,
           toppingIds: item.toppingIds,
         });
 
         totalPrice += subtotal;
       }
 
-      // 2026-07-05: 在庫管理メニューの在庫をガード付きUPDATEで減算する。
-      // D1 は対話的トランザクション非対応のため、条件付きUPDATEで0行更新なら在庫不足として
-      // 注文全体を中断する（レース対策）。
-      // 2026-07-13 (リグレッション修正): 一時 db.transaction() 化していたが、Cloudflare D1 の
-      // ドライバは transaction() 内で `BEGIN` を発行し、D1 がこれを拒否して例外→注文が全て 500 に
-      // なっていた (POST /api/orders 500)。D1 は対話的トランザクションを提供しないため、
-      // 従来どおり逐次実行＋ガード付きUPDATE＋ベストエフォート補償に戻す。
-      // 2026-07-16: この減算＋ベストエフォート補償ロジックは pre_order.ts の受取確定(claim)と
-      // 完全に同一だったため utils/stock.ts へ共通化した (片方だけ直す変更漏れ事故を防ぐため)。
-      // 必要数の集計 (stockNeeded / toppingStockNeeded、上記ループ) は order.ts 側の
-      // 独自チェック (在庫不足の早期検出) を含むため、そのままここに残す。
-      const { restoreStockBestEffort } = await decrementStockWithGuard(
-        db,
-        stockNeeded,
-        toppingStockNeeded,
-        {
-          getMenuName: (menuId) => menus.find((m) => m.id === menuId)?.name,
-          getToppingName: (toppingId) => toppings.find((t) => t.id === toppingId)?.name,
-        }
-      );
-      // 2026-07-06: 既知の制約 (M-5)。D1 はマルチステートメントの対話的トランザクションに
-      // 対応していないため、この関数全体 (在庫減算 → order insert → orderItem/topping insert)
-      // は単一のACIDトランザクションではなく逐次実行になっている。途中で失敗すると
-      // 「在庫だけ減って注文レコードが残らない」等の不整合が理論上発生し得る。
-      // 完全な補償(SAGA等)は複雑になるため今回はスコープ外とし、以下では order insert 以降を
-      // try/catch で囲み、失敗時に減算済み在庫を戻すベストエフォートの補償のみ行う。
-      // (在庫減算そのものの失敗は上のガード付きUPDATEで既に処理済みなのでここでは対象外)
+      // 2026-10-03: 在庫減算は注文/明細と同じD1 batchで実施する。逐次補償は不要。
       // 支払い方法の解決 (2026-07-12): 明示指定を優先し、無ければサークルの対応方法が
       // ちょうど1つのときだけそれを補完する (単一方法はレジで選択させないため)。
       let resolvedPayment: string | undefined = input.paymentMethod?.trim() || undefined;
       if (!resolvedPayment) {
         try {
-          const parsed = JSON.parse(circles[0]!.settings || "{}");
+          const parsed = JSON.parse(context.circle.settings || "{}");
           const accepted: unknown = parsed?.acceptedPayments;
           if (Array.isArray(accepted) && accepted.length === 1 && typeof accepted[0] === "string") {
             resolvedPayment = accepted[0];
@@ -607,86 +549,24 @@ orderRoutes.post(
         }
       }
 
-      try {
-        // 2. 注文を作成 (注文モードに応じて初期ステータスを決定)
-        const isDirectComplete = orderFlowMode === "completed";
-        await db.insert(order).values({
-          id: orderId,
-          circleId: input.circleId,
-          cashierId: input.cashierId,
-          userId: input.userId, // ゲストIDを保存
-          orderNumber,
-          peopleCount: input.peopleCount,
-          status: orderFlowMode,
-          totalPrice,
-          paymentMethod: resolvedPayment,
-          completed: isDirectComplete,
-          completedAt: isDirectComplete ? new Date() : undefined,
-        });
-
-        // 3. 未着手以外(調理中/即完成)で受け付けた場合、この時点でスタンプを付与する。
-        // 未着手受付の場合は従来どおり pending→preparing 遷移時に付与される。
-        if (orderFlowMode !== "pending" && input.userId) {
-          const existingStamp = await db
-            .select()
-            .from(userStamp)
-            .where(
-              and(
-                eq(userStamp.userId, input.userId),
-                eq(userStamp.circleId, input.circleId)
-              )
-            );
-          if (existingStamp.length === 0) {
-            await db.insert(userStamp).values({
-              id: ulid(),
-              userId: input.userId,
-              circleId: input.circleId,
-            });
-          }
-        }
-
-        // 注文アイテムを作成
-        for (const item of orderItems) {
-          await db.insert(orderItem).values({
-            id: item.id,
-            orderId: item.orderId,
-            menuId: item.menuId,
-            menuName: item.menuName,
-            menuPrice: item.menuPrice,
-            quantity: item.quantity,
-          });
-
-          // トッピングを関連付け
-          if (item.toppingIds && item.toppingIds.length > 0) {
-            for (const toppingId of item.toppingIds) {
-              const toppingItem = toppings.find((t) => t.id === toppingId);
-              if (toppingItem) {
-                await db.insert(orderItemTopping).values({
-                  id: ulid(),
-                  orderItemId: item.id,
-                  toppingId,
-                  toppingName: toppingItem.name,
-                  toppingPrice: toppingItem.price,
-                });
-              }
-            }
-          }
-        }
-      } catch (innerError) {
-        // ベストエフォート補償: order/orderItem 作成が失敗した場合、既に減算済みの
-        // メニュー/トッピング在庫を可能な範囲で戻す (在庫が減ったまま注文が存在しない
-        // 不整合を軽減する)。逐次実行のため完全なロールバックの保証はない (M-5)。
-        await restoreStockBestEffort();
-        throw innerError;
-      }
-
-      return c.json({ id: orderId, orderNumber }, 201);
+      const committed = await commitOrder(c.env.DB, command, {
+        id: orderId, circleId: input.circleId, userId: input.userId,
+        cashierId: input.cashierId, peopleCount: input.peopleCount,
+        totalPrice, paymentMethod: resolvedPayment, status: orderFlowMode,
+        items: orderItems.map((item) => ({ ...item,
+          toppings: (item.toppingIds ?? []).map((id) => {
+            const t = toppings.find((row) => row.id === id)!;
+            return { toppingId: t.id, toppingName: t.name, toppingPrice: t.price };
+          }),
+        })),
+      });
+      return c.json(committed satisfies CreateOrderResult, 201);
     } catch (error) {
       // Phase4: apiError/AppError による意図的な 4xx (NOT_FOUND/BAD_REQUEST/FORBIDDEN 等) を
       // ここで握りつぶして 500 に丸めないよう、AppError はそのまま再 throw して onError に委ねる。
       if (error instanceof AppError) throw error;
-      console.error("Order creation error:", error);
-      apiError("INTERNAL", `注文の作成に失敗しました: ${error instanceof Error ? error.message : String(error)}`);
+      // 2026-10-03: SQLやbind値をレスポンス/ログへ流さず、共通ハンドラのrequestIdで追跡する。
+      throw error;
     }
   }
 );
@@ -710,12 +590,23 @@ orderRoutes.patch(
     const id = c.req.param("id");
     const input = c.req.valid("json");
 
-    const existingOrder = await db.select().from(order).where(eq(order.id, id));
+    const existingOrder = await db
+      .select({
+        id: order.id,
+        circleId: order.circleId,
+        userId: order.userId,
+        status: order.status,
+        eventId: circle.eventId,
+      })
+      .from(order)
+      // 2026-10-03: 権限判定に必要なeventIdも同じreadで取得し、auth gate内のcircle照会を避ける。
+      .leftJoin(circle, eq(circle.id, order.circleId))
+      .where(eq(order.id, id));
     if (existingOrder.length === 0) apiError("NOT_FOUND", "見つかりません");
 
     const targetOrder = existingOrder[0]!;
 
-    if (!(await hasPermission(c, targetOrder.circleId, "order:write"))) {
+    if (!(await hasPermission(c, targetOrder.circleId, "order:write", targetOrder.eventId ?? undefined))) {
       apiError("FORBIDDEN", "権限がありません");
     }
 
@@ -728,29 +619,17 @@ orderRoutes.patch(
       apiError("BAD_REQUEST", `${targetOrder.status} から ${input.status} への変更はできません`);
     }
 
-    // pending -> preparing に変わった場合、スタンプを付与
-    if (targetOrder.status === "pending" && input.status === "preparing" && targetOrder.userId) {
-      // 既にスタンプを獲得しているか確認
-      const existingStamp = await db.select().from(userStamp).where(
-        and(
-          eq(userStamp.userId, targetOrder.userId),
-          eq(userStamp.circleId, targetOrder.circleId)
-        )
-      );
-
-      if (existingStamp.length === 0) {
-        await db.insert(userStamp).values({
-          id: ulid(),
-          userId: targetOrder.userId,
-          circleId: targetOrder.circleId,
-        });
-      }
+    const transitioned = await updateOrderStatus(c.env.DB, {
+      orderId: id,
+      expectedStatus: targetOrder.status,
+      nextStatus: input.status,
+      stamp: targetOrder.status === "pending" && input.status === "preparing" && targetOrder.userId
+        ? { id: ulid(), userId: targetOrder.userId, circleId: targetOrder.circleId }
+        : undefined,
+    });
+    if (!transitioned) {
+      apiError("CONFLICT", "他の操作で注文状態が更新されました。最新の状態を読み直してください");
     }
-
-    await db
-      .update(order)
-      .set({ status: input.status })
-      .where(eq(order.id, id));
 
     return c.json({ success: true });
   }

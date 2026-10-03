@@ -42,6 +42,11 @@ export interface WorkerEnv {
   // 本番/開発の wrangler.jsonc・.dev.vars では設定しないこと (設定するとメールログインが復活する)。
   ENABLE_EMAIL_PASSWORD?: string;
   PRODUCT_NAME?: string;
+  // 2026-10-03 (#83): 学校・会計規程の確認が終わるまでイベントデータの削除を無効にする。
+  CLEANUP_ENABLED?: string;
+  // 2026-10-03: 運用時の削除確認とログ量の調整用。秘密値ではない。
+  CLEANUP_DRY_RUN?: string;
+  REQUEST_LOG_SAMPLE_RATE?: string;
   // MinIO/S3 フォールバック
   S3_ENDPOINT?: string;
   S3_BUCKET?: string;

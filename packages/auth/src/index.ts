@@ -34,6 +34,10 @@ export function createAuth(db: DB, env: WorkerEnv): Auth {
 		}),
 		secret: env.BETTER_AUTH_SECRET,
 		baseURL: env.BETTER_AUTH_URL,
+		// 2026-10-03 (#94): better-authの既定レート制限はIP共有バケットなので、
+		// 校内NATを共有する利用者同士を拒否しないよう無効化する。認証失敗はAPI側で
+		// メール/パスキー識別子ごとのHMACバケットへ記録し、段階遅延を適用する。
+		rateLimit: { enabled: false },
 		// オリジンが trustedOrigins に無いと better-auth が 403 INVALID_ORIGIN で弾く
 		// ("origin が間違ってる" エラーの正体)。
 		// - 本番: fesflow.shikosai.net (apex) + そのサブドメイン全部をワイルドカードで信頼。
