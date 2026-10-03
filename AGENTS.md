@@ -19,19 +19,20 @@
 - Product name: **FesFlow** (`packages/config` の PRODUCT_NAME に集約。名称変更はここだけ編集)
 - Frontend: Vite + React 19 + React Router (SPA)。UI は Tailwind v4 + radix/shadcn
 - Backend: Hono を Cloudflare Workers 上で実行 (`apps/api`)
-- API: REST (Hono routes) + tRPC。認証は better-auth
+- API: Hono REST。認証は better-auth
 - Language: TypeScript / Package manager: bun / monorepo: turbo
 - Database: Cloudflare D1 (drizzle-orm)。ローカルは wrangler(Miniflare) がエミュレート
 - Storage: Cloudflare R2 (`packages/storage` で抽象化、ローカルは MinIO/wrangler)
 - Deploy target: Cloudflare Workers (API=Worker, フロント=Workers Static Assets)
-- 重要: Worker では db/auth は per-request (AsyncLocalStorage)。`process.env` 直読み禁止、
-  env は `getEnv()` / `c.env` 経由。fs/Node サーバ API は使わない。
+- 重要: Worker では request middleware が db/auth を生成し、handler は `c.get()` で受け取る。
+  `process.env` 直読み禁止、env は `c.env` 経由。fs/Node サーバ API は使わない。
 
 ## Important commands
 - Install: `bun install`
-- Dev(all): `bun run dev` / 個別: `bun run dev:api`(:8787), `bun run dev:register`(:3000)
+- Dev(all): `bun run dev` / 個別: `bun run dev:api`(:8787), `bun run dev:app`(:3000)
 - Typecheck: `bun run check-types` (turbo)
 - Build: `bun run build` (turbo)
+- Security: `bun run audit:dependencies` / `bun run test:tooling`
 - DB: `bun run db:generate` (スキーマ→SQL), `bun run db:migrate:local` / `:remote` (D1適用)
 - Deploy: 各アプリで `bunx wrangler deploy` (or `bun run deploy`)
 
@@ -49,11 +50,12 @@
 - アクセシビリティーに配慮する。
 
 ## Validation
-// TODO 開発開始してpackage.jsonができたら、bunのlintやtestを追加する
 変更後は原則として以下を実行する。
-1. `...`
-2. `...`
-3. `...`
+1. `bun run check-types --force`
+2. `bun run test --force`
+3. `bun run audit:dependencies`
+4. `bun run build --force` (API Worker dry-run bundle と SPA)
+5. `git diff --check`
 
 ## Attention
 - 本番環境の設定値を変更しない。
@@ -67,16 +69,12 @@
 
 ## Directory map
 - `docs`: 設計資料 (`docs/reference` は旧 FesOrder のドメイン資料)
-- `apps/api`: バックエンド (Hono Worker, D1+R2, REST+tRPC+better-auth)
-- `apps/app`: 模擬店/イベント/システム管理向けアプリ (Vite SPA, :3000)
-- `apps/visitor`: 来場者向けアプリ (Vite SPA, :3001)。register とは独立ビルド。
-  入場は /w/:id (リストバンドQR) → オンボーディング(ニックネーム+誕生日) → マイページ。
-  管理者の権限/ダッシュボードは持たない。VITE_REGISTER_URL で店頭スキャン先を指定。
+- `apps/api`: バックエンド (Hono Worker, D1+R2, REST+better-auth)
+- `apps/app`: 模擬店/イベント/システム管理・来場者導線を配信する統合Vite SPA (:3000)
 - `apps/stream`: 校内配信制御アプリ (未着手)
 - `packages/config`: ブランド定数 (PRODUCT_NAME) + tsconfig.base
-- `packages/db`: drizzle スキーマ + createDb / ALS リクエストストア
+- `packages/db`: drizzle スキーマ + request-scoped `createDb`
 - `packages/auth`: better-auth ファクトリ
-- `packages/api`: tRPC ルーター (`@fesflow/api`)
 - `packages/storage`: R2/MinIO 抽象化
 - 移植補助シム: `apps/app/src/components/{link,image,script}.tsx`,
   `apps/app/src/lib/next-navigation.ts` (旧 next/* 互換)

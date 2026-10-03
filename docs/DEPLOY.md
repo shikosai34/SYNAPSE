@@ -1,92 +1,34 @@
-# FesFlow 本番デプロイ手順 (Cloudflare)
+# FesFlow リリース手順
 
-最終更新: 2026-07-04
+最終更新: 2026-10-03。リリースは担当者が対象環境と変更内容を確認して実施する。本資料を更新しただけでは本番設定、D1、DNS、Cloudflare Dashboardを検証したことにならない。
 
-## ドメイン構成
+## 現在のworkspaceとroute
 
-| 用途 | ドメイン | Worker |
-|---|---|---|
-| 来場者 (visitor) | `fesflow.shikosai.net` | `fesflow-visitor` |
-| スタッフ (register) | `staff.fesflow.shikosai.net` | `fesflow-register` |
-| 管理 (register) | `admin.fesflow.shikosai.net` | `fesflow-register`(同一) |
-| API (Hono Worker) | `api.fesflow.shikosai.net` | `fesflow-api` |
+- `apps/app`: React SPA。Workers Static Assetsの設定 `apps/app/wrangler.jsonc`。
+- `apps/api`: Hono Worker。D1/R2の設定 `apps/api/wrangler.jsonc`。
+- 両方とも `fesflow.shikosai.net` を使い、API routeは `/api/*`。昔の`register`/`visitor`複数appや別APIドメインへのリリースコマンドは使わない。
+- `bun run build` はSPAと、deploy flagなしのAPI dry-run bundleを作成する。
 
-- register は1つのSPA。staff/admin の2ドメインを同じ Worker に割り当て、アプリ内でロール別にセクション分けする。
-- 認証Cookieは `sameSite=none; secure`。全て `*.shikosai.net` の同一サイト配下なので、サードパーティCookieブロックの影響を受けにくい。
+## PRでの確認
 
-## 前提 (Cloudflare 側で一度だけ)
+GitHub Actions `Quality / verify` はBun 1.3.13 / Node 22を使い、frozen-lockfile install、npm+OSV security audit、typecheck、test、SPAとWorkerのbuildを実行する。PRにproduction secretは渡さない。main/devのPR protectionで`Quality / verify`をrequired checkに設定するのはrepo administratorの操作。
 
-1. **ゾーン `shikosai.net`** がデプロイ先アカウントにあること（`custom_domain` ルートはゾーンが必要）。
-2. **D1 データベース**: `bunx wrangler d1 create fesflow-db` 済みで、表示された `database_id` が [apps/api/wrangler.jsonc](../apps/api/wrangler.jsonc) の値と一致していること。**現在の値が本番IDか要確認**（ローカル用の仮値なら差し替える）。
-3. **R2 バケット**: `bunx wrangler r2 bucket create fesflow-uploads`。
+## 本番リリース確認
 
-## 手順
+以下を順番に行い、リリース記録に対象commitと結果を書く。
 
-### 1. API の機密を登録 (secret)
+1. mainの承認済みcommitから開始し、working tree・CI・生成migrationを確認する。
+2. Cloudflare accountとplan、`apps/app/wrangler.jsonc` / `apps/api/wrangler.jsonc` のroute、D1 ID、migration履歴、R2 bindingをdashboard/Wranglerで照合する。**レポジトリに書かれた値だけから本番を推測しない。**
+3. D1 backup/exportと復元手順を確認する。SQL migrationの追加・index・foreign key・元データ移行の影響を検査する。
+4. Migrationが必要なら、対象databaseと適用済み履歴を再確認してからリモート適用し、適用一覧を再読込する。Migration失敗時にデータへ手を加える前に停止する。
+5. 必要なAPI Worker / SPAだけをそれぞれの`deploy` scriptでデプロイする。コマンドはWorkers APIへの変更を行うため、リリースオーナーによる明示的な実行判断が必要。
+6. production URLでHTTP、ログイン/session、circle/event権限、注文作成と再送、状態変更、asset配信を確認する。管理者データを書き込む確認は影響範囲を先に決める。
+7. request IDを使ってAPI logを確認し、5xx・latency・D1計測を監視する。異常時はWorker/SPAの既知正常版に戻し、互換性が確認されるまでD1を手動で巻き戻さない。
 
-`.dev.vars` はローカル専用でデプロイされない。本番は secret で登録する。
+## ローカルとproductionの境界
 
-```bash
-cd apps/api
-bunx wrangler secret put BETTER_AUTH_SECRET   # 32文字以上のランダム文字列
-```
+`bun run setup:local`, `bun run db:migrate:local`, Wrangler `--local`はローカルD1だけを変更する。手順を読み替えて`--remote`を付けることはない。Production環境の値やsecret、remote D1、Cron、負荷試験は今回変更・実行していない。
 
-> 非機密の `BETTER_AUTH_URL` / `CORS_ORIGIN` / `INITIAL_SUPER_ADMIN_EMAIL` / `R2_PUBLIC_URL` は
-> [apps/api/wrangler.jsonc](../apps/api/wrangler.jsonc) の `vars` に本番値を記載済み
-> （ローカル開発では `.dev.vars` が上書きする）。
+## 運用判断
 
-### 2. リモート D1 にマイグレーション適用
-
-```bash
-bun run db:migrate:remote   # 0000〜0002 (来場者機能スキーマ含む) を本番D1へ
-```
-
-### 3. ビルド
-
-本番URLは [.env.production](../.env.production) から `vite build` 時に自動で焼き込まれる。
-
-```bash
-bun run build
-```
-
-### 4. デプロイ
-
-```bash
-bun run deploy            # turbo が build 依存込みで api / register / visitor を全デプロイ
-# もしくは個別:
-#   (cd apps/api && bunx wrangler deploy)
-#   (cd apps/register && bunx wrangler deploy)
-#   (cd apps/visitor && bunx wrangler deploy)
-```
-
-初回デプロイ時、`custom_domain` ルートが各ドメインのDNS(CNAME/プロキシ)を自動作成する。
-
-### 5. 初期データ / 動作確認
-
-1. `admin.fesflow.shikosai.net` で **`sato.t.5970@gmail.com`** としてサインアップ
-   → 初回ログイン時に自動で `super_admin` メンバーシップが付与される。
-2. イベントを1件作成（来場者の `/w/:id` 入場はイベントが最低1件ないと FK エラーになる）。
-3. 来場者フロー確認: リストバンドQR `https://fesflow.shikosai.net/w/<id>` → オンボーディング → マイページ。
-4. ログイン/セッションがクロスオリジンで通ること（3フロント全て）を確認。
-
-## 非対話デプロイ (プロンプトで止まる問題)
-
-wrangler は初回に「テレメトリ送信に協力しますか? (Y/n)」を対話で尋ね、ターミナルに
-入力できない環境ではここで停止する。対策済み:
-
-- 各アプリの `deploy` スクリプトは `CI=true WRANGLER_SEND_METRICS=false wrangler deploy`
-  で完全非対話化してある（どのプロンプトも待たずに進む/失敗する）。
-- マシン全体で無効化するには一度だけ `bunx wrangler telemetry disable`。
-
-## トラブルシュート
-
-- **ログインは通るがセッションが保持されない**: better-auth の `trustedOrigins` に該当フロントのオリジンが含まれているか確認（[packages/auth/src/index.ts](../packages/auth/src/index.ts) が `CORS_ORIGIN` をカンマ区切りで読む）。
-- **画像が表示されない**: アップロードURLは API origin ベース（`https://api.fesflow.shikosai.net/uploads/...`）。API のカスタムドメインが有効か確認。
-- **`/w/:id` が 500**: 対象イベントが存在しない可能性。イベントを1件作成する。
-
-## 未対応 (デプロイ後の課題)
-
-- メール送信は未実装（アプリ内通知のみ）。実送信は Resend + 独自ドメインで将来対応。
-- register(イベント管理)から `/api/wristbands/issue` を叩く来場者ID発行UIは未配線。
-- 来場者の本命機能（スタンプラリー/整理券/レビュー/抽選）は未実装（スキーマは用意済み）。
-- CORS は現状ワイルドカード反射 + credentials。必要ならオリジンを絞る。
+60日の保持期間と削除対象、イベント終了後の業務記録保存、開催再開時の時計は正式確認待ち（[#83](https://github.com/shikosai34/SYNAPSE/issues/83)）。本番でCleanup dry-runを先に実施し、件数とbackup復元経路を照合する。詳細は[運用・承認待ち](OPERATIONS.md)、システム境界は[アーキテクチャ](ARCHITECTURE.md)を参照。
