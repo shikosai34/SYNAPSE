@@ -19,38 +19,29 @@
  */
 import { Hono } from "hono";
 import { cors } from "hono/cors";
-import { logger } from "hono/logger";
 import { secureHeaders } from "hono/secure-headers";
 import { nanoid } from "nanoid";
 
 import {
   createDb,
   membership,
-  event,
-  circle,
-  order,
-  preOrder,
-  circleVisit,
-  numberedTicket,
-  review,
-  userStamp,
-  eventUser,
-  lottery,
   type WorkerEnv,
 } from "@fesflow/db";
-import { eq, and, lt, inArray, isNotNull } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { createAuth } from "@fesflow/auth";
 import { createStorage } from "@fesflow/storage";
 import { getSession } from "./utils/auth";
 import {
-  clientIp,
-  isLocked,
+  authAttemptBucket,
+  retryAfterSeconds,
   recordFailure,
   clearAttempts,
-  lockoutMessage,
+  delayMessage,
 } from "./utils/rate-limit";
 import { apiError, registerErrorHandlers } from "./http-error";
 import type { AppEnv } from "./types";
+import { requestObservability } from "./middleware/observability";
+import { cleanupMustDryRun, runCleanup } from "./services/cleanup";
 
 // Hono REST ルート
 import {
@@ -79,9 +70,8 @@ const app = new Hono<AppEnv>();
 // throw するだけでよく、エンベロープ整形やログ出力をここに集約する。
 registerErrorHandlers(app);
 
-// 2026-07-06: logger() は全リクエストの URL をそのまま出力する。URL に userId/wristbandId 等の
-// 識別子が含まれ得る点に注意 (本番でのログ保持/マスキング方針を要検討)。
-app.use(logger());
+// 2026-10-03: URL内のQR・IDを記録せず、ルート定義と相関IDで遅延/障害を追う。
+app.use("/*", requestObservability);
 // 2026-07-05: 基本的なセキュリティレスポンスヘッダを付与 (クリックジャッキング/MIMEスニッフ/
 // HSTS/リファラ抑止)。ただし画像・フォント(/uploads/*)はフロント (別サブドメイン) から
 // <img>/CSS で読み込むため、CORP は cross-origin に緩める (既定の same-origin だと読込が壊れる)。
@@ -133,7 +123,8 @@ app.use("/*", (c, next) =>
     origin: (origin) =>
       isAllowedOrigin(origin, c.env as WorkerEnv) ? origin : null,
     allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allowHeaders: ["Content-Type", "Authorization", "Cookie", "Accept", "X-Active-Membership-Id"],
+    allowHeaders: ["Content-Type", "Authorization", "Cookie", "Accept", "X-Active-Membership-Id", "Idempotency-Key"],
+    exposeHeaders: ["X-Request-ID"],
     credentials: true,
   })(c, next),
 );
@@ -162,36 +153,33 @@ app.use("/*", async (c, next) => {
 });
 
 // Better Auth ハンドラ
-// 2026-07-06: sign-in / sign-up への総当たり・スパム対策 (監査 H4)。
-// better-auth 自体にはレート制限がないため、既存の auth_attempt ベースの
-// ヘルパ (utils/rate-limit.ts) を IP バケットで流用する。対象は POST の
-// sign-in / sign-up 系のみ (セッション取得等の GET は対象外)。
+// 2026-10-03 (#94): 共有NATの1人を理由に同じIPの他の利用者を拒否しないよう、
+// IPバケットは使わず、要求から特定できるメール/パスキー識別子だけをHMAC keyで制限する。
 app.on(["POST", "GET"], "/api/auth/*", async (c) => {
   const db = c.get("db");
   const path = c.req.path;
-  const isAuthAttempt =
-    c.req.method === "POST" &&
-    (path.includes("sign-in") || path.includes("sign-up"));
+  const attemptBucket = await authAttemptBucket(c.req.raw, path, c.env.BETTER_AUTH_SECRET);
 
-  let ipKey = "";
-  if (isAuthAttempt) {
-    ipKey = `auth:ip:${clientIp(c)}`;
-    const retryAfterSec = await isLocked(db, [ipKey]);
+  if (attemptBucket) {
+    const retryAfterSec = await retryAfterSeconds(db, [attemptBucket.key]);
     if (retryAfterSec > 0) {
-      // Phase4: RATE_LIMITED エンベロープに統一。Retry-After はエンベロープと併用して
-      // AppError 側に持たせ、onError で一括してヘッダに反映させる。
-      apiError("RATE_LIMITED", lockoutMessage(retryAfterSec), { status: 429, retryAfterSec });
+      apiError("RATE_LIMITED", delayMessage(retryAfterSec), { status: 429, retryAfterSec });
     }
   }
 
   const auth = c.get("auth");
   const res = await auth.handler(c.req.raw);
 
-  if (isAuthAttempt) {
+  if (attemptBucket) {
     if (res.status >= 400) {
-      await recordFailure(db, [{ key: ipKey, scope: "auth" }]);
+      // 2026-10-03 (#94): 存在しないcredential IDを無制限に送るだけでD1行を増やせるため、
+      // Better Authが「未登録」と判定したパスキーは記録しない。登録済みIDの認証失敗は遅延対象。
+      const authError = await res.clone().json().catch(() => null) as { code?: unknown } | null;
+      if (authError?.code !== "PASSKEY_NOT_FOUND") {
+        await recordFailure(db, [attemptBucket]);
+      }
     } else if (res.status >= 200 && res.status < 300) {
-      await clearAttempts(db, [ipKey]);
+      await clearAttempts(db, [attemptBucket.key]);
     }
   }
 
@@ -318,7 +306,8 @@ const serveUpload = async (c: any) => {
       "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
     });
   } catch (error) {
-    console.error("Failed to serve upload:", error);
+    // 2026-10-03: R2キーや内部例外をログへ出さず、共通リクエストログへ集約する。
+    c.set("errorCode", "INTERNAL");
     return c.text("Internal Server Error", 500);
   }
 };
@@ -329,52 +318,7 @@ app.get("/", (c) => c.text("OK"));
 export default {
   fetch: app.fetch,
   async scheduled(_eventInfo: unknown, env: WorkerEnv, ctx: { waitUntil: (promise: Promise<void>) => void }) {
-    ctx.waitUntil((async () => {
-      console.log("Running scheduled cleanup for events closed more than 2 months ago...");
-      const db = createDb(env.DB);
-      const twoMonthsAgo = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000); // 60日前
-
-      // 2ヶ月以上前に終了したイベントを取得
-      const expiredEvents = await db
-        .select({ id: event.id })
-        .from(event)
-        .where(and(isNotNull(event.endDate), lt(event.endDate, twoMonthsAgo)));
-
-      if (expiredEvents.length === 0) {
-        console.log("No expired events found for cleanup.");
-        return;
-      }
-
-      const eventIds = expiredEvents.map((e) => e.id);
-
-      // それらのイベントに属するサークルを取得
-      const expiredCircles = await db
-        .select({ id: circle.id })
-        .from(circle)
-        .where(inArray(circle.eventId, eventIds));
-
-      const circleIds = expiredCircles.map((c) => c.id);
-
-      console.log(`Cleaning up data for ${eventIds.length} events and ${circleIds.length} circles...`);
-
-      // トランザクションデータの一括削除
-      // サークルに紐づくデータ
-      if (circleIds.length > 0) {
-        await Promise.all([
-          db.delete(order).where(inArray(order.circleId, circleIds)),
-          db.delete(preOrder).where(inArray(preOrder.circleId, circleIds)),
-          db.delete(circleVisit).where(inArray(circleVisit.circleId, circleIds)),
-          db.delete(numberedTicket).where(inArray(numberedTicket.circleId, circleIds)),
-          db.delete(review).where(inArray(review.circleId, circleIds)),
-          db.delete(userStamp).where(inArray(userStamp.circleId, circleIds)),
-        ]);
-      }
-
-      // イベントに紐づくデータ (eventUser は wristband, lottery_entry, lottery_winner 等を CASCADE 削除)
-      await db.delete(eventUser).where(inArray(eventUser.eventId, eventIds));
-      await db.delete(lottery).where(inArray(lottery.eventId, eventIds));
-
-      console.log("Scheduled cleanup completed successfully.");
-    })());
+    // 2026-10-03 (#83): 規程確認後に明示的に有効化されるまで、scheduledでは候補確認だけを行う。
+    ctx.waitUntil(runCleanup(env.DB, { dryRun: cleanupMustDryRun(env) }).then(() => undefined));
   }
 };
