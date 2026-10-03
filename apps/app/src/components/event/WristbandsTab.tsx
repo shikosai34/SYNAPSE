@@ -1,5 +1,5 @@
-import { useState, useEffect } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState, useEffect, useRef } from "react";
+import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { wristbandApi } from "@/lib/api";
 import { extractIdFromCode } from "@/lib/utils";
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/components/ui/card";
@@ -11,7 +11,6 @@ import {
   RefreshCw,
   Users,
   Camera,
-  QrCode,
   Plus,
   Smartphone,
   Loader2,
@@ -21,7 +20,9 @@ import {
   XCircle,
   HelpCircle,
   Copy,
-  ChevronRight
+  ChevronRight,
+  Edit,
+  FileUp
 } from "lucide-react";
 import { toast } from "sonner";
 import { QrScannerModal } from "@/components/pos/qr-scanner-modal";
@@ -33,17 +34,49 @@ interface WristbandsTabProps {
   eventId: string;
 }
 
+type VisitorFilters = {
+  bandType: "all" | "physical" | "smartphone" | "unlinked";
+  accountStatus: "all" | "available" | "banned";
+  profileStatus: "all" | "complete" | "pending";
+};
+
+type VisitorSortField = "createdAt" | "displayId" | "nickname" | "favoriteDate" | "accountStatus" | "wristbandId" | "bandStatus";
+
+const VISITOR_PAGE_SIZE = 500;
+const VISITOR_SORT_COLUMNS: { label: string; field: Exclude<VisitorSortField, "createdAt"> }[] = [
+  { label: "呼出ID", field: "displayId" },
+  { label: "ニックネーム", field: "nickname" },
+  { label: "お好きな日付", field: "favoriteDate" },
+  { label: "アカウント状態", field: "accountStatus" },
+  { label: "紐付くバンドID", field: "wristbandId" },
+  { label: "バンド状態", field: "bandStatus" },
+];
+
 export function WristbandsTab({ eventId }: WristbandsTabProps) {
   const queryClient = useQueryClient();
 
   // 検索・表示関連の状態
   const [searchInput, setSearchInput] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
+  // 2026-10-02: 5000件規模の来場者でも状態別に探せるよう、一覧APIに絞り込み条件を渡す。
+  const [filters, setFilters] = useState<VisitorFilters>({
+    bandType: "all",
+    accountStatus: "all",
+    profileStatus: "all",
+  });
+  // 2026-10-02: 多数の来場者を連続して確認できるよう、500件ずつ追加取得する。
+  const [visitorSort, setVisitorSort] = useState<{ field: VisitorSortField; direction: "asc" | "desc" }>({
+    field: "createdAt",
+    direction: "desc",
+  });
   const [isVisitorTableOpen, setIsVisitorTableOpen] = useState(false);
+  const visitorScrollContainerRef = useRef<HTMLDivElement>(null);
+  const visitorLoadMoreRef = useRef<HTMLDivElement>(null);
 
   // モーダル開閉状態
   const [isScanModalOpen, setIsScanModalOpen] = useState(false);
   const [isIssueModalOpen, setIsIssueModalOpen] = useState(false);
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [isDetailsModalOpen, setIsDetailsModalOpen] = useState(false);
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [scannerTarget, setScannerTarget] = useState<"search" | "reissue" | "lookup">("lookup");
@@ -63,10 +96,54 @@ export function WristbandsTab({ eventId }: WristbandsTabProps) {
   const [issuedUser, setIssuedUser] = useState<{ userId: string; displayId: number } | null>(null);
 
   // 来場者一覧・検索クエリ (React Query を使って自動フェッチ&キャッシュ)
-  const { data: visitors = [], isLoading, refetch } = useQuery({
-    queryKey: ["eventVisitors", eventId, searchQuery],
-    queryFn: () => wristbandApi.search(eventId, searchQuery),
+  const {
+    data: visitorSearch,
+    isLoading,
+    isFetchingNextPage,
+    hasNextPage,
+    fetchNextPage,
+    refetch,
+  } = useInfiniteQuery({
+    queryKey: ["eventVisitors", eventId, searchQuery, filters, visitorSort],
+    initialPageParam: 0,
+    queryFn: ({ pageParam }) => wristbandApi.search(eventId, searchQuery, filters, {
+      offset: pageParam,
+      limit: VISITOR_PAGE_SIZE,
+    }, {
+      sortBy: visitorSort.field,
+      sortDirection: visitorSort.direction,
+    }),
+    getNextPageParam: (lastPage) => {
+      const nextOffset = lastPage.offset + lastPage.items.length;
+      return nextOffset < lastPage.total ? nextOffset : undefined;
+    },
   });
+  const visitors = visitorSearch?.pages.flatMap((page) => page.items) ?? [];
+  const visitorTotal = visitorSearch?.pages[0]?.total ?? 0;
+
+  // 2026-10-02: 条件変更後は先頭から読み進め、前のスクロール位置による連続取得を防ぐ。
+  useEffect(() => {
+    if (isVisitorTableOpen && visitorScrollContainerRef.current) {
+      visitorScrollContainerRef.current.scrollTop = 0;
+    }
+  }, [filters, isVisitorTableOpen, searchQuery, visitorSort]);
+
+  // 2026-10-02: 一覧のスクロール領域末尾を監視し、次の500件を自動取得する。ボタン操作も併設してキーボード利用を保つ。
+  useEffect(() => {
+    const root = visitorScrollContainerRef.current;
+    const target = visitorLoadMoreRef.current;
+    if (!isVisitorTableOpen || !root || !target || !hasNextPage || isFetchingNextPage) return;
+    if (typeof IntersectionObserver === "undefined") return;
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) void fetchNextPage();
+      },
+      { root, rootMargin: "0px 0px 200px" },
+    );
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, [fetchNextPage, hasNextPage, isFetchingNextPage, isVisitorTableOpen]);
 
   // 詳細編集モーダルのデータ同期
   useEffect(() => {
@@ -186,6 +263,29 @@ export function WristbandsTab({ eventId }: WristbandsTabProps) {
     },
   });
 
+  const importUrlsMutation = useMutation({
+    mutationFn: (urls: string[]) => wristbandApi.importUrls(eventId, urls),
+    onSuccess: (data) => {
+      toast.success(`${data.imported}件のリストバンドURLを登録しました`);
+      setIsImportModalOpen(false);
+      queryClient.invalidateQueries({ queryKey: ["eventVisitors"] });
+    },
+    onError: (err: any) => toast.error(err.message || "CSVの取り込みに失敗しました"),
+  });
+
+  const handleImportCsv = async (file: File) => {
+    const text = (await file.text()).replace(/^\uFEFF/, "");
+    const urls = text
+      .split(/\r?\n/)
+      .map((line) => line.trim().replace(/^"|"$/g, ""))
+      .filter((line) => line && line.toLowerCase() !== "url");
+    if (urls.length === 0) {
+      toast.error("URLが見つかりません");
+      return;
+    }
+    importUrlsMutation.mutate(urls);
+  };
+
   // 紛失ロックの簡易実行
   const handleReportLost = (wbId: string) => {
     if (!window.confirm("このリストバンドを紛失としてロックしますか？")) return;
@@ -228,6 +328,13 @@ export function WristbandsTab({ eventId }: WristbandsTabProps) {
     setSelectedUser(null);
   };
 
+  // 2026-10-01: 登録来場者一覧の先頭列からプロフィール編集を開けるようにする。
+  const handleOpenVisitorDetails = (visitor: any) => {
+    setIsVisitorTableOpen(false);
+    setSelectedUser(visitor);
+    setIsDetailsModalOpen(true);
+  };
+
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setSearchQuery(searchInput.trim());
@@ -236,6 +343,10 @@ export function WristbandsTab({ eventId }: WristbandsTabProps) {
   const handleResetSearch = () => {
     setSearchInput("");
     setSearchQuery("");
+  };
+
+  const handleResetFilters = () => {
+    setFilters({ bandType: "all", accountStatus: "all", profileStatus: "all" });
   };
 
   const getVisitorLink = (userId: string) => {
@@ -248,6 +359,13 @@ export function WristbandsTab({ eventId }: WristbandsTabProps) {
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
     toast.success("クリップボードにコピーしました");
+  };
+
+  const handleVisitorSort = (field: Exclude<VisitorSortField, "createdAt">) => {
+    setVisitorSort((current) => ({
+      field,
+      direction: current.field === field && current.direction === "asc" ? "desc" : "asc",
+    }));
   };
 
   return (
@@ -263,8 +381,7 @@ export function WristbandsTab({ eventId }: WristbandsTabProps) {
             来場者アカウント情報の変更、紛失リストバンドのロック・再発行、スマホデジタルIDの発行などを一括管理します。
           </p>
         </div>
-        {/* 2026-09-27: タブレット幅でも見出しと操作列を分け、ボタンも利用可能幅で折り返す。 */}
-        <div className="flex w-full max-w-full flex-col gap-2 sm:flex-row sm:flex-wrap lg:w-auto lg:flex-nowrap lg:shrink-0">
+        <div className="flex w-full max-w-full flex-col gap-2 sm:w-auto sm:flex-row">
           <Button
             onClick={() => {
               setLookupCode("");
@@ -276,31 +393,138 @@ export function WristbandsTab({ eventId }: WristbandsTabProps) {
             <Camera className="h-4 w-4 mr-1.5" />
             コード照会 / QRスキャン
           </Button>
-          <Button
-            onClick={() => {
-              setIssuedUser(null);
-              setIsIssueModalOpen(true);
-            }}
-            className="w-full sm:w-auto border-thick border-primary bg-primary text-primary-foreground hover:bg-background hover:text-foreground h-9 text-xs font-bold rounded-none shadow-none px-3"
-          >
-            <Plus className="h-4 w-4 mr-1" />
-            スマホ年来場者発行
-          </Button>
         </div>
       </div>
+
+      {/* 2026-10-02: 発行方法を先に二つの独立した領域で示し、スマホ発行と物理バンド取込を迷わず選べるようにする。 */}
+      <section aria-labelledby="wristband-provisioning-title" className="space-y-3">
+        <h3 id="wristband-provisioning-title" className="text-xs font-bold uppercase tracking-wider">
+          来場者の登録方法を選択
+        </h3>
+        <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+          <Card className="rounded-none bg-background shadow-none border-thick border-border">
+            <CardHeader className="p-4 border-b-thin border-border bg-info/5">
+              <CardTitle className="flex items-center gap-2 text-xs font-bold uppercase">
+                <Smartphone className="h-4 w-4" />
+                [スマホで登録]
+              </CardTitle>
+              <CardDescription className="text-[10px]">
+                物理バンドを使わず、スマートフォンでQRを読み取って来場者登録します。
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4 p-4">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <p className="text-[10px] leading-relaxed text-muted-foreground">
+                  受付にQRを掲示するか、スタッフが個別に来場者アカウントを発行できます。
+                </p>
+                <Button
+                  onClick={() => {
+                    setIssuedUser(null);
+                    setIsIssueModalOpen(true);
+                  }}
+                  className="w-full shrink-0 border-thick border-primary bg-primary px-3 text-xs font-bold text-primary-foreground hover:bg-background hover:text-foreground sm:w-auto"
+                >
+                  <Plus className="mr-1 h-4 w-4" />
+                  個別に発行
+                </Button>
+              </div>
+              <div className="border-t-thin border-border pt-4">
+                <div className="flex flex-col items-center gap-4 md:flex-row">
+                  <div className="shrink-0 border-thick border-border bg-white p-3">
+                    <QRCodeSVG value={selfIssueUrl} size={128} level="M" />
+                  </div>
+                  <div className="min-w-0 space-y-2 text-xs">
+                    <p className="font-bold underline">受付用セルフ登録QR</p>
+                    <p className="break-all border border-border bg-muted p-2 select-all">{selfIssueUrl}</p>
+                    <p className="text-[10px] leading-relaxed text-muted-foreground">
+                      来場者が読み取るとスマホ用IDが発行され、プロフィール登録へ進みます。
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="rounded-none bg-background shadow-none border-thick border-border">
+            <CardHeader className="p-4 border-b-thin border-border bg-success/5">
+              <CardTitle className="flex items-center gap-2 text-xs font-bold uppercase">
+                <IdCard className="h-4 w-4" />
+                [物理リストバンドで登録]
+              </CardTitle>
+              <CardDescription className="text-[10px]">
+                印刷したバンドのURLを先に取り込み、来場者がバンドのQRを読み取って登録します。
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="flex flex-1 flex-col gap-4 p-4">
+              <div className="space-y-2 text-[10px] leading-relaxed text-muted-foreground">
+                <p>1. 印刷用CSVを取り込み、URLと来場者枠を登録します。</p>
+                <p>2. 印刷したリストバンドを来場者へ渡します。</p>
+                <p>3. バンドのQR読み取り後、初回プロフィール登録へ進みます。</p>
+              </div>
+              <Button
+                onClick={() => setIsImportModalOpen(true)}
+                variant="outline"
+                className="w-full self-start border-thick border-border text-xs font-bold sm:w-auto"
+              >
+                <FileUp className="mr-1.5 h-4 w-4" />
+                リストバンドURL CSVを取り込む
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+      </section>
+
+      <Modal
+        isOpen={isImportModalOpen}
+        title="[リストバンドURL CSV取り込み]"
+        subtitle="印刷用URL CSVを取り込むと、このイベントの来場者とリストバンドを一括登録します。"
+        onClose={() => !importUrlsMutation.isPending && setIsImportModalOpen(false)}
+        maxWidth="md"
+      >
+        <div className="space-y-4">
+          <div className="border-thin border-border bg-muted/20 p-3 text-[11px] leading-relaxed">
+            <p className="font-bold">対応形式</p>
+            <p>1列目がURLのCSV（ヘッダー「url」は任意）</p>
+            <p>例: https://fesflow.shikosai.net/w/34-0001</p>
+            <p className="text-muted-foreground">CSV内の重複URLと登録済みIDは取り込みません。</p>
+          </div>
+          <label className="flex cursor-pointer items-center justify-center gap-2 border-thick border-dashed border-border p-6 text-xs font-bold hover:bg-muted/30">
+            <FileUp className="h-5 w-5" />
+            CSVファイルを選択
+            <input
+              type="file"
+              accept=".csv,text/csv"
+              className="sr-only"
+              disabled={importUrlsMutation.isPending}
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                if (file) void handleImportCsv(file);
+                event.target.value = "";
+              }}
+            />
+          </label>
+          {importUrlsMutation.isPending && (
+            <p className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" /> 登録中...
+            </p>
+          )}
+        </div>
+      </Modal>
 
       <Card className="rounded-none bg-background shadow-none border-thick border-border">
         <CardHeader className="p-4 flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <CardTitle className="text-xs uppercase font-bold">[登録来場者一覧]</CardTitle>
-            <CardDescription className="text-[10px]">{visitors.length}件を表示中{searchQuery ? "（検索条件あり）" : ""}</CardDescription>
+            <CardDescription className="text-[10px]">
+              {visitors.length}件読み込み済み / 全{visitorTotal}件{searchQuery ? "（検索条件あり）" : ""}
+            </CardDescription>
           </div>
-          <Button onClick={() => setIsVisitorTableOpen(true)} variant="outline" className="border-thick border-border h-9 text-xs font-bold rounded-none">一覧を開く（{visitors.length}件）</Button>
+          <Button onClick={() => setIsVisitorTableOpen(true)} variant="outline" className="border-thick border-border h-9 text-xs font-bold rounded-none">一覧を開く（全{visitorTotal}件）</Button>
         </CardHeader>
       </Card>
 
       {/* 2026-09-27: 来場者の行が画面を押し下げないよう、検索と編集操作を表モーダルにまとめる。 */}
-      <Modal isOpen={isVisitorTableOpen} onClose={() => setIsVisitorTableOpen(false)} title="[登録来場者一覧]" subtitle={`${visitors.length}件`} maxWidth="xl">
+      <Modal isOpen={isVisitorTableOpen} onClose={() => setIsVisitorTableOpen(false)} title="[登録来場者一覧]" subtitle={`全${visitorTotal}件`} maxWidth="full">
       {/* 検索バー */}
       <Card className="rounded-none bg-background shadow-none border-thick border-border">
         <CardContent className="p-4">
@@ -345,21 +569,89 @@ export function WristbandsTab({ eventId }: WristbandsTabProps) {
         </CardContent>
       </Card>
 
+      <Card className="rounded-none bg-background shadow-none border-thick border-border">
+        <CardContent className="space-y-3 p-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-xs font-bold uppercase">一覧を絞り込む</p>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={handleResetFilters}
+              disabled={filters.bandType === "all" && filters.accountStatus === "all" && filters.profileStatus === "all"}
+              className="h-8 border-thick border-border px-3 text-[10px] font-bold"
+            >
+              フィルターをクリア
+            </Button>
+          </div>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <label className="space-y-1 text-[10px] font-bold">
+              <span className="block">登録方法</span>
+              <select
+                aria-label="登録方法で絞り込む"
+                value={filters.bandType}
+                onChange={(event) => {
+                  setFilters((current) => ({ ...current, bandType: event.target.value as VisitorFilters["bandType"] }));
+                }}
+                className="h-10 w-full border-thick border-border bg-background px-2 text-xs font-mono focus-visible:outline-2 focus-visible:outline-offset-2"
+              >
+                <option value="all">すべて</option>
+                <option value="physical">物理リストバンド</option>
+                <option value="smartphone">スマホ</option>
+                <option value="unlinked">有効なIDなし</option>
+              </select>
+            </label>
+            <label className="space-y-1 text-[10px] font-bold">
+              <span className="block">アカウント状態</span>
+              <select
+                aria-label="アカウント状態で絞り込む"
+                value={filters.accountStatus}
+                onChange={(event) => {
+                  setFilters((current) => ({ ...current, accountStatus: event.target.value as VisitorFilters["accountStatus"] }));
+                }}
+                className="h-10 w-full border-thick border-border bg-background px-2 text-xs font-mono focus-visible:outline-2 focus-visible:outline-offset-2"
+              >
+                <option value="all">すべて</option>
+                <option value="available">利用可能</option>
+                <option value="banned">利用停止</option>
+              </select>
+            </label>
+            <label className="space-y-1 text-[10px] font-bold">
+              <span className="block">プロフィール登録</span>
+              <select
+                aria-label="プロフィール登録状態で絞り込む"
+                value={filters.profileStatus}
+                onChange={(event) => {
+                  setFilters((current) => ({ ...current, profileStatus: event.target.value as VisitorFilters["profileStatus"] }));
+                }}
+                className="h-10 w-full border-thick border-border bg-background px-2 text-xs font-mono focus-visible:outline-2 focus-visible:outline-offset-2"
+              >
+                <option value="all">すべて</option>
+                <option value="complete">登録済み</option>
+                <option value="pending">未登録</option>
+              </select>
+            </label>
+          </div>
+        </CardContent>
+      </Card>
+
       {/* 来場者一覧テーブル */}
       <Card className="rounded-none bg-background shadow-none border-thick border-border">
         <CardHeader className="p-4 pb-2 border-b-thin border-border bg-muted/20 flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <CardTitle className="text-xs uppercase font-bold">[登録来場者一覧]</CardTitle>
             <CardDescription className="text-[10px]">
-              {searchQuery ? `検索条件「${searchQuery}」の検索結果` : "最近登録された来場者（最大50件）"}
+              {searchQuery
+                ? `検索条件「${searchQuery}」とフィルターの検索結果`
+                : "フィルター条件に一致した最近の来場者"}
+              {`（${visitors.length}件読み込み済み / 全${visitorTotal}件）`}
             </CardDescription>
           </div>
           <Badge variant="default" className="border-thick border-border font-bold text-[10px] rounded-none">
-            {visitors.length} 件
+            {visitorTotal} 件
           </Badge>
         </CardHeader>
         <CardContent className="p-0">
-          <div className="max-h-[55vh] overflow-auto">
+          <div ref={visitorScrollContainerRef} className="max-h-[55vh] overflow-auto">
             {isLoading ? (
               <div className="p-8 text-center text-xs text-muted-foreground flex items-center justify-center gap-2">
                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -371,21 +663,46 @@ export function WristbandsTab({ eventId }: WristbandsTabProps) {
               </div>
             ) : (
               <table className="w-full min-w-[880px] text-xs text-left border-collapse">
-                <thead>
+                <thead className="sticky top-0 z-10 bg-background">
                   <tr className="border-b-thin border-border bg-muted/10 font-bold font-mono">
-                    <th className="p-3">呼出ID</th>
-                    <th className="p-3">ニックネーム</th>
-                    <th className="p-3">お好きな日付</th>
-                    <th className="p-3">アカウント状態</th>
-                    <th className="p-3">紐付くバンドID</th>
-                    <th className="p-3">バンド状態</th>
-                    <th className="p-3 text-right">操作</th>
+                    {VISITOR_SORT_COLUMNS.map(({ label, field }) => (
+                      <th
+                        key={field}
+                        scope="col"
+                        aria-sort={visitorSort.field === field ? (visitorSort.direction === "asc" ? "ascending" : "descending") : "none"}
+                        className="p-3"
+                      >
+                        <button
+                          type="button"
+                          onClick={() => handleVisitorSort(field)}
+                          className="inline-flex items-center gap-1 text-left hover:underline focus-visible:outline-2 focus-visible:outline-offset-2"
+                        >
+                          {label}
+                          <span aria-hidden="true">{visitorSort.field === field ? (visitorSort.direction === "asc" ? "↑" : "↓") : "↕"}</span>
+                        </button>
+                      </th>
+                    ))}
+                    <th className="p-3 text-right">バンド操作</th>
                   </tr>
                 </thead>
                 <tbody>
                   {visitors.map((res: any) => (
                     <tr key={res.user.id} className="border-b-thin border-border hover:bg-muted/5 font-mono">
-                      <td className="p-3 font-bold">#{res.user.displayId}</td>
+                      <td className="p-3 font-bold">
+                        <div className="flex items-center gap-2">
+                          <span>#{res.user.displayId}</span>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handleOpenVisitorDetails(res)}
+                            aria-label={`来場者 #${res.user.displayId}を編集`}
+                            className="h-7 rounded-none border-thick border-border px-2 text-[10px]"
+                          >
+                            <Edit className="mr-1 h-3 w-3" />
+                            編集
+                          </Button>
+                        </div>
+                      </td>
                       <td className="p-3">{res.user.nickname || <span className="text-muted-foreground text-[10px]">未登録</span>}</td>
                       <td className="p-3">{res.user.favoriteDate || <span className="text-muted-foreground text-[10px]">未登録</span>}</td>
                       <td className="p-3">
@@ -442,60 +759,39 @@ export function WristbandsTab({ eventId }: WristbandsTabProps) {
                             ロック
                           </Button>
                         )}
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => {
-                            // 2026-09-27: 詳細編集モーダルと一覧モーダルを重ねない。
-                            setIsVisitorTableOpen(false);
-                            setSelectedUser(res);
-                            setIsDetailsModalOpen(true);
-                          }}
-                          className="h-7 text-[10px] rounded-none border-thick border-border bg-background hover:bg-primary hover:text-primary-foreground"
-                        >
-                          詳細・編集
-                        </Button>
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             )}
+            {!isLoading && visitors.length > 0 && (
+              <div ref={visitorLoadMoreRef} className="flex flex-col items-center gap-2 border-t-thin border-border p-4 text-center">
+                <p role="status" aria-live="polite" className="text-[10px] text-muted-foreground">
+                  {isFetchingNextPage
+                    ? `${visitors.length} / ${visitorTotal} 件を表示中 — 続きを読み込み中...`
+                    : hasNextPage
+                    ? `${visitors.length} / ${visitorTotal} 件を表示中 — 下へスクロールすると続きが読み込まれます`
+                    : `全${visitorTotal}件を表示しました`}
+                </p>
+                {hasNextPage && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => void fetchNextPage()}
+                    disabled={isFetchingNextPage}
+                    className="h-10 border-thick border-border px-4 text-xs font-bold"
+                  >
+                    {isFetchingNextPage ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                    {isFetchingNextPage ? "読み込み中..." : `さらに${VISITOR_PAGE_SIZE}件を読み込む`}
+                  </Button>
+                )}
+              </div>
+            )}
           </div>
         </CardContent>
       </Card>
       </Modal>
-
-      {/* セルフ登録用QRの出力エリア */}
-      <Card className="rounded-none bg-background shadow-none border-thick border-border">
-        <CardHeader className="p-4 pb-2 border-b-thin border-border bg-muted/20">
-          <CardTitle className="text-xs uppercase font-bold flex items-center gap-1.5">
-            <QrCode className="h-4 w-4" />
-            [来場者向け・マイデジタルQR発行QRコード]
-          </CardTitle>
-          <CardDescription className="text-[10px]">来場者が自身のスマートフォンでスキャンし、マイデジタルQRをセルフ発行するための受付用QRです。</CardDescription>
-        </CardHeader>
-        <CardContent className="p-6 flex flex-col md:flex-row items-center gap-6">
-          <div className="border-thick border-border p-3 bg-white shrink-0">
-            <QRCodeSVG
-              value={selfIssueUrl}
-              size={150}
-              level="M"
-            />
-          </div>
-          <div className="space-y-2 text-xs font-mono">
-            <p className="font-bold underline text-primary">セルフ登録用URL (デジタル受付):</p>
-            <p className="bg-muted p-2 select-all break-all border border-border">
-              {selfIssueUrl}
-            </p>
-            <div className="text-[10px] text-muted-foreground leading-normal space-y-1 pt-2 font-sans">
-              <p>1. 受付にこのQRコードを掲示するか、URLを来場者に共有してください。</p>
-              <p>2. 来場者がスキャンすると、自動的に「スマホデジタルID（リストバンド代替）」が新規発行され、マイページで支払いやスタンプラリーが使えるようになります。</p>
-              <p>※ 物理リストバンドを使わない「スマホ単体イベント」では、このQRだけで受付を完全セルフ化できます。</p>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
 
       {/* ==========================================
           1. 照会・スキャンモーダル

@@ -147,7 +147,7 @@ export function StaffTab({
           className="rounded-none border-thick border-primary bg-primary text-primary-foreground hover:bg-background hover:text-foreground h-8 text-[11px] uppercase font-bold transition-all shadow-none px-3 flex items-center gap-1"
         >
           <UserPlus className="h-3.5 w-3.5" />
-          スタッフを招待
+          招待コードを発行
         </Button>
       </div>
 

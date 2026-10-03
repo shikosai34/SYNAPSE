@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { z } from "zod";
 import { wristband, eventUser, event, type DB } from "@fesflow/db";
-import { eq, and, desc, or, like } from "drizzle-orm";
+import { eq, and, asc, desc, or, like, isNull, isNotNull, countDistinct } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { hasPermission } from "../utils/auth";
 import { zBody, zQuery } from "../z-validator";
@@ -19,11 +19,21 @@ wristbandRoutes.get(
     z.object({
       eventId: z.string().min(1),
       query: z.string().optional().default(""),
+      bandType: z.enum(["all", "physical", "smartphone", "unlinked"]).optional().default("all"),
+      accountStatus: z.enum(["all", "available", "banned"]).optional().default("all"),
+      profileStatus: z.enum(["all", "complete", "pending"]).optional().default("all"),
+      offset: z.coerce.number().int().min(0).optional().default(0),
+      limit: z.coerce.number().int().min(1).max(500).optional().default(50),
+      sortBy: z
+        .enum(["createdAt", "displayId", "nickname", "favoriteDate", "accountStatus", "wristbandId", "bandStatus"])
+        .optional()
+        .default("createdAt"),
+      sortDirection: z.enum(["asc", "desc"]).optional().default("desc"),
     })
   ),
   async (c) => {
     const db = c.get("db");
-    const { eventId, query } = c.req.valid("query");
+    const { eventId, query, bandType, accountStatus, profileStatus, offset, limit, sortBy, sortDirection } = c.req.valid("query");
 
     // 権限チェック (イベントスタッフ権限 member:read が必要)
     const allowed = await hasPermission(c, null, "member:read", eventId);
@@ -33,6 +43,13 @@ wristbandRoutes.get(
 
     const conditions = [eq(eventUser.eventId, eventId)];
 
+    if (bandType === "physical") conditions.push(eq(wristband.status, "active"));
+    if (bandType === "smartphone") conditions.push(eq(wristband.status, "smartphone"));
+    if (bandType === "unlinked") conditions.push(isNull(wristband.id));
+    if (accountStatus !== "all") conditions.push(eq(eventUser.status, accountStatus));
+    if (profileStatus === "complete") conditions.push(isNotNull(eventUser.onboardedAt));
+    if (profileStatus === "pending") conditions.push(isNull(eventUser.onboardedAt));
+
     if (query && query.trim().length > 0) {
       const queryNum = parseInt(query, 10);
       const isNum = !isNaN(queryNum) && /^\d+$/.test(query);
@@ -40,6 +57,7 @@ wristbandRoutes.get(
       const orConditions = [
         like(eventUser.nickname, `%${query}%`),
         like(eventUser.favoriteDate, `%${query}%`),
+        like(wristband.id, `%${query}%`),
       ];
 
       if (isNum) {
@@ -51,6 +69,31 @@ wristbandRoutes.get(
         conditions.push(orOp);
       }
     }
+
+    // 2026-10-02: 50件を超える来場者もページ移動で検索できるよう、条件一致件数を返しAPIでは1ページ分だけ取得する。
+    const totalRows = await db
+      .select({ total: countDistinct(eventUser.id) })
+      .from(eventUser)
+      .leftJoin(
+        wristband,
+        and(
+          eq(wristband.userId, eventUser.id),
+          or(eq(wristband.status, "active"), eq(wristband.status, "smartphone"))
+        )
+      )
+      .where(and(...conditions));
+
+    // 2026-10-02: 並べ替えはページ取得より前のSQLで行い、ページをまたいでも全結果の順序を保つ。
+    const sortColumn = {
+      createdAt: eventUser.createdAt,
+      displayId: eventUser.displayId,
+      nickname: eventUser.nickname,
+      favoriteDate: eventUser.favoriteDate,
+      accountStatus: eventUser.status,
+      wristbandId: wristband.id,
+      bandStatus: wristband.status,
+    }[sortBy];
+    const primaryOrder = sortDirection === "asc" ? asc(sortColumn) : desc(sortColumn);
 
     const rows = await db
       .select({
@@ -66,15 +109,19 @@ wristbandRoutes.get(
         )
       )
       .where(and(...conditions))
-      .orderBy(desc(eventUser.createdAt))
-      .limit(50);
+      .orderBy(primaryOrder, desc(eventUser.createdAt), desc(eventUser.id))
+      .limit(limit)
+      .offset(offset);
 
-    return c.json(
-      rows.map((r) => ({
+    return c.json({
+      items: rows.map((r) => ({
         user: r.user,
         wristband: r.wristband,
-      }))
-    );
+      })),
+      total: totalRows[0]?.total ?? 0,
+      offset,
+      limit,
+    });
   }
 );
 
@@ -634,6 +681,64 @@ wristbandRoutes.post(
     }
 
     return c.json({ userId, displayId, wristbandId: wristbandId ?? null });
+  }
+);
+
+// 2026-10-02: 印刷会社から戻ったリストバンドURL CSVをイベント単位で一括登録する。
+// 任意のURLアクセスでユーザーを自動生成すると、推測されたIDで来場者枠を無制限に
+// 作成できるため、スタッフ権限のある管理画面から先に発行・紐付ける方式に固定する。
+wristbandRoutes.post(
+  "/import",
+  zBody(
+    z.object({
+      eventId: z.string().min(1),
+      urls: z.array(z.string().trim().min(1)).min(1).max(5000),
+    })
+  ),
+  async (c) => {
+    const db = c.get("db");
+    const { eventId, urls } = c.req.valid("json");
+    const allowed = await hasPermission(c, null, "member:write", eventId);
+    if (!allowed) apiError("FORBIDDEN", "この操作にはイベントの編集権限が必要です");
+
+    const events = await db.select().from(event).where(eq(event.id, eventId));
+    if (events.length === 0) apiError("NOT_FOUND", "イベントが見つかりません");
+
+    const ids = urls.map((url) => {
+      const match = url.match(/\/w\/([a-zA-Z0-9_-]+)(?:[?#].*)?$/);
+      return match?.[1] ?? (url.match(/^[a-zA-Z0-9_-]+$/)?.[0] ?? null);
+    });
+    if (ids.some((id) => !id)) {
+      apiError("BAD_REQUEST", "CSVには /w/ID 形式のURLだけを入力してください");
+    }
+    const wristbandIds = ids as string[];
+    const uniqueIds = [...new Set(wristbandIds)];
+    if (uniqueIds.length !== wristbandIds.length) {
+      apiError("CONFLICT", "CSV内に重複したリストバンドURLがあります");
+    }
+
+    const existing = await db.select().from(wristband).where(or(...uniqueIds.map((id) => eq(wristband.id, id))));
+    if (existing.length > 0) {
+      apiError("CONFLICT", `登録済みのリストバンドが ${existing.length} 件あります`);
+    }
+
+    const startDisplayId = await nextDisplayId(db, eventId);
+    const userRows = wristbandIds.map((_, index) => ({
+      id: `usr_${nanoid(12)}`,
+      eventId,
+      displayId: startDisplayId + index,
+      status: "available",
+    }));
+    const bandRows = wristbandIds.map((id, index) => ({
+      id,
+      userId: userRows[index]!.id,
+      status: "active",
+    }));
+
+    // D1の対話型トランザクションは使えないため、FKの親→子順でbulk insertする。
+    await db.insert(eventUser).values(userRows);
+    await db.insert(wristband).values(bandRows);
+    return c.json({ imported: wristbandIds.length, firstDisplayId: startDisplayId });
   }
 );
 

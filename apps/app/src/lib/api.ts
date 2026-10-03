@@ -1067,10 +1067,31 @@ export const wristbandApi = {
   // 呼び出し側 (Entry の入場エラー / MyPage の ErrorState) で扱う。
   lookup: (code: string) =>
     fetchApi<WristbandLookupResult>(`/api/wristbands/lookup/${encodeURIComponent(code)}`),
-  search: (eventId: string, query: string) =>
-    fetchApi<WristbandLookupResult[]>(
-      `/api/wristbands/search?eventId=${encodeURIComponent(eventId)}&query=${encodeURIComponent(query)}`
-    ).catch(() => []),
+  search: (
+    eventId: string,
+    query: string,
+    filters: {
+      bandType: "all" | "physical" | "smartphone" | "unlinked";
+      accountStatus: "all" | "available" | "banned";
+      profileStatus: "all" | "complete" | "pending";
+    },
+    pagination: { offset: number; limit: number },
+    sorting: {
+      sortBy: "createdAt" | "displayId" | "nickname" | "favoriteDate" | "accountStatus" | "wristbandId" | "bandStatus";
+      sortDirection: "asc" | "desc";
+    }
+  ) =>
+    fetchApi<{
+      items: WristbandLookupResult[];
+      total: number;
+      offset: number;
+      limit: number;
+    }>(
+      `/api/wristbands/search?eventId=${encodeURIComponent(eventId)}&query=${encodeURIComponent(query)}` +
+        `&bandType=${filters.bandType}&accountStatus=${filters.accountStatus}&profileStatus=${filters.profileStatus}` +
+        `&offset=${pagination.offset}&limit=${pagination.limit}` +
+        `&sortBy=${sorting.sortBy}&sortDirection=${sorting.sortDirection}`
+    ).catch(() => ({ items: [], total: 0, ...pagination })),
   register: (userId: string, wristbandId: string) =>
     fetchApi<{ success: boolean; wristbandId: string }>("/api/wristbands/register", {
       method: "POST",
@@ -1091,6 +1112,11 @@ export const wristbandApi = {
     fetchApi<{ userId: string; displayId: number; wristbandId: string | null }>("/api/wristbands/issue", {
       method: "POST",
       body: { eventId, wristbandId },
+    }),
+  importUrls: (eventId: string, urls: string[]) =>
+    fetchApi<{ imported: number; firstDisplayId: number }>("/api/wristbands/import", {
+      method: "POST",
+      body: { eventId, urls },
     }),
   update: (id: string, data: { status: "active" | "lost" | "replaced" | "revoked" | "smartphone"; userId?: string }) =>
     fetchApi<{ success: boolean }>(`/api/wristbands/${encodeURIComponent(id)}`, {

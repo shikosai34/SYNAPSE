@@ -13,6 +13,8 @@ const MAX_WIDTH: Record<NonNullable<ModalProps["maxWidth"]>, string> = {
   md: "max-w-md",
   lg: "max-w-lg",
   xl: "max-w-2xl",
+  // 2026-10-02: 列数の多い管理一覧では画面幅と高さを使い、表の可視領域を確保する。
+  full: "max-w-none h-full max-h-none",
 };
 
 interface ModalProps {
@@ -24,7 +26,7 @@ interface ModalProps {
   /** 背景クリック・×ボタン・Escape で呼ばれる閉じるハンドラ。 */
   onClose: () => void;
   children: React.ReactNode;
-  maxWidth?: "md" | "lg" | "xl";
+  maxWidth?: "md" | "lg" | "xl" | "full";
   /** 確認ダイアログ等をこのモーダルの上に重ねる場合に z-index を調整する。 */
   zIndexClassName?: string;
 }
@@ -55,7 +57,8 @@ export function Modal({
   return (
     <div
       className={cn(
-        "fixed inset-0 flex items-center justify-center bg-foreground/80 p-4 backdrop-blur-sm",
+        "fixed inset-0 flex items-center justify-center bg-foreground/80 backdrop-blur-sm",
+        maxWidth === "full" ? "p-2" : "p-4",
         zIndexClassName,
       )}
       role="dialog"
