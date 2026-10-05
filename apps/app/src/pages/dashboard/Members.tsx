@@ -294,7 +294,7 @@ function MembersContent() {
       type="circle"
       // 主要アクションは共通ヘッダー右側へ集約 (旧: children 内の二重見出し行) (2026-07-11)
       actions={
-        <PermissionGuard permission="member:write">
+        <PermissionGuard permission="member:write" ownerOnly>
           <Button
             onClick={() => setShowAddForm(true)}
             variant="outline"
@@ -495,7 +495,7 @@ function MembersContent() {
                         )}
                       </Button>
                     )}
-                    <PermissionGuard permission="member:write">
+                    <PermissionGuard permission="member:write" ownerOnly>
                       {expired ? (
                         <Button
                           size="sm"
@@ -519,7 +519,7 @@ function MembersContent() {
                         </Button>
                       )}
                     </PermissionGuard>
-                    <PermissionGuard permission="member:delete">
+                    <PermissionGuard permission="member:delete" ownerOnly>
                       <Button
                         size="sm"
                         variant="destructive"
@@ -592,7 +592,7 @@ function MembersContent() {
                     {/* ロール変更 (2026-07-15)。サークルロールのメンバーはインラインで昇格/降格できる。
                         イベント/システムロールは読み取り専用バッジのまま。最後の管理者は降格不可。 */}
                     <PermissionGuard
-                      permission="member:write"
+                      permission="member:write" ownerOnly
                       fallback={
                         <Badge variant={getRoleBadgeVariant(member.role)}>
                           {ROLE_NAMES[member.role as RoleType] || member.role}
@@ -627,7 +627,7 @@ function MembersContent() {
                   <td className="p-3 text-right">
                     {/* アカウント停止/復帰 (2026-07-15)。停止すると権限が即無効化される。
                         最後のアクティブ管理者は停止不可 (ロックアウト防止)。 */}
-                    <PermissionGuard permission="member:write">
+                    <PermissionGuard permission="member:write" ownerOnly>
                       <Button
                         size="sm"
                         variant="ghost"
@@ -649,7 +649,7 @@ function MembersContent() {
                         )}
                       </Button>
                     </PermissionGuard>
-                    <PermissionGuard permission="member:delete">
+                    <PermissionGuard permission="member:delete" ownerOnly>
                       <Button
                         size="sm"
                         variant="ghost"
