@@ -706,8 +706,10 @@ function MembersContent() {
 export default function MembersPage() {
   return (
     <CircleAuthGuard>
+      {/* メンバー一覧/招待の取得 API はオーナー限定のため、一般スタッフには画面ごと出さない (2026-10-05) */}
       <PermissionGuard
         permission="member:read"
+        ownerOnly
         fallback={
           <div className="container mx-auto p-6">
             <Card>

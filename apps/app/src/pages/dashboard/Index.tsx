@@ -82,6 +82,7 @@ function DashboardContent() {
       description: "メンバーの追加・権限設定",
       href: "/circle/dashboard/members",
       permission: "member:read" as const,
+      ownerOnly: true,
     },
     {
       title: "モバイルオーダーQR",

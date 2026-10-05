@@ -165,7 +165,8 @@ export default function DashboardLayout({
       items: [
         // サークル設定は画面ごとオーナー限定 (2026-10-05)。一般スタッフには導線も出さない。
         ...(isCircleOwner ? [{ title: "サークル設定", href: "/circle/dashboard/circle", icon: Settings }] : []),
-        { title: "メンバー管理", href: "/circle/dashboard/members", icon: Users },
+        // メンバー管理もオーナー限定 (一覧/招待 API がオーナーのみ。2026-10-05)。
+        ...(isCircleOwner ? [{ title: "メンバー管理", href: "/circle/dashboard/members", icon: Users }] : []),
         ...(circleSettings.extensions.staff
           ? [{ title: "スタッフ管理", href: "/circle/dashboard/staff", icon: UserCheck }]
           : []),
