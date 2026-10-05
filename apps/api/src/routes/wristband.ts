@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import { wristband, eventUser, event, type DB } from "@fesflow/db";
-import { eq, and, asc, desc, or, like, isNull, isNotNull, countDistinct } from "drizzle-orm";
+import { eventUser, wristband, wristbandBatch, wristbandBatchChunk, event, type DB } from "@fesflow/db";
+import { eq, and, asc, desc, or, like, isNull, isNotNull, countDistinct, count, inArray, max } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { hasPermission } from "../utils/auth";
 import { zBody, zQuery } from "../z-validator";
@@ -130,11 +130,11 @@ wristbandRoutes.get(
 // トップレベル関数のため、計画通り db を明示的な引数にした)。
 async function nextDisplayId(db: DB, eventId: string): Promise<number> {
   const rows = await db
-    .select({ displayId: eventUser.displayId })
+    .select({ displayId: max(eventUser.displayId) })
     .from(eventUser)
     .where(eq(eventUser.eventId, eventId));
-  const max = rows.reduce((m, r) => Math.max(m, r.displayId ?? 0), 0);
-  return max + 1;
+  // 2026-10-06: バッチごとの全来場者走査を避け、履歴再開でもイベント規模に比例した読み込みをしない。
+  return (rows[0]?.displayId ?? 0) + 1;
 }
 
 // コード (リストバンドID、ユーザーID) によるユーザー照会
@@ -683,6 +683,219 @@ wristbandRoutes.post(
     return c.json({ userId, displayId, wristbandId: wristbandId ?? null });
   }
 );
+
+// 2026-10-06: 元URLと進捗を永続化し、画面を離れても履歴からダウンロード・再開できるようにする。
+// URLは400件ずつD1へ保存し、1行サイズ制限を避けつつ、Workerリクエストの回数を抑える。
+const WRISTBAND_BATCH_CHUNK_SIZE = 400;
+const WRISTBAND_BATCH_INSERT_SIZE = 20;
+
+function wristbandIdFromUrl(url: string): string | null {
+  const match = url.match(/\/w\/([a-zA-Z0-9_-]+)(?:[?#].*)?$/);
+  return match?.[1] ?? (url.match(/^[a-zA-Z0-9_-]+$/)?.[0] ?? null);
+}
+
+function chunkItems<T>(items: T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let offset = 0; offset < items.length; offset += size) {
+    chunks.push(items.slice(offset, offset + size));
+  }
+  return chunks;
+}
+
+// 2026-10-06: イベントの最新発行/取込履歴。イベント権限を毎回サーバーで確認する。
+wristbandRoutes.get(
+  "/batches",
+  zQuery(z.object({
+    eventId: z.string().min(1),
+    offset: z.coerce.number().int().min(0).optional().default(0),
+    limit: z.coerce.number().int().min(1).max(100).optional().default(20),
+  })),
+  async (c) => {
+    const db = c.get("db");
+    const { eventId, offset, limit } = c.req.valid("query");
+    if (!(await hasPermission(c, null, "member:read", eventId))) {
+      apiError("FORBIDDEN", "履歴を表示する権限がありません");
+    }
+    const [totalRow] = await db
+      .select({ total: count() })
+      .from(wristbandBatch)
+      .where(eq(wristbandBatch.eventId, eventId));
+    const items = await db
+      .select()
+      .from(wristbandBatch)
+      .where(eq(wristbandBatch.eventId, eventId))
+      .orderBy(desc(wristbandBatch.createdAt), desc(wristbandBatch.id))
+      .limit(limit)
+      .offset(offset);
+    return c.json({ items, total: totalRow?.total ?? 0, offset, limit });
+  }
+);
+
+// 2026-10-06: URL一覧を先に保存してから登録を始め、途中で画面を閉じても処理とCSVを復旧できるようにする。
+wristbandRoutes.post(
+  "/batches",
+  zBody(z.object({
+    eventId: z.string().min(1),
+    source: z.enum(["generated", "csv"]),
+    prefix: z.string().trim().min(1).max(32).optional(),
+    suffixLength: z.number().int().min(4).max(32).optional(),
+    urls: z.array(z.string().trim().min(1)).min(1),
+  })),
+  async (c) => {
+    const db = c.get("db");
+    const { eventId, source, prefix, suffixLength, urls } = c.req.valid("json");
+    if (!(await hasPermission(c, null, "member:write", eventId))) {
+      apiError("FORBIDDEN", "この操作にはイベントの編集権限が必要です");
+    }
+    const events = await db.select({ id: event.id }).from(event).where(eq(event.id, eventId));
+    if (events.length === 0) apiError("NOT_FOUND", "イベントが見つかりません");
+
+    if (source === "generated" && (!prefix || !suffixLength || urls.length > 50_000)) {
+      apiError("BAD_REQUEST", "生成設定が正しくありません");
+    }
+    const ids = urls.map(wristbandIdFromUrl);
+    if (ids.some((id) => !id)) {
+      apiError("BAD_REQUEST", "CSVには /w/ID 形式のURLだけを入力してください");
+    }
+    const wristbandIds = ids as string[];
+    if (source === "generated" && wristbandIds.some((id) => {
+      const expectedPrefix = `${prefix}-`;
+      return !id.startsWith(expectedPrefix) || id.slice(expectedPrefix.length).length !== suffixLength;
+    })) {
+      apiError("BAD_REQUEST", "生成したIDが指定されたイベントIDまたは文字数と一致しません");
+    }
+    if (new Set(wristbandIds).size !== wristbandIds.length) {
+      apiError("CONFLICT", "入力内に重複したリストバンドURLがあります。重複を解消して再度お試しください");
+    }
+
+    const batchId = nanoid(16);
+    const storedChunks = chunkItems(urls, WRISTBAND_BATCH_CHUNK_SIZE).map((chunk, chunkIndex) => ({
+      batchId,
+      chunkIndex,
+      urlsJson: JSON.stringify(chunk),
+    }));
+    const statements: Parameters<DB["batch"]>[0] = [
+      db.insert(wristbandBatch).values({
+        id: batchId,
+        eventId,
+        source,
+        prefix: prefix ?? null,
+        suffixLength: suffixLength ?? null,
+        totalCount: urls.length,
+      }),
+      ...chunkItems(storedChunks, WRISTBAND_BATCH_INSERT_SIZE).map((rows) =>
+        db.insert(wristbandBatchChunk).values(rows)
+      ),
+    ];
+    // 2026-10-06: D1 batchは全statementを同一トランザクションで実行し、親履歴とURLを一緒に確定する。
+    await db.batch(statements);
+    const [created] = await db.select().from(wristbandBatch).where(eq(wristbandBatch.id, batchId));
+    return c.json(created, 201);
+  }
+);
+
+// 2026-10-06: 保存済みIDの次の400件だけを登録し、進捗更新もD1 batchに含めて再試行を冪等にする。
+wristbandRoutes.post("/batches/:batchId/process", async (c) => {
+  const db = c.get("db");
+  const batchId = c.req.param("batchId");
+  const [batch] = await db.select().from(wristbandBatch).where(eq(wristbandBatch.id, batchId));
+  if (!batch) apiError("NOT_FOUND", "発行履歴が見つかりません");
+  if (!(await hasPermission(c, null, "member:write", batch.eventId))) {
+    apiError("FORBIDDEN", "この操作にはイベントの編集権限が必要です");
+  }
+  if (batch.status === "completed" || batch.status === "conflict") return c.json(batch);
+
+  const chunkIndex = Math.floor(batch.processedCount / WRISTBAND_BATCH_CHUNK_SIZE);
+  const [storedChunk] = await db
+    .select({ urlsJson: wristbandBatchChunk.urlsJson })
+    .from(wristbandBatchChunk)
+    .where(and(eq(wristbandBatchChunk.batchId, batchId), eq(wristbandBatchChunk.chunkIndex, chunkIndex)));
+  if (!storedChunk) apiError("NOT_FOUND", "未処理のURLデータが見つかりません");
+  const storedUrls = JSON.parse(storedChunk.urlsJson) as string[];
+  const startInChunk = batch.processedCount % WRISTBAND_BATCH_CHUNK_SIZE;
+  const urls = storedUrls.slice(startInChunk, startInChunk + WRISTBAND_BATCH_CHUNK_SIZE);
+  const ids = urls.map(wristbandIdFromUrl) as string[];
+  const existingIds: string[] = [];
+  // D1の1クエリ100バインド変数上限に合わせて、既存ID照合も100件単位に分ける。
+  for (const idGroup of chunkItems(ids, 100)) {
+    const existing = await db
+      .select({ id: wristband.id })
+      .from(wristband)
+      .where(inArray(wristband.id, idGroup));
+    existingIds.push(...existing.map((row) => row.id));
+  }
+  if (existingIds.length > 0) {
+    const errorMessage = `登録済みIDが${existingIds.length}件含まれるため、登録を中断しました。CSVを修正して新しいバッチとして取り込んでください。`;
+    await db.update(wristbandBatch).set({
+      status: "conflict",
+      conflictCount: existingIds.length,
+      errorMessage,
+    }).where(and(eq(wristbandBatch.id, batchId), eq(wristbandBatch.processedCount, batch.processedCount)));
+    const [conflicted] = await db.select().from(wristbandBatch).where(eq(wristbandBatch.id, batchId));
+    return c.json(conflicted);
+  }
+
+  const firstDisplayId = await nextDisplayId(db, batch.eventId);
+  const userRows = ids.map((_, index) => ({
+    id: `usr_${nanoid(12)}`,
+    eventId: batch.eventId,
+    displayId: firstDisplayId + index,
+    status: "available",
+  }));
+  const bandRows = ids.map((id, index) => ({
+    id,
+    userId: userRows[index]!.id,
+    status: "active",
+  }));
+  const processedCount = batch.processedCount + ids.length;
+  const isComplete = processedCount >= batch.totalCount;
+  const statements: Parameters<DB["batch"]>[0] = [
+    // 2026-10-06: 処理可能な履歴は必ず1件以上あるため、先頭statementを明示してD1 batchのtuple型を保つ。
+    db.insert(eventUser).values(userRows.slice(0, WRISTBAND_BATCH_INSERT_SIZE)),
+    ...chunkItems(userRows.slice(WRISTBAND_BATCH_INSERT_SIZE), WRISTBAND_BATCH_INSERT_SIZE)
+      .map((rows) => db.insert(eventUser).values(rows)),
+    ...chunkItems(bandRows, WRISTBAND_BATCH_INSERT_SIZE).map((rows) => db.insert(wristband).values(rows)),
+    db.update(wristbandBatch).set({
+      processedCount,
+      importedCount: batch.importedCount + ids.length,
+      status: isComplete ? "completed" : "processing",
+      errorMessage: null,
+      completedAt: isComplete ? new Date() : null,
+    }).where(and(
+      eq(wristbandBatch.id, batchId),
+      eq(wristbandBatch.processedCount, batch.processedCount),
+      eq(wristbandBatch.status, batch.status)
+    )),
+  ];
+  // 2026-10-06: 来場者→バンド→進捗の順にコミットし、失敗時は全て戻して次回同じ位置から再開する。
+  await db.batch(statements);
+  const [updated] = await db.select().from(wristbandBatch).where(eq(wristbandBatch.id, batchId));
+  return c.json(updated);
+});
+
+// 2026-10-06: 保存URLは権限確認後にだけCSVとして返し、R2/公開URLには置かずイベント管理画面から再取得させる。
+wristbandRoutes.get("/batches/:batchId/csv", async (c) => {
+  const db = c.get("db");
+  const batchId = c.req.param("batchId");
+  const [batch] = await db.select().from(wristbandBatch).where(eq(wristbandBatch.id, batchId));
+  if (!batch) apiError("NOT_FOUND", "発行履歴が見つかりません");
+  if (!(await hasPermission(c, null, "member:read", batch.eventId))) {
+    apiError("FORBIDDEN", "このCSVをダウンロードする権限がありません");
+  }
+  const chunks = await db
+    .select({ chunkIndex: wristbandBatchChunk.chunkIndex, urlsJson: wristbandBatchChunk.urlsJson })
+    .from(wristbandBatchChunk)
+    .where(eq(wristbandBatchChunk.batchId, batchId))
+    .orderBy(asc(wristbandBatchChunk.chunkIndex));
+  const urls = chunks.flatMap((chunk) => JSON.parse(chunk.urlsJson) as string[]);
+  const csv = `\uFEFFurl\r\n${urls.join("\r\n")}`;
+  return c.body(csv, 200, {
+    "Content-Type": "text/csv; charset=utf-8",
+    "Content-Disposition": `attachment; filename="wristbands_${batchId}_${batch.totalCount}.csv"`,
+    "Cache-Control": "private, no-store",
+    "X-Content-Type-Options": "nosniff",
+  });
+});
 
 // 2026-10-02: 印刷会社から戻ったリストバンドURL CSVをイベント単位で一括登録する。
 // 任意のURLアクセスでユーザーを自動生成すると、推測されたIDで来場者枠を無制限に

@@ -8,6 +8,7 @@ import {
   integer,
   index,
   uniqueIndex,
+  primaryKey,
 } from "drizzle-orm/sqlite-core";
 import { event, circle } from "./core";
 import { ulid } from "ulidx";
@@ -62,6 +63,44 @@ export const wristband = sqliteTable(
     index("wristband_userId_idx").on(table.userId),
     index("wristband_status_idx").on(table.status),
   ]
+);
+
+// 2026-10-06: 印刷後に再取得・中断後に再開できるよう、発行単位と元URLをD1へ保存する。
+// URLはチャンク保存にし、D1の1行2MB上限と大量生成時の巨大な単一行を避ける。
+export const wristbandBatch = sqliteTable(
+  "wristband_batch",
+  {
+    id: text("id").primaryKey().$defaultFn(() => ulid()),
+    eventId: text("event_id")
+      .notNull()
+      .references(() => event.id, { onDelete: "cascade" }),
+    source: text("source").notNull(), // generated / csv
+    prefix: text("prefix"),
+    suffixLength: integer("suffix_length"),
+    totalCount: integer("total_count").notNull(),
+    processedCount: integer("processed_count").notNull().default(0),
+    importedCount: integer("imported_count").notNull().default(0),
+    conflictCount: integer("conflict_count").notNull().default(0),
+    status: text("status").notNull().default("pending"), // pending / processing / completed / conflict
+    errorMessage: text("error_message"),
+    createdAt: integer("created_at", { mode: "timestamp_ms" })
+      .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+      .notNull(),
+    completedAt: integer("completed_at", { mode: "timestamp_ms" }),
+  },
+  (table) => [index("wristband_batch_event_created_idx").on(table.eventId, table.createdAt)]
+);
+
+export const wristbandBatchChunk = sqliteTable(
+  "wristband_batch_chunk",
+  {
+    batchId: text("batch_id")
+      .notNull()
+      .references(() => wristbandBatch.id, { onDelete: "cascade" }),
+    chunkIndex: integer("chunk_index").notNull(),
+    urlsJson: text("urls_json").notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.batchId, table.chunkIndex] })]
 );
 
 // ==========================================
