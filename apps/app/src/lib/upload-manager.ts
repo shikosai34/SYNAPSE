@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from "react";
 import { uploadImage } from "@/lib/api";
+import { prepareImageForUpload } from "@/lib/image-convert";
 
 // 2026-10-05 Issue #97: 画像アップロードの状態を ImageUpload コンポーネント (=モーダルの寿命) から
 // 切り離す。従来は HEIC 変換/アップロード中にモーダルを閉じるとコンポーネントごと消え、完了後の
@@ -47,10 +48,6 @@ function patch(id: string, next: Partial<UploadJob>) {
   emit();
 }
 
-function isHeic(file: File): boolean {
-  return /\.(heic|heif)$/i.test(file.name) || /image\/(heic|heif)/i.test(file.type);
-}
-
 function errorMessage(err: unknown): string {
   if (err instanceof Error) return err.message;
   if (err && typeof err === "object" && "message" in err) return String(err.message);
@@ -60,17 +57,8 @@ function errorMessage(err: unknown): string {
 
 async function run(id: string, opts: StartUploadOptions) {
   try {
-    let upload = opts.file;
-    if (isHeic(opts.file)) {
-      patch(id, { phase: "converting", error: undefined });
-      // 2026-09-27: Workers/R2へHEICのまま保存すると一般ブラウザで表示できないため、
-      // 必要な時だけブラウザ側でJPEGへ変換し、既存のアップロード経路へ渡す。
-      const { default: heic2any } = await import("heic2any");
-      const converted = await heic2any({ blob: opts.file, toType: "image/jpeg", quality: 0.9 });
-      const jpeg = Array.isArray(converted) ? converted[0] : converted;
-      if (!jpeg) throw new Error("HEIC画像を変換できませんでした");
-      upload = new File([jpeg], opts.file.name.replace(/\.(heic|heif)$/i, ".jpg"), { type: "image/jpeg" });
-    }
+    // 2026-10-05: 実体判定・変換・フォールバックは image-convert.ts に集約 (ERR_LIBHEIF 対策)。
+    const upload = await prepareImageForUpload(opts.file, () => patch(id, { phase: "converting", error: undefined }));
     patch(id, { phase: "uploading", error: undefined });
     const data = await uploadImage(upload);
     opts.onUploaded?.(data.path);

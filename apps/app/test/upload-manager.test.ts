@@ -2,7 +2,10 @@ import { beforeEach, describe, expect, it, mock } from "bun:test";
 
 // 2026-10-05 Issue #97: 認証付きアップロード API は実通信せず差し替え、マネージャの状態遷移だけを検証する。
 let uploadImpl: (file: File) => Promise<{ path: string; fileName: string }>;
-mock.module("@/lib/api", () => ({ uploadImage: (file: File) => uploadImpl(file) }));
+// mock.module はファイルをまたいで残るため、他テスト (asset-url など) が使う getApiBaseUrl を潰さないよう
+// 本物のモジュールを展開して uploadImage だけ差し替える。
+const realApi = await import("../src/lib/api");
+mock.module("@/lib/api", () => ({ ...realApi, uploadImage: (file: File) => uploadImpl(file) }));
 
 const mgr = await import("../src/lib/upload-manager");
 
@@ -31,6 +34,8 @@ describe("upload-manager", () => {
       });
     mgr.startUpload({ file: png(), label: "x", entityKey: "menu:1:image" });
     expect(mgr.isUploadActive()).toBe(true);
+    // 変換の要否判定 (await) を挟んでから uploadImage が呼ばれるため、一周待つ
+    await flush();
     release();
     await flush();
     expect(mgr.isUploadActive()).toBe(false);
