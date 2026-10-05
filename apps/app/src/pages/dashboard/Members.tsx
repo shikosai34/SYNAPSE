@@ -10,7 +10,7 @@ import {
   PERMISSION_NAMES,
   type RoleType,
 } from "@/hooks/useCircleAuth";
-import { membershipApi, type Role } from "@/lib/api";
+import { circleApi, membershipApi, parseCircleSettings, type Role } from "@/lib/api";
 import DashboardLayout from "@/components/DashboardLayout";
 import {
   Card,
@@ -53,6 +53,15 @@ function MembersContent() {
   // 高度な権限管理 OFF のイベントでは、サークル内は全員同権限なのでロールを選ばせない
   // (circle_manager への昇格は API でも event_manager 限定のため、選ばせてもエラーになる)。
   // イベント管理者は常にロールを調整できる (2026-10-05)。
+  // 「ロールと権限」の説明は、拡張機能「スタッフ管理」が OFF なら staff:* (名簿の閲覧/編集/削除) を
+  // 載せない。OFF ではスタッフ管理ページ自体が出ず、権限を持っていても使えないため (2026-10-05)。
+  // クエリキーは DashboardLayout と共通 (["circle", circleId]) なので追加リクエストにならない。
+  const { data: circleData } = useQuery({
+    queryKey: ["circle", circleId],
+    queryFn: () => circleApi.get(circleId!),
+    enabled: !!circleId,
+  });
+  const staffExtensionEnabled = parseCircleSettings(circleData?.settings).extensions.staff;
   const canChooseRole = advancedPermissions !== false || role === ROLES.EVENT_MANAGER;
   const circleName = authCircleName ?? "サークルダッシュボード";
   const queryClient = useQueryClient();
@@ -691,7 +700,9 @@ function MembersContent() {
                     </Badge>
                   </div>
                   <p className="text-sm text-muted-foreground leading-relaxed">
-                    権限: {roleInfo.permissions.map(p => PERMISSION_NAMES[p] || p).join("、 ") || "なし"}
+                    権限: {roleInfo.permissions
+                      .filter((p) => staffExtensionEnabled || !p.startsWith("staff:"))
+                      .map(p => PERMISSION_NAMES[p] || p).join("、 ") || "なし"}
                   </p>
                 </div>
               ))}
