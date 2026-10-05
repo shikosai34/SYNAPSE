@@ -194,7 +194,7 @@ export default function Header() {
       const space = (spaces ?? []).find((m: any) => m.eventId === eventId && !m.circleId);
       return space?.event?.eventName || localStorage.getItem("eventName") || "イベント管理";
     }
-    if (role === "circle_manager" || role === "circle_staff") {
+    if (role === "circle_manager" || role === "circle_admin" || role === "circle_staff") {
       const space = (spaces ?? []).find((m: any) => m.circleId === (getAuthInfo()?.circleId ?? null));
       return space?.circle?.name || circleName || "店舗";
     }
@@ -444,7 +444,7 @@ export default function Header() {
     links = [
       { to: "/event/dashboard", label: "イベント管理" },
     ];
-  } else if (isCircleView && (role === "circle_manager" || role === "circle_staff" || role === "super_admin" || role === "event_manager")) {
+  } else if (isCircleView && (role === "circle_manager" || role === "circle_admin" || role === "circle_staff" || role === "super_admin" || role === "event_manager")) {
     links = [
       { to: "/circle/dashboard", label: "ダッシュボード" },
       ...(hasPermission(role, "order:write", isEventAdmin) ? [{ to: "/circle/register", label: "レジ" }] : []),

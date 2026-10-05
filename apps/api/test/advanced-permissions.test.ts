@@ -16,7 +16,7 @@ function extractCookieHeader(res: Response): string {
 	return raw.map((c) => c.split(";")[0]).join("; ");
 }
 
-async function seedStaff(advancedPermissions?: boolean, role: "circle_staff" | "circle_manager" = "circle_staff") {
+async function seedStaff(advancedPermissions?: boolean, role: "circle_staff" | "circle_admin" | "circle_manager" = "circle_staff") {
 	const email = `${uid("adv")}@example.com`;
 	const res = await postJson("/api/auth/sign-up/email", {
 		email,
@@ -139,7 +139,7 @@ describe("高度な権限管理", () => {
 });
 
 describe("オーナーによる権限付与 (issue #99)", () => {
-	async function addMember(circleId: string, eventId: string, role: "circle_staff" | "circle_manager") {
+	async function addMember(circleId: string, eventId: string, role: "circle_staff" | "circle_admin" | "circle_manager") {
 		const id = uid("mb");
 		await testDb().insert(membership).values({
 			id,
@@ -202,5 +202,65 @@ describe("オーナーによる権限付与 (issue #99)", () => {
 		const staff = await seedStaff(true);
 		const target = await addMember(staff.circleId, staff.eventId, "circle_staff");
 		expect((await patchRole(staff, target, "circle_manager")).status).toBe(403);
+	});
+});
+
+describe("管理者 (circle_admin) ロール", () => {
+	it("オーナーは一般スタッフを管理者にできる", async () => {
+		const owner = await seedStaff(true, "circle_manager");
+		const target = uid("mb");
+		await testDb().insert(membership).values({
+			id: target,
+			userEmail: `${uid("m")}@example.com`,
+			userName: "メンバー",
+			circleId: owner.circleId,
+			eventId: owner.eventId,
+			role: "circle_staff",
+			isActive: true,
+		});
+		const res = await request(`/api/memberships/${target}/role`, {
+			method: "PATCH",
+			headers: { "Content-Type": "application/json", ...headers(owner) },
+			body: JSON.stringify({ role: "circle_admin" }),
+		});
+		expect(res.status).toBe(200);
+		const rows = await testDb().select().from(membership).where(eq(membership.id, target));
+		expect(rows[0]!.role).toBe("circle_admin");
+	});
+
+	it("管理者は ON でも売上 (sales:read) を見られるが、一般スタッフは見られない", async () => {
+		const admin = await seedStaff(true, "circle_admin");
+		const staff = await seedStaff(true);
+		expect((await request(`/api/circles/${admin.circleId}/analytics`, { headers: headers(admin) })).status).toBe(200);
+		expect((await request(`/api/circles/${staff.circleId}/analytics`, { headers: headers(staff) })).status).toBe(403);
+	});
+
+	it("管理者はオーナー限定の操作 (基本情報・メンバー管理・譲渡) はできない", async () => {
+		const admin = await seedStaff(true, "circle_admin");
+		const put = await request(`/api/circles/${admin.circleId}`, {
+			method: "PUT",
+			headers: { "Content-Type": "application/json", ...headers(admin) },
+			body: JSON.stringify({ name: "乗っ取り" }),
+		});
+		expect(put.status).toBe(403);
+		const invite = await postJson(
+			"/api/memberships/invite",
+			{ circleId: admin.circleId, role: "circle_staff" },
+			headers(admin),
+		);
+		expect(invite.status).toBe(403);
+		const transfer = await postJson(
+			`/api/circles/${admin.circleId}/transfer-owner`,
+			{ membershipId: admin.membershipId },
+			headers(admin),
+		);
+		expect(transfer.status).toBe(403);
+	});
+
+	it("管理者は他サークルには入れない", async () => {
+		const a = await seedStaff(true, "circle_admin");
+		const b = await seedStaff(true, "circle_manager");
+		const res = await request(`/api/circles/${b.circleId}/analytics`, { headers: headers(a) });
+		expect(res.status).toBe(403);
 	});
 });

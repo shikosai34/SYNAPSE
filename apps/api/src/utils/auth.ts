@@ -193,7 +193,7 @@ export async function hasPermission(
     let allowed = false;
     if (imp.role === "event_manager") {
       allowed = !!imp.eventId && (!reqEventId || imp.eventId === reqEventId);
-    } else if (imp.role === "circle_manager" || imp.role === "circle_staff") {
+    } else if (imp.role === "circle_manager" || imp.role === "circle_admin" || imp.role === "circle_staff") {
       allowed = !!imp.circleId && (!circleId || imp.circleId === circleId);
     }
     // なりすまし中の変更操作 (write/delete) は監査ログに記録する。
@@ -265,7 +265,7 @@ export async function hasPermission(
     }
     if (circleId) {
       const cm = legit.find(
-        (m) => m.circleId === circleId && (m.role === "circle_manager" || m.role === "circle_staff")
+        (m) => m.circleId === circleId && (m.role === "circle_manager" || m.role === "circle_admin" || m.role === "circle_staff")
       );
       if (cm) {
         const cmRole = await circleRoleForEvaluation(c, cm.role, resolvedEventId);

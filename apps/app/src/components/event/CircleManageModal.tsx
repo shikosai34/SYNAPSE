@@ -14,8 +14,10 @@ import { Package, UserCheck } from "lucide-react";
 
 // 主催者(event_manager)によるサークル運営管理モーダル (2026-07-12 C-2)
 // - 各サークルの拡張機能(在庫/スタッフ/抽選)の ON/OFF を主催者側からも制御。
-// - サークルメンバーのロール調整(circle_manager / circle_staff)。
+// - サークルメンバーのロール調整(circle_manager / circle_admin / circle_staff)。
 // circle.settings は全体置換で保存されるため、既存値をパースして必要キーだけ差し替える。
+
+type CircleRole = "circle_manager" | "circle_admin" | "circle_staff";
 
 const EXTENSIONS: { key: "stock" | "staff"; label: string; desc: string; icon: any }[] = [
   { key: "stock", label: "在庫管理", desc: "メニューの在庫数・売り切れ管理", icon: Package },
@@ -63,7 +65,7 @@ export function CircleManageModal({
   });
 
   const updateRole = useMutation({
-    mutationFn: ({ id, role }: { id: string; role: "circle_manager" | "circle_staff" }) =>
+    mutationFn: ({ id, role }: { id: string; role: CircleRole }) =>
       membershipApi.updateRole(id, role),
     onSuccess: () => {
       toast.success("ロールを更新しました");
@@ -120,14 +122,15 @@ export function CircleManageModal({
                     <div className="text-[10px] text-muted-foreground truncate">{m.userEmail}</div>
                   </div>
                   <select
-                    value={m.role === "circle_manager" ? "circle_manager" : "circle_staff"}
+                    value={m.role === "circle_manager" || m.role === "circle_admin" ? m.role : "circle_staff"}
                     onChange={(e) =>
-                      updateRole.mutate({ id: m.id, role: e.target.value as "circle_manager" | "circle_staff" })
+                      updateRole.mutate({ id: m.id, role: e.target.value as CircleRole })
                     }
                     disabled={updateRole.isPending}
                     className="border-thick border-border bg-background px-2 py-1 text-[11px] font-mono focus:outline-none focus:border-accent"
                   >
-                    <option value="circle_manager">管理者</option>
+                    <option value="circle_manager">オーナー</option>
+                    <option value="circle_admin">管理者</option>
                     <option value="circle_staff">スタッフ</option>
                   </select>
                 </div>

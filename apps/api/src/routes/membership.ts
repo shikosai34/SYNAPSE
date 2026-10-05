@@ -44,6 +44,7 @@ const ROLES = [
   "super_admin",
   "event_manager",
   "circle_manager",
+  "circle_admin",
   "circle_staff",
 ] as const;
 
@@ -75,6 +76,23 @@ const ROLE_PERMISSIONS: Record<Role, string[]> = {
     "member:delete",
   ],
   circle_manager: [
+    "circle:read",
+    "circle:write",
+    "menu:read",
+    "menu:write",
+    "menu:delete",
+    "order:read",
+    "order:write",
+    "staff:read",
+    "staff:write",
+    "staff:delete",
+    "stock:read",
+    "stock:write",
+    "sales:read",
+    "member:read",
+    "member:write",
+  ],
+  circle_admin: [
     "circle:read",
     "circle:write",
     "menu:read",
@@ -669,7 +687,7 @@ membershipRoutes.post(
       }
 
       const spaceName = circleName || eventName || "新しいスペース";
-      const displayRole = input.role === "circle_manager" ? "管理者" : input.role === "circle_staff" ? "スタッフ" : input.role === "event_manager" ? "イベントマネージャー" : "メンバー";
+      const displayRole = input.role === "circle_manager" ? "オーナー" : input.role === "circle_admin" ? "管理者" : input.role === "circle_staff" ? "スタッフ" : input.role === "event_manager" ? "イベントマネージャー" : "メンバー";
 
       await db.insert(notification).values({
         id: ulid(),

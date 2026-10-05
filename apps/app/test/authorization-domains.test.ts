@@ -31,6 +31,12 @@ describe("shared authorization domains", () => {
         "stock:read", "stock:write", "sales:read", "member:read", "member:write",
         "coupon:read", "coupon:write",
       ],
+      circle_admin: [
+        "circle:read", "circle:write", "menu:read", "menu:write", "menu:delete",
+        "order:read", "order:write", "staff:read", "staff:write", "staff:delete",
+        "stock:read", "stock:write", "sales:read", "member:read", "member:write",
+        "coupon:read", "coupon:write",
+      ],
       circle_staff: [
         "circle:read", "menu:read", "order:read", "order:write", "stock:read", "stock:write", "staff:read",
       ],
