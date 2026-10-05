@@ -45,7 +45,9 @@ type VisitorFilters = {
 type VisitorSortField = "createdAt" | "displayId" | "nickname" | "favoriteDate" | "accountStatus" | "wristbandId" | "bandStatus";
 
 const VISITOR_PAGE_SIZE = 500;
-const WRISTBAND_IMPORT_BATCH_SIZE = 500;
+// D1は1クエリあたりのバインド変数が100個まで。親行は4列を明示するため、
+// スキーマ変更にも余裕を残して20件ずつ取り込む。
+const WRISTBAND_IMPORT_BATCH_SIZE = 20;
 const WRISTBAND_GENERATION_MAX_COUNT = 50_000;
 const VISITOR_SORT_COLUMNS: { label: string; field: Exclude<VisitorSortField, "createdAt"> }[] = [
   { label: "呼出ID", field: "displayId" },
@@ -278,7 +280,7 @@ export function WristbandsTab({ eventId }: WristbandsTabProps) {
   const importUrlsMutation = useMutation({
     mutationFn: async ({ urls, startAt }: { urls: string[]; startAt: number }) => {
       let registered = startAt;
-      // 2026-10-06: 多人数のCSV/生成IDを一括SQLや巨大リクエストにせず、500件ずつ安全に登録する。
+      // 2026-10-06: D1のバインド変数上限を超えないよう、小分けにして再試行位置も確定する。
       for (let offset = startAt; offset < urls.length; offset += WRISTBAND_IMPORT_BATCH_SIZE) {
         const batch = urls.slice(offset, offset + WRISTBAND_IMPORT_BATCH_SIZE);
         const result = await wristbandApi.importUrls(eventId, batch);

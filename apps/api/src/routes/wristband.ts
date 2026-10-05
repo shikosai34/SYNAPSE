@@ -692,7 +692,9 @@ wristbandRoutes.post(
   zBody(
     z.object({
       eventId: z.string().min(1),
-      urls: z.array(z.string().trim().min(1)).min(1).max(5000),
+      // D1の1クエリ100バインド変数上限に対し、eventUserは1行4列を挿入するため20件まで。
+      // 大きなCSVは管理画面側がこの上限に合わせて分割して送る。
+      urls: z.array(z.string().trim().min(1)).min(1).max(20),
     })
   ),
   async (c) => {
