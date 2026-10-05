@@ -7,6 +7,7 @@ import { eq, and, inArray, gt, isNull, lt } from "drizzle-orm";
 import { nanoid, customAlphabet } from "nanoid";
 import { ulid } from "ulidx";
 import { Context } from "hono";
+import { effectiveCircleRole } from "@fesflow/config";
 import { requireAuth } from "../middleware/auth";
 import type { AppEnv } from "../types";
 
@@ -208,18 +209,25 @@ async function checkMemberWritePermission(
     return null;
   }
 
-  // サークルマネージャーか確認
-  const managerMemberships = await db
+  // サークルマネージャーか確認。
+  // 高度な権限管理 (event.advancedPermissions) が OFF のイベントでは circle_staff も
+  // circle_manager 相当なので、サークルに所属する有効なメンバーなら管理操作を許可する (2026-10-05)。
+  const advancedPermissions = (
+    await db.select().from(event).where(eq(event.id, eventId))
+  )[0]?.advancedPermissions;
+  const circleMemberships = await db
     .select()
     .from(membership)
     .where(
       and(
         eq(membership.userEmail, email),
         eq(membership.circleId, targetCircleId),
-        eq(membership.role, "circle_manager"),
         eq(membership.isActive, true)
       )
     );
+  const managerMemberships = circleMemberships.filter(
+    (m) => effectiveCircleRole(m.role, advancedPermissions) === "circle_manager"
+  );
 
   if (managerMemberships.length === 0) {
     return { code: "FORBIDDEN" as const, error: "このサークルのメンバーを管理する権限がありません", status: 403 as const };
@@ -310,6 +318,14 @@ membershipRoutes.get("/my", async (c) => {
           .where(and(inArray(event.id, eventIds), isNull(event.deletedAt)))
       : [];
 
+  // サークル所属の実効ロール判定用に、サークルの親イベントの権限モードも引く (2026-10-05)。
+  // membership.eventId が空のサークル所属でも circle.eventId から解決できるようにする。
+  const circleEventIds = [...new Set(circles.map((ci) => ci.eventId))];
+  const circleEvents =
+    circleEventIds.length > 0
+      ? await db.select().from(event).where(inArray(event.id, circleEventIds))
+      : [];
+
   const result = memberships
     // 参照先が論理削除済みのメンバーシップはスペース一覧に出さない
     // (circleId を持つなら生存サークル必須、eventId のみなら生存イベント必須)
@@ -318,11 +334,19 @@ membershipRoutes.get("/my", async (c) => {
       if (m.eventId) return events.some((e) => e.id === m.eventId);
       return true; // super_admin 等 (circle/event 紐付けなし) は常に残す
     })
-    .map((m) => ({
-      ...m,
-      circle: circles.find((c) => c.id === m.circleId),
-      event: events.find((e) => e.id === m.eventId),
-    }));
+    .map((m) => {
+      const ci = circles.find((c) => c.id === m.circleId);
+      const parentEvent = ci ? circleEvents.find((e) => e.id === ci.eventId) : undefined;
+      return {
+        ...m,
+        circle: ci,
+        event: events.find((e) => e.id === m.eventId),
+        // 画面の権限表示/ガード用。実際の可否は常にサーバーの hasPermission が決める。
+        // 高度な権限管理 OFF のイベントでは circle_staff が circle_manager 相当になる。
+        effectiveRole: ci ? effectiveCircleRole(m.role, parentEvent?.advancedPermissions) : m.role,
+        advancedPermissions: parentEvent?.advancedPermissions ?? false,
+      };
+    });
 
   return c.json(result);
 });

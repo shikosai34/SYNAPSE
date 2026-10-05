@@ -81,3 +81,13 @@ export function hasRolePermission(
   if (!role || !Object.hasOwn(ROLE_PERMISSIONS, role)) return false;
   return (ROLE_PERMISSIONS[role as RoleType] as readonly string[]).includes(permission);
 }
+
+// 高度な権限管理 (event.advancedPermissions) が OFF のイベントでは、サークル所属の
+// circle_staff を circle_manager 相当として扱う。DB の membership.role は書き換えず、
+// API とブラウザーの双方でこの関数を通して実効ロールを求める (ON に戻せば元の区別が復活する)。
+export function effectiveCircleRole(
+  role: string | null | undefined,
+  advancedPermissions: boolean | null | undefined
+): string | null | undefined {
+  return role === ROLES.CIRCLE_STAFF && !advancedPermissions ? ROLES.CIRCLE_MANAGER : role;
+}
