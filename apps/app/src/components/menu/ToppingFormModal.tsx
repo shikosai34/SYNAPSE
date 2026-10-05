@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toppingApi, circleApi, parseCircleSettings, type Topping } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { ImageUpload } from "@/components/image-upload";
@@ -33,6 +33,7 @@ export function ToppingFormModal({ circleId, isOpen, onClose, topping }: Topping
   });
   const stockManaged = parseCircleSettings(circleData?.settings).extensions.stock;
 
+  const queryClient = useQueryClient();
   const {
     form, setForm, isEdit, isConfirmOpen, setIsConfirmOpen, isCreating, saveStatus,
     triggerAutoSave, saveNow, handleOverlayClose, handleSaveAndClose, handleDiscardAndClose,
@@ -113,14 +114,17 @@ export function ToppingFormModal({ circleId, isOpen, onClose, topping }: Topping
         <ImageUpload
           label="トッピング画像"
           value={form.imagePath}
-          onChange={(path) => {
-            setForm((prev) => {
-              const next = { ...prev, imagePath: path };
-              // 画像パス変更時は blur を伴わないため即座に自動保存を発火
-              if (isEdit) saveNow(next);
-              return next;
-            });
-          }}
+          entityKey={topping?.id ? `topping:${topping.id}:image` : undefined}
+          // 2026-10-05 Issue #97: メニューと同様、完了後の画像保存をアップロードマネージャに任せる。
+          onCommit={
+            isEdit && topping
+              ? async (path) => {
+                  await toppingApi.update(topping.id, { imagePath: path });
+                  queryClient.invalidateQueries({ queryKey: ["toppings", circleId] });
+                }
+              : undefined
+          }
+          onChange={(path) => setForm((prev) => ({ ...prev, imagePath: path }))}
         />
 
         <FormField

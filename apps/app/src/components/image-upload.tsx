@@ -1,16 +1,23 @@
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Upload, X, Image as ImageIcon, Loader2 } from "lucide-react";
-import { uploadImage } from "@/lib/api";
+import { X, Image as ImageIcon, Loader2 } from "lucide-react";
+import { startUpload, useUploadJobs } from "@/lib/upload-manager";
 import { resolveAssetUrl } from "@/lib/asset-url";
 
 interface ImageUploadProps {
   value: string;
   onChange: (path: string) => void;
   label?: string;
+  /** 同じ画像欄を開き直したとき進行中のアップロードを引き当てるキー (例: "menu:{id}:image") */
+  entityKey?: string;
+  /**
+   * 2026-10-05 Issue #97: 完了後の永続化処理。モーダルを閉じて ImageUpload が消えた後でも
+   * アップロードマネージャが必ず実行する (onChange は画面に残っているときだけ呼ばれる)。
+   */
+  onCommit?: (path: string) => Promise<void>;
 }
 
 function isHeic(file: File): boolean {
@@ -25,44 +32,47 @@ export function ImageUpload({
   value,
   onChange,
   label = "画像",
+  entityKey,
+  onCommit,
 }: ImageUploadProps) {
-  const [isUploading, setIsUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dragActive, setDragActive] = useState(false);
+  const [jobId, setJobId] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
-  const uploadFile = async (file: File) => {
-    setIsUploading(true);
+  // 自分が開始したジョブ、または開き直し前に同じ entityKey で開始された進行中ジョブを表示に使う
+  const jobs = useUploadJobs();
+  const job =
+    jobs.find((j) => j.id === jobId) ??
+    [...jobs].reverse().find((j) => entityKey && j.entityKey === entityKey && j.phase !== "done" && j.phase !== "error");
+  const isUploading =
+    !!job && job.phase !== "done" && job.phase !== "error";
+  const phaseText =
+    job?.phase === "converting" ? "HEICを変換中..." : job?.phase === "saving" ? "保存中..." : "アップロード中...";
+
+  const uploadFile = (file: File) => {
     setError(null);
-
-    try {
-      let upload = file;
-      if (isHeic(file)) {
-        // 2026-09-27: Workers/R2へHEICのまま保存すると一般ブラウザで表示できないため、
-        // 必要な時だけブラウザ側でJPEGへ変換し、既存のアップロード経路へ渡す。
-        const { default: heic2any } = await import("heic2any");
-        const converted = await heic2any({ blob: file, toType: "image/jpeg", quality: 0.9 });
-        const jpeg = Array.isArray(converted) ? converted[0] : converted;
-        if (!jpeg) throw new Error("HEIC画像を変換できませんでした");
-        upload = new File([jpeg], file.name.replace(/\.(heic|heif)$/i, ".jpg"), { type: "image/jpeg" });
-      }
-      // 2026-09-27: HEIC変換後のファイルも共通の認証付きアップロード経路へ渡す。
-      const data = await uploadImage(upload);
-      onChange(data.path);
-    } catch (err) {
-      const detail = err instanceof Error
-        ? err.message
-        : err && typeof err === "object" && "message" in err
-          ? String(err.message)
-          : err && typeof err === "object" && "code" in err
-            ? `変換エラー (${String(err.code)})`
-            : "アップロードに失敗しました";
-      setError(
-        detail
-      );
-    } finally {
-      setIsUploading(false);
-    }
+    // 2026-10-05 Issue #97: 変換/アップロードはマネージャへ委譲し、ここでは状態を持たない。
+    // 画面が残っている間だけ onChange でフォームへ反映し、永続化は onCommit に任せる。
+    const id = startUpload({
+      file,
+      label,
+      entityKey,
+      onUploaded: (path) => {
+        if (mountedRef.current) onChangeRef.current(path);
+      },
+      commit: onCommit,
+    });
+    setJobId(id);
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -101,6 +111,9 @@ export function ImageUpload({
       inputRef.current.value = "";
     }
   };
+
+  // 失敗したジョブのエラーはトレイ側で再試行できるが、欄内にも出して見落としを防ぐ
+  const shownError = error ?? (job?.phase === "error" ? job.error ?? null : null);
 
   return (
     <div className="space-y-2">
@@ -151,7 +164,10 @@ export function ImageUpload({
               <>
                 <Loader2 className="h-10 w-10 text-muted-foreground animate-spin" />
                 <p className="text-sm text-muted-foreground">
-                  アップロード中...
+                  {phaseText}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  閉じても処理は続きます (右下に状況を表示)
                 </p>
               </>
             ) : (
@@ -173,7 +189,7 @@ export function ImageUpload({
         </div>
       )}
 
-      {error && <p className="text-sm text-destructive">{error}</p>}
+      {shownError && <p className="text-sm text-destructive">{shownError}</p>}
 
       {/* 手動入力オプション */}
       <div className="flex items-center gap-2 text-xs text-muted-foreground">
