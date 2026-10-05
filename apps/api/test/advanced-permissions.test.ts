@@ -16,7 +16,7 @@ function extractCookieHeader(res: Response): string {
 	return raw.map((c) => c.split(";")[0]).join("; ");
 }
 
-async function seedStaff(advancedPermissions?: boolean) {
+async function seedStaff(advancedPermissions?: boolean, role: "circle_staff" | "circle_manager" = "circle_staff") {
 	const email = `${uid("adv")}@example.com`;
 	const res = await postJson("/api/auth/sign-up/email", {
 		email,
@@ -42,7 +42,7 @@ async function seedStaff(advancedPermissions?: boolean) {
 		userName: "スタッフ",
 		circleId,
 		eventId,
-		role: "circle_staff",
+		role,
 		isActive: true,
 	});
 	return { cookie, eventId, circleId, membershipId };
@@ -77,17 +77,47 @@ describe("高度な権限管理", () => {
 		expect(rows[0]!.role).toBe("circle_staff");
 	});
 
-	it("OFF ではスタッフもメンバー管理 (招待の発行) ができる / ON では 403", async () => {
-		const off = await seedStaff(false);
-		const on = await seedStaff(true);
-		const invite = (s: typeof off) =>
+	it("メンバー管理 (招待の発行) はオーナーのみ。OFF でも一般スタッフは 403", async () => {
+		const staffOff = await seedStaff(false);
+		const owner = await seedStaff(false, "circle_manager");
+		const invite = (s: typeof owner) =>
 			postJson(
 				"/api/memberships/invite",
 				{ circleId: s.circleId, role: "circle_staff" },
 				headers(s),
 			);
-		expect((await invite(off)).status).toBeLessThan(400);
-		expect((await invite(on)).status).toBe(403);
+		expect((await invite(staffOff)).status).toBe(403);
+		expect((await invite(owner)).status).toBeLessThan(400);
+	});
+
+	it("サークル基本情報の変更とオーナー譲渡はオーナーのみ (OFF でも一般スタッフは 403)", async () => {
+		const staff = await seedStaff(false);
+		const owner = await seedStaff(false, "circle_manager");
+		const put = (s: typeof owner) =>
+			request(`/api/circles/${s.circleId}`, {
+				method: "PUT",
+				headers: { "Content-Type": "application/json", ...headers(s) },
+				body: JSON.stringify({ name: "新しい名前" }),
+			});
+		expect((await put(staff)).status).toBe(403);
+		expect((await put(owner)).status).toBe(200);
+
+		const transfer = await postJson(
+			`/api/circles/${staff.circleId}/transfer-owner`,
+			{ membershipId: staff.membershipId },
+			headers(staff),
+		);
+		expect(transfer.status).toBe(403);
+	});
+
+	it("運用設定 (settings) は OFF なら一般スタッフも変更できる", async () => {
+		const staff = await seedStaff(false);
+		const res = await request(`/api/circles/${staff.circleId}/settings`, {
+			method: "PATCH",
+			headers: { "Content-Type": "application/json", ...headers(staff) },
+			body: JSON.stringify({ settings: { orderFlowMode: "pending" } }),
+		});
+		expect(res.status).toBe(200);
 	});
 
 	it("別サークルの circle_staff は OFF でも他サークルには入れない", async () => {
