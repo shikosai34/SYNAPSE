@@ -1,48 +1,45 @@
 /**
- * 認証レート制限 / アカウントロックアウト (2026-07-05 追加, 監査 High: H4)
+ * 認証失敗の識別子別バックオフ (2026-07-05 追加, 監査 High: H4)
  *
  * 元々は PIN 総当たり (POST /api/memberships/authenticate-pin) とサークルパスワード
  * 総当たり (POST /api/festivals/login) のオンライン総当たりを抑止するために作った
  * 共通ヘルパ。2026-07-07 (Phase 3a) でこの2ルートは廃止されたが、index.ts の
- * better-auth ハンドラ (POST /api/auth/sign-in, /api/auth/sign-up) の IP レート制限に
- * 引き続き使われているため、このファイル自体は残す (pin/circle_login スコープの
- * バケットは使われなくなり、auth スコープのみが現役)。
+ * better-auth の認証失敗をログイン識別子別に段階遅延するために使う。
  *
  * 設計:
  * - 状態は D1 の `auth_attempt` テーブルに保持する (Cloudflare の Rate Limiting binding は
  *   窓が 10s/60s に固定で「5回失敗→15分ロック」を表現できず、ローカル検証性でも劣るため不採用)。
- * - 1 バケット = 1 行。key は scope と識別子を結合した文字列。呼び出し側は通常
- *   「IP バケット」と「対象バケット」の 2 本を渡し、どちらかがロックしたら拒否する。
- * - 判定 (isLocked) は bcrypt 実行前に行い、CPU を使う前に弾く。
+ * - 1 識別子 = 1 行。生のメールアドレスやパスキーIDは保存せず、secret付きHMACをkeyにする。
+ * - 認証失敗後は1, 2, 4, 8...秒と待機を延ばし、最大60秒で頭打ちにする。共有NATの
+ *   1人の失敗で同じIPの他の利用者を止めない。
  *
- * 注意: D1(SQLite) の read-modify-write は厳密なアトミック性を持たない。極端な高並列時に
- * カウントが数回甘くなり得るが、緩和目的では許容範囲。
+ * 2026-10-03: #94 の判断に従い、IP単位ロックを廃止して識別子別の段階遅延へ変更する。
+ * 失敗記録はUPSERT一文で原子的に更新し、認証識別子の生値をD1へ残さない。
  */
 import { authAttempt, type DB } from "@fesflow/db";
-import { eq, inArray } from "drizzle-orm";
+import { inArray, sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
-import type { Context } from "hono";
 
 // 2026-07-08 (Phase5): db はモジュール Proxy ではなく引数で受け取る。
-// isLocked/recordFailure/clearAttempts は Context を持たないトップレベル関数のため、
+// retryAfterSeconds/recordFailure/clearAttempts は Context を持たないトップレベル関数のため、
 // (計画の「c を受け取らないトップレベル関数は db を引数で受け取る」方針に従い) 呼び出し側
 // (index.ts の better-auth ハンドラ) から c.get("db") を渡してもらう形に変更した。
 
-/** ロックアウトのしきい値・窓・ロック時間 (既定)。 */
+/** 認証失敗の段階遅延と計数窓。 */
 export interface RateLimitConfig {
-  /** この回数「以上」失敗するとロックする。 */
-  maxFailures: number;
-  /** 失敗計数の窓 (ms)。最初の失敗からこの時間を超えると (非ロック時) 計数をリセットする。 */
+  /** 失敗計数の窓 (ms)。期限後の失敗は新しい窓として扱う。 */
   windowMs: number;
-  /** ロック時間 (ms)。しきい値到達時に now+lockMs までロックする。 */
-  lockMs: number;
+  /** 最初の失敗後の待機時間。以後は指数的に伸ばす。 */
+  baseDelayMs: number;
+  /** 待機時間の上限。長時間のアカウントロックにはしない。 */
+  maxDelayMs: number;
 }
 
-/** 既定: 5 回失敗 / 15 分窓 / 15 分ロック。 */
+/** 既定: 15分窓、1秒から開始し最大60秒まで段階的に遅らせる。 */
 export const DEFAULT_RATE_LIMIT: RateLimitConfig = {
-  maxFailures: 5,
   windowMs: 15 * 60 * 1000,
-  lockMs: 15 * 60 * 1000,
+  baseDelayMs: 1000,
+  maxDelayMs: 60 * 1000,
 };
 
 /** レート制限バケット (key = 制限単位, scope = 分類ラベル)。 */
@@ -51,24 +48,44 @@ export interface Bucket {
   scope: string;
 }
 
-/**
- * クライアント IP を最善努力で取得する。
- * 本番 (Cloudflare) は CF-Connecting-IP が入る。ローカル (wrangler dev) では付かないため
- * X-Forwarded-For → "unknown" とフォールバックする ("unknown" 共有バケットで局所検証も可能)。
- */
-export function clientIp(c: Context): string {
-  return (
-    c.req.header("cf-connecting-ip") ||
-    c.req.header("x-forwarded-for")?.split(",")[0]?.trim() ||
-    "unknown"
+/** 認証リクエスト中で既知のログイン識別子が取得できる場合だけ、個人別バケットを返す。 */
+export async function authAttemptBucket(request: Request, path: string, secret: string | undefined): Promise<Bucket | null> {
+  if (request.method !== "POST" || !secret) return null;
+  const isPasskeyVerify = path.endsWith("/passkey/verify-authentication");
+  const isEmailAuth = path.endsWith("/sign-in/email") || path.endsWith("/sign-up/email");
+  if (!isPasskeyVerify && !isEmailAuth) return null;
+
+  const contentLength = Number(request.headers.get("content-length") ?? 0);
+  if (contentLength > 32 * 1024) return null;
+  const body = await request.clone().json().catch(() => null) as Record<string, unknown> | null;
+  const response = body?.response as Record<string, unknown> | undefined;
+  const candidate = isPasskeyVerify ? response?.id : body?.email;
+  if (typeof candidate !== "string" || candidate.length === 0 || candidate.length > 2048) return null;
+
+  const scope = isPasskeyVerify ? "passkey" : "email";
+  const identity = isPasskeyVerify ? candidate : candidate.trim().toLowerCase();
+  return { key: await identityAttemptKey(secret, scope, identity), scope };
+}
+
+/** 生のログイン識別子を残さず、環境secretで照合可能なバケットkeyを作る。 */
+export async function identityAttemptKey(secret: string, scope: string, identity: string): Promise<string> {
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
   );
+  const signature = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(`${scope}:${identity}`));
+  const digest = [...new Uint8Array(signature)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+  return `auth:${scope}:${digest}`;
 }
 
 /**
  * 渡した key 群のいずれかが現在ロック中かを判定する。
  * @returns ロック中なら解除までの残り秒数 (最大値)。未ロックなら 0。
  */
-export async function isLocked(db: DB, keys: string[], now = Date.now()): Promise<number> {
+export async function retryAfterSeconds(db: DB, keys: string[], now = Date.now()): Promise<number> {
   if (keys.length === 0) return 0;
   const rows = await db
     .select()
@@ -85,8 +102,7 @@ export async function isLocked(db: DB, keys: string[], now = Date.now()): Promis
 }
 
 /**
- * 各バケットに失敗を 1 件記録する。しきい値に達したバケットはロックする。
- * 窓 (windowMs) を過ぎており、かつ非ロックなら計数をリセットして 1 から数え直す。
+ * 各識別子の失敗を原子的に記録し、待機を倍々に延ばす。期限を越えた窓は1回目から再開する。
  */
 export async function recordFailure(
   db: DB,
@@ -95,43 +111,24 @@ export async function recordFailure(
   now = Date.now(),
 ): Promise<void> {
   for (const b of buckets) {
-    const existing = (
-      await db.select().from(authAttempt).where(eq(authAttempt.key, b.key))
-    )[0];
-
-    if (!existing) {
-      await db.insert(authAttempt).values({
-        id: nanoid(),
-        key: b.key,
-        scope: b.scope,
-        failedCount: 1,
-        firstFailedAt: new Date(now),
+    // 2026-10-03 (#94): SELECT→UPDATE間の取りこぼしを避け、現在のDB行から遅延を原子的に更新する。
+    const resetWindow = sql`(${now} - ${authAttempt.firstFailedAt} > ${cfg.windowMs}
+      AND (${authAttempt.lockedUntil} IS NULL OR ${authAttempt.lockedUntil} <= ${now}))`;
+    const exponent = sql`CASE WHEN ${resetWindow} THEN 0 ELSE MIN(${authAttempt.failedCount}, 30) END`;
+    const nextDelayMs = sql`MIN(${cfg.maxDelayMs}, ${cfg.baseDelayMs} * (1 << ${exponent}))`;
+    await db.insert(authAttempt).values({
+      id: nanoid(), key: b.key, scope: b.scope, failedCount: 1,
+      firstFailedAt: new Date(now), lastFailedAt: new Date(now),
+      lockedUntil: new Date(now + cfg.baseDelayMs),
+    }).onConflictDoUpdate({
+      target: authAttempt.key,
+      set: {
+        failedCount: sql`CASE WHEN ${resetWindow} THEN 1 ELSE ${authAttempt.failedCount} + 1 END`,
+        firstFailedAt: sql`CASE WHEN ${resetWindow} THEN ${now} ELSE ${authAttempt.firstFailedAt} END`,
         lastFailedAt: new Date(now),
-        lockedUntil: null,
-      });
-      continue;
-    }
-
-    const lockActive = !!existing.lockedUntil && existing.lockedUntil.getTime() > now;
-    const windowElapsed = now - existing.firstFailedAt.getTime() > cfg.windowMs;
-
-    // 窓を過ぎ、かつロック中でなければ新しい窓として数え直す。
-    const resetWindow = windowElapsed && !lockActive;
-    const failedCount = resetWindow ? 1 : existing.failedCount + 1;
-    const firstFailedAt = resetWindow ? new Date(now) : existing.firstFailedAt;
-
-    // しきい値到達で (再)ロック。未到達でも既存ロックが生きていれば維持する。
-    const lockedUntil =
-      failedCount >= cfg.maxFailures
-        ? new Date(now + cfg.lockMs)
-        : lockActive
-          ? existing.lockedUntil
-          : null;
-
-    await db
-      .update(authAttempt)
-      .set({ failedCount, firstFailedAt, lastFailedAt: new Date(now), lockedUntil })
-      .where(eq(authAttempt.key, b.key));
+        lockedUntil: sql`${now} + ${nextDelayMs}`,
+      },
+    });
   }
 }
 
@@ -146,7 +143,7 @@ export async function clearAttempts(db: DB, keys: string[]): Promise<void> {
 /**
  * 429 応答の日本語メッセージを組み立てる。
  */
-export function lockoutMessage(retryAfterSec: number): string {
-  const min = Math.max(1, Math.ceil(retryAfterSec / 60));
-  return `試行回数が上限に達しました。約${min}分後に再度お試しください。`;
+export function delayMessage(retryAfterSec: number): string {
+  const seconds = Math.max(1, retryAfterSec);
+  return `認証に続けて失敗しました。${seconds}秒後に再度お試しください。`;
 }

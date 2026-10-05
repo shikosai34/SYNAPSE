@@ -21,6 +21,9 @@ export type AppVariables = {
   db: DB;
   auth: Auth;
   session?: Session;
+  // 2026-10-03: 成功・失敗を同じサーバー生成IDで追跡する。
+  requestId?: string;
+  errorCode?: string;
 };
 
 /** Hono ジェネリクスの共通形。`new Hono<AppEnv>()` のように使う。 */

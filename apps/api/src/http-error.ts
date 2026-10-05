@@ -13,7 +13,7 @@
  */
 import type { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
-import { nanoid } from "nanoid";
+import { ensureRequestId } from "./middleware/observability";
 import type { ApiErrorBody, ApiErrorCode } from "@fesflow/config";
 
 /** ルートハンドラから throw する統一エラー。 */
@@ -79,7 +79,7 @@ function buildEnvelope(code: ApiErrorCode, message: string, requestId: string, f
  * app.onError / app.notFound に仕込む共通エラーハンドラ群。
  * - AppError: そのまま code/status/fields を使う。
  * - HTTPException (Hono 標準): status から code を逆引きし、message はそのまま使う。
- * - 予期しない例外: 500 INTERNAL に丸め、詳細は画面に出さずサーバログにのみ requestId 付きで出す。
+ * - 5xx: 500系の内部メッセージは返さず、ログにも生の例外を保存しない。
  *
  * better-auth (/api/auth/*) のレスポンスは auth.handler が直接返すため、Hono の onError を
  * 経由しない (auth.handler 内で例外を投げた場合のみこの経路に入り得るが、その場合も
@@ -87,32 +87,33 @@ function buildEnvelope(code: ApiErrorCode, message: string, requestId: string, f
  */
 export function registerErrorHandlers(app: Hono<any>): void {
   app.onError((err, c) => {
-    const requestId = nanoid();
+    const requestId = ensureRequestId(c);
 
     if (err instanceof AppError) {
       if (err.retryAfterSec !== undefined) {
         c.header("Retry-After", String(err.retryAfterSec));
       }
-      if (err.status >= 500) {
-        // 500系は予期しないエラーと同様、requestIdでサーバログを引けるようにしておく
-        console.error(requestId, err);
-      }
-      return c.json(buildEnvelope(err.code, err.message, requestId, err.fields), err.status as any);
+      c.set("errorCode", err.status >= 500 ? "INTERNAL" : err.code);
+      // 2026-10-03: DB例外を包んだAppErrorにもSQL・bindingsが含まれ得るため5xxは常に一般化する。
+      return c.json(buildEnvelope(err.status >= 500 ? "INTERNAL" : err.code,
+        err.status >= 500 ? defaultMessage("INTERNAL") : err.message,
+        requestId, err.status >= 500 ? undefined : err.fields), err.status as any);
     }
 
     if (err instanceof HTTPException) {
       const code = statusToCode(err.status);
-      if (err.status >= 500) console.error(requestId, err);
-      return c.json(buildEnvelope(code, err.message || defaultMessage(code), requestId), err.status as any);
+      c.set("errorCode", code);
+      return c.json(buildEnvelope(code, err.status >= 500 ? defaultMessage("INTERNAL") : err.message || defaultMessage(code), requestId), err.status as any);
     }
 
-    // 予期しない例外: 内部詳細を画面に出さず、サーバログに requestId とともに残す
-    console.error(requestId, err);
+    // 2026-10-03: 生の例外(message/cause/stack/SQL)は保存せず、構造化アクセスログへ集約する。
+    c.set("errorCode", "INTERNAL");
     return c.json(buildEnvelope("INTERNAL", "サーバーエラーが発生しました", requestId), 500);
   });
 
   app.notFound((c) => {
-    const requestId = nanoid();
+    const requestId = ensureRequestId(c);
+    c.set("errorCode", "NOT_FOUND");
     return c.json(buildEnvelope("NOT_FOUND", "指定されたエンドポイントが見つかりません", requestId), 404);
   });
 }

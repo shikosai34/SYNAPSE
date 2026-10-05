@@ -25,30 +25,13 @@ import { toast } from "sonner";
 import { EventTheme } from "@/components/EventTheme";
 import { ShoppingCart, Plus, Minus, CheckCircle, UtensilsCrossed, Ticket, X } from "lucide-react";
 import { resolveAssetUrl } from "@/lib/asset-url";
+// 2026-10-03: 画面をまたぐカート規則と再送制御を機能モジュールに集約する。
+import { addCartLine, updateCartQuantity, toggleCartTopping, lineSubtotal, cartTotal, cartCount, type CartLine, type CartTopping } from "@/features/orders/cart";
+import { useOrderSubmission } from "@/features/orders/use-order-submission";
+import type { CreateOrderInput } from "@fesflow/config/order-contract";
 
 // 2026-07-13: 来場者モバイルオーダーもトッピング対応にするため、レジ (Register.tsx) と同じく
 // カートを「行 (line)」単位で持つ。同じメニューでもトッピング構成が違えば別行になる。
-interface CartTopping {
-  toppingId: string;
-  toppingName: string;
-  toppingPrice: number;
-}
-interface CartLine {
-  lineId: string;
-  menuId: string;
-  menuName: string;
-  menuPrice: number;
-  quantity: number;
-  toppings: CartTopping[];
-}
-
-// メニュー + トッピング構成の同一性キー。トッピング順序に依存しないよう sort する。
-const lineKey = (menuId: string, toppingIds: string[]) =>
-  `${menuId}::${[...toppingIds].sort().join(",")}`;
-
-const lineSubtotal = (line: CartLine) =>
-  (line.menuPrice + line.toppings.reduce((s, t) => s + t.toppingPrice, 0)) * line.quantity;
-
 // メニューカード。トッピング選択と、このメニュー/トッピングに関係するクーポンを
 // カード内に直接(モーダルなしで)順番に表示する (2026-09-16)。
 // モーダル案は「操作が一段挟まって見えにくい」というフィードバックで撤回し、
@@ -390,21 +373,16 @@ function MenuPageContent() {
     },
   });
 
-  // 代引オーダー（本注文）作成ミューテーション
+  const orderInput: CreateOrderInput | null = selectedCircleId && userId && cart.length > 0 ? {
+    circleId: selectedCircleId, userId, peopleCount: 1,
+    items: cart.map((line) => ({ menuId: line.menuId, quantity: line.quantity, toppingIds: line.toppings.map((t) => t.toppingId) })),
+  } : null;
+  const submitOrder = useOrderSubmission(orderInput);
+  // 代引オーダー（本注文）も同じカートの再送では Idempotency-Key を維持する (2026-10-03)。
   const codOrderMutation = useMutation({
     mutationFn: async () => {
-      if (!selectedCircleId || cart.length === 0) return;
-      if (!userId) throw new Error("注文にはリストバンドの発行(入場)が必要です");
-      return await orderApi.create({
-        circleId: selectedCircleId,
-        userId, // 2026-07-04: リストバンド/QR必須化対応
-        peopleCount: 1,
-        items: cart.map((line) => ({
-          menuId: line.menuId,
-          quantity: line.quantity,
-          toppingIds: line.toppings.map((t) => t.toppingId),
-        })),
-      });
+      if (!orderInput) throw new Error("注文にはリストバンドとカート内の商品が必要です");
+      return submitOrder(orderInput);
     },
     onSuccess: (orderData) => {
       if (!orderData) return;
@@ -438,24 +416,7 @@ function MenuPageContent() {
 
   // カードで選んだトッピング付きで1行追加。トッピング構成まで同一なら数量+1、違えば別行。
   const addLine = (menu: MenuWithToppings, chosen: CartTopping[]) => {
-    setCart((prev) => {
-      const key = lineKey(menu.id, chosen.map((t) => t.toppingId));
-      const existing = prev.find((l) => lineKey(l.menuId, l.toppings.map((t) => t.toppingId)) === key);
-      if (existing) {
-        return prev.map((l) => (l.lineId === existing.lineId ? { ...l, quantity: l.quantity + 1 } : l));
-      }
-      return [
-        ...prev,
-        {
-          lineId: crypto.randomUUID(),
-          menuId: menu.id,
-          menuName: menu.name,
-          menuPrice: menu.price,
-          quantity: 1,
-          toppings: chosen,
-        },
-      ];
-    });
+    setCart((prev) => addCartLine(prev, menu, chosen));
   };
 
   // このメニューに関係するクーポン (2026-09-16)。menu_discount はこのメニューが対象のもの、
@@ -468,27 +429,12 @@ function MenuPageContent() {
     );
 
   const updateLineQuantity = (lineId: string, delta: number) => {
-    setCart((prev) =>
-      prev
-        .map((l) => (l.lineId === lineId ? { ...l, quantity: Math.max(0, l.quantity + delta) } : l))
-        .filter((l) => l.quantity > 0)
-    );
+    setCart((prev) => updateCartQuantity(prev, lineId, delta));
   };
 
-  // カート内でのトッピング変更 (タップでトグル)。lineKey が変わるので別構成の既存行があれば統合する。
+  // 2026-10-03: 編集中の行を維持し、トッピングを切り替える。行の自動統合は行わない。
   const toggleLineTopping = (lineId: string, topping: Topping) => {
-    setCart((prev) =>
-      prev.map((line) => {
-        if (line.lineId !== lineId) return line;
-        const has = line.toppings.some((t) => t.toppingId === topping.id);
-        return {
-          ...line,
-          toppings: has
-            ? line.toppings.filter((t) => t.toppingId !== topping.id)
-            : [...line.toppings, { toppingId: topping.id, toppingName: topping.name, toppingPrice: topping.price }],
-        };
-      })
-    );
+    setCart((prev) => toggleCartTopping(prev, lineId, topping));
   };
 
   // ── 外部モッド互換 (menuId ベース) ────────────────────────────────
@@ -519,8 +465,8 @@ function MenuPageContent() {
     );
   };
 
-  const getTotalCount = () => cart.reduce((sum, l) => sum + l.quantity, 0);
-  const getTotalPrice = () => cart.reduce((sum, l) => sum + lineSubtotal(l), 0);
+  const getTotalCount = () => cartCount(cart);
+  const getTotalPrice = () => cartTotal(cart);
 
   // カート内トッピング編集用に menuId → メニュー(許可トッピング付き)を引けるようにする
   const menuMap = new Map((menus ?? []).map((m) => [m.id, m]));

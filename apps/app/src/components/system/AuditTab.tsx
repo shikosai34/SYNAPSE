@@ -11,6 +11,7 @@ const ACTION_LABELS: Record<string, string> = {
   impersonate_start: "なりすまし開始",
   impersonate_stop: "なりすまし終了",
   impersonated_write: "なりすまし中の変更",
+  system_setting_update: "システム設定変更",
 };
 
 export function AuditTab() {
@@ -42,7 +43,7 @@ export function AuditTab() {
           監査ログ ({data.length})
         </h2>
         <p className="text-[11px] text-muted-foreground font-mono mt-1">
-          運営者の昇格・なりすまし・なりすまし中の変更操作を記録しています。
+          運営者の昇格・なりすまし・システム設定変更等を記録しています。
         </p>
       </div>
 

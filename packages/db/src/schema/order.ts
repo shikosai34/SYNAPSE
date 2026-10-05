@@ -9,11 +9,23 @@ import {
   integer,
   index,
   uniqueIndex,
+  check,
 } from "drizzle-orm/sqlite-core";
 import { circle } from "./core";
 import { menu, topping } from "./menu";
 import { eventUser } from "./visitor";
 import { ulid } from "ulidx";
+
+// 2026-10-03 (#81/#82): 一意な採番と再送の結果をDBで所有する。
+// ガードは同じbatch内で削除する作業行。CHECK違反で業務条件の失敗も全体をrollbackする。
+export const orderSequence = sqliteTable("order_sequence", {
+  scope: text("scope").primaryKey(),
+  value: integer("value").notNull(),
+});
+export const orderWriteGuard = sqliteTable("order_write_guard", {
+  id: text("id").primaryKey(),
+  valid: integer("valid").notNull(),
+}, (table) => [check("order_write_guard_valid", sql`${table.valid} = 1`)]);
 
 // 注文テーブル
 export const order = sqliteTable(
@@ -24,7 +36,7 @@ export const order = sqliteTable(
     circleId: text("circle_id")
       .notNull()
       .references(() => circle.id, { onDelete: "cascade" }),
-    orderNumber: text("order_number").notNull().unique(),
+    orderNumber: text("order_number").notNull(),
     peopleCount: integer("people_count").notNull(),
     totalPrice: integer("total_price").notNull(),
     status: text("status").notNull().default("pending"), // pending, preparing, completed, cancelled
@@ -48,11 +60,21 @@ export const order = sqliteTable(
   (table) => [
     index("order_circleId_idx").on(table.circleId),
     index("order_orderNumber_idx").on(table.orderNumber),
+    // 2026-10-03 (#81): 表示番号は店舗内の受付番号なので、重複を防ぐ範囲も店舗内に限定する。
+    uniqueIndex("orders_circle_order_number_unique").on(table.circleId, table.orderNumber),
     index("orders_circle_status_created_idx").on(table.circleId, table.status, table.createdAt),
   ]
 );
 
 // 注文アイテムテーブル
+export const orderCommit = sqliteTable("order_commit", {
+  key: text("key").primaryKey(),
+  fingerprint: text("fingerprint").notNull(),
+  orderId: text("order_id").notNull().references(() => order.id, { onDelete: "cascade" }),
+  createdAt: integer("created_at", { mode: "timestamp_ms" })
+    .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`).notNull(),
+}, (table) => [index("order_commit_order_idx").on(table.orderId)]);
+
 export const orderItem = sqliteTable(
   "order_item",
   {

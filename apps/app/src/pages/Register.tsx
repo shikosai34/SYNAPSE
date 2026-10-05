@@ -21,30 +21,13 @@ import { ErrorState } from "@/components/ui/ErrorState";
 import { toast } from "sonner";
 import { Minus, Plus, ShoppingCart, Trash2, QrCode, X, ScanLine } from "lucide-react";
 import { resolveAssetUrl } from "@/lib/asset-url";
+// 2026-10-03: 画面をまたぐカート規則と再送制御を機能モジュールに集約する。
+import { addCartLine, updateCartQuantity, toggleCartTopping, lineSubtotal, cartTotal, cartCount, type CartLine, type CartTopping } from "@/features/orders/cart";
+import { useOrderSubmission } from "@/features/orders/use-order-submission";
+import type { CreateOrderInput } from "@fesflow/config/order-contract";
 
 // カートは「行 (line)」単位。同じメニューでもトッピング構成が違えば別行として持てるように
 // menuId ではなく lineId をキーにする (トッピングあり/なしを同時注文したい要件のため)。
-interface CartTopping {
-  toppingId: string;
-  toppingName: string;
-  toppingPrice: number;
-}
-interface CartLine {
-  lineId: string;
-  menuId: string;
-  menuName: string;
-  menuPrice: number;
-  quantity: number;
-  toppings: CartTopping[];
-}
-
-// メニュー + トッピング構成の同一性キー。トッピング順序に依存しないよう sort する。
-const lineKey = (menuId: string, toppingIds: string[]) =>
-  `${menuId}::${[...toppingIds].sort().join(",")}`;
-
-const lineSubtotal = (line: CartLine) =>
-  (line.menuPrice + line.toppings.reduce((s, t) => s + t.toppingPrice, 0)) * line.quantity;
-
 // メニューカード。カート追加前にこのカード上でトッピングを選べるようにするための
 // ローカル選択状態を持つ。追加後は既定トッピングへリセットして次の注文に備える。
 function MenuCard({
@@ -526,15 +509,15 @@ function RegisterPageContent() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeCustomer, circleId]);
 
+  const orderInput: CreateOrderInput | null = activeCustomer ? {
+    circleId, userId: activeCustomer.userId, peopleCount,
+    items: cart.map((line) => ({ menuId: line.menuId, quantity: line.quantity, toppingIds: line.toppings.map((t) => t.toppingId) })),
+    paymentMethod: paymentMethod || undefined,
+    cashierId: getAuthInfo()?.userEmail ?? undefined,
+  } : null;
+  const submitOrder = useOrderSubmission(orderInput);
   const createOrder = useMutation({
-    mutationFn: async (input: {
-      circleId: string;
-      userId: string;
-      peopleCount: number;
-      items: { menuId: string; quantity: number; toppingIds?: string[] }[];
-      paymentMethod?: string;
-      cashierId?: string;
-    }) => orderApi.create(input),
+    mutationFn: submitOrder,
     onSuccess: (data) => {
       toast.success(`注文完了！注文番号: ${data.orderNumber}`);
       setCart([]);
@@ -604,24 +587,7 @@ function RegisterPageContent() {
   // カードで選んだトッピング付きで1行追加。トッピング構成まで同一なら数量+1、違えば別行。
   const addLine = (menu: MenuWithToppings, chosen: CartTopping[]) => {
     setActivePreOrderId(null);
-    setCart((prev) => {
-      const key = lineKey(menu.id, chosen.map((t) => t.toppingId));
-      const existing = prev.find((l) => lineKey(l.menuId, l.toppings.map((t) => t.toppingId)) === key);
-      if (existing) {
-        return prev.map((l) => (l.lineId === existing.lineId ? { ...l, quantity: l.quantity + 1 } : l));
-      }
-      return [
-        ...prev,
-        {
-          lineId: crypto.randomUUID(),
-          menuId: menu.id,
-          menuName: menu.name,
-          menuPrice: menu.price,
-          quantity: 1,
-          toppings: chosen,
-        },
-      ];
-    });
+    setCart((prev) => addCartLine(prev, menu, chosen));
   };
 
   const removeLine = (lineId: string) => {
@@ -631,33 +597,19 @@ function RegisterPageContent() {
 
   const updateQuantity = (lineId: string, delta: number) => {
     setActivePreOrderId(null);
-    setCart((prev) =>
-      prev
-        .map((l) => (l.lineId === lineId ? { ...l, quantity: Math.max(0, l.quantity + delta) } : l))
-        .filter((l) => l.quantity > 0)
-    );
+    setCart((prev) => updateCartQuantity(prev, lineId, delta));
   };
 
   const toggleTopping = (lineId: string, topping: Topping) => {
     setActivePreOrderId(null);
-    setCart((prev) =>
-      prev.map((line) => {
-        if (line.lineId !== lineId) return line;
-        const has = line.toppings.some((t) => t.toppingId === topping.id);
-        return {
-          ...line,
-          toppings: has
-            ? line.toppings.filter((t) => t.toppingId !== topping.id)
-            : [...line.toppings, { toppingId: topping.id, toppingName: topping.name, toppingPrice: topping.price }],
-        };
-      })
-    );
+    setCart((prev) => toggleCartTopping(prev, lineId, topping));
   };
 
-  const getTotalPrice = () => cart.reduce((total, line) => total + lineSubtotal(line), 0);
-  const getTotalCount = () => cart.reduce((s, l) => s + l.quantity, 0);
+  const getTotalPrice = () => cartTotal(cart);
+  const getTotalCount = () => cartCount(cart);
 
   const handleSubmitOrder = async () => {
+    if (createOrder.isPending || claimOrder.isPending) return;
     if (cart.length === 0) { toast.error("カートが空です"); return; }
     if (!activeCustomer) { toast.error("顧客が特定されていません。リストバンド/QRをスキャンしてください"); return; }
     if (effectivePayments.length > 1 && !paymentMethod) { toast.error("支払い方法を選択してください"); return; }
@@ -672,15 +624,7 @@ function RegisterPageContent() {
       return;
     }
 
-    await createOrder.mutateAsync({
-      circleId,
-      userId: activeCustomer.userId,
-      peopleCount,
-      items: cart.map((l) => ({ menuId: l.menuId, quantity: l.quantity, toppingIds: l.toppings.map((t) => t.toppingId) })),
-      // 1つだけの場合は空でもサーバが補完するが、選択済みなら明示的に送る。
-      paymentMethod: paymentMethod || undefined,
-      cashierId,
-    });
+    if (orderInput) await createOrder.mutateAsync(orderInput);
   };
 
   const clearCart = () => {

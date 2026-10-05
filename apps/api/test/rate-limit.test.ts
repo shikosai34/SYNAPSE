@@ -7,21 +7,13 @@
  * ルート自体を削除したためテスト対象が無くなった。代わりに「並行認証系が本当に
  * 消えたこと」を回帰防止として検証する。
  *
- * 注意: better-auth の /api/auth/sign-in/email に対する IP レート制限
- * (index.ts の auth_attempt 連携) も本来はここで検証したいが、このテスト環境
- * (vitest-pool-workers + better-auth) では失敗した sign-in 呼び出し自体が
- * better-auth 内部 (better-call の transaction dispatch) で Unhandled Rejection を
- * 発生させ、vitest がテスト失敗として扱ってしまう既知の問題がある
- * (このリファクタリングで導入した実装には起因しない、ライブラリ内部の挙動)。
- * このテストファイルでは深追いせず、対象を削除済みルートの確認のみに絞る。
- *
- * テスト環境では CF-Connecting-IP が無いため IP は "unknown" バケットに集約される。
- * D1 がテスト間で共有される (isolatedStorage 無し) ため、各テストの前後で
- * auth_attempt を空にして他テストへのロック漏れを防ぐ。
+ * 2026-10-03 (#94): IPではなくメール/パスキーの認証識別子をHMAC化して段階遅延する。
+ * D1がテスト間で共有される (isolatedStorage無し) ため、各テスト前後にauth_attemptを空にする。
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { authAttempt } from "@fesflow/db";
 import { postJson, testDb } from "./helpers";
+import { authAttemptBucket } from "../src/utils/rate-limit";
 
 async function clearAllAttempts() {
 	await testDb().delete(authAttempt);
@@ -29,6 +21,30 @@ async function clearAllAttempts() {
 
 beforeEach(clearAllAttempts);
 afterEach(clearAllAttempts);
+
+describe("識別子別認証バケット", () => {
+	it("uses normalized email and passkey credential IDs, never an IP or OAuth provider bucket", async () => {
+		const secret = "test-rate-limit-secret";
+		const emailRequest = (email: string) => new Request("https://example.test/api/auth/sign-in/email", {
+			method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email }),
+		});
+		const upper = await authAttemptBucket(emailRequest(" Alice@Example.com "), "/api/auth/sign-in/email", secret);
+		const lower = await authAttemptBucket(emailRequest("alice@example.com"), "/api/auth/sign-in/email", secret);
+		expect(upper?.key).toBe(lower?.key);
+		expect(upper?.key).not.toContain("alice@example.com");
+
+		const passkey = await authAttemptBucket(new Request("https://example.test/api/auth/passkey/verify-authentication", {
+			method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ response: { id: "credential-id" } }),
+		}), "/api/auth/passkey/verify-authentication", secret);
+		expect(passkey?.scope).toBe("passkey");
+		expect(passkey?.key).not.toContain("credential-id");
+
+		const social = await authAttemptBucket(new Request("https://example.test/api/auth/sign-in/social", {
+			method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ provider: "google" }),
+		}), "/api/auth/sign-in/social", secret);
+		expect(social).toBeNull();
+	});
+});
 
 describe("廃止した並行認証ルートの撤去確認", () => {
 	// 2026-07-07 (Phase 3a): membershipRoutes は "*" に requireAuth を掛けているため、
