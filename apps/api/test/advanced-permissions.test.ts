@@ -137,3 +137,70 @@ describe("高度な権限管理", () => {
 		expect(res.status).toBe(403);
 	});
 });
+
+describe("オーナーによる権限付与 (issue #99)", () => {
+	async function addMember(circleId: string, eventId: string, role: "circle_staff" | "circle_manager") {
+		const id = uid("mb");
+		await testDb().insert(membership).values({
+			id,
+			userEmail: `${uid("m")}@example.com`,
+			userName: "メンバー",
+			circleId,
+			eventId,
+			role,
+			isActive: true,
+		});
+		return id;
+	}
+	const patchRole = (owner: { cookie: string; membershipId: string }, id: string, role: string) =>
+		request(`/api/memberships/${id}/role`, {
+			method: "PATCH",
+			headers: { "Content-Type": "application/json", ...headers(owner) },
+			body: JSON.stringify({ role }),
+		});
+
+	it("オーナーは一般スタッフを管理者に昇格できる (以前は権限エラー)", async () => {
+		const owner = await seedStaff(true, "circle_manager");
+		const staffId = await addMember(owner.circleId, owner.eventId, "circle_staff");
+		expect((await patchRole(owner, staffId, "circle_manager")).status).toBe(200);
+		const rows = await testDb().select().from(membership).where(eq(membership.id, staffId));
+		expect(rows[0]!.role).toBe("circle_manager");
+	});
+
+	it("オーナーは管理者として招待を発行できる", async () => {
+		const owner = await seedStaff(true, "circle_manager");
+		const res = await postJson(
+			"/api/memberships/invite",
+			{ circleId: owner.circleId, role: "circle_manager" },
+			headers(owner),
+		);
+		expect(res.status).toBeLessThan(400);
+	});
+
+	it("管理者が複数いれば降格・停止・除名できる", async () => {
+		const owner = await seedStaff(true, "circle_manager");
+		const other = await addMember(owner.circleId, owner.eventId, "circle_manager");
+		expect((await patchRole(owner, other, "circle_staff")).status).toBe(200);
+	});
+
+	it("最後の管理者の降格・停止・除名は拒否する", async () => {
+		const owner = await seedStaff(true, "circle_manager");
+		expect((await patchRole(owner, owner.membershipId, "circle_staff")).status).toBe(400);
+		const deactivate = await request(`/api/memberships/${owner.membershipId}/deactivate`, {
+			method: "PATCH",
+			headers: headers(owner),
+		});
+		expect(deactivate.status).toBe(400);
+		const del = await request(`/api/memberships/${owner.membershipId}`, {
+			method: "DELETE",
+			headers: headers(owner),
+		});
+		expect(del.status).toBe(400);
+	});
+
+	it("一般スタッフは ON でもロール変更できない", async () => {
+		const staff = await seedStaff(true);
+		const target = await addMember(staff.circleId, staff.eventId, "circle_staff");
+		expect((await patchRole(staff, target, "circle_manager")).status).toBe(403);
+	});
+});
