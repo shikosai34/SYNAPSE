@@ -209,25 +209,20 @@ async function checkMemberWritePermission(
     return null;
   }
 
-  // サークルマネージャーか確認。
-  // 高度な権限管理 (event.advancedPermissions) が OFF のイベントでは circle_staff も
-  // circle_manager 相当なので、サークルに所属する有効なメンバーなら管理操作を許可する (2026-10-05)。
-  const advancedPermissions = (
-    await db.select().from(event).where(eq(event.id, eventId))
-  )[0]?.advancedPermissions;
-  const circleMemberships = await db
+  // サークルのメンバー管理はオーナー (実ロールが circle_manager) だけ (2026-10-05)。
+  // 高度な権限管理が OFF でも、circle_staff は実効ロール上 circle_manager 相当になるだけで、
+  // メンバーの追加/招待/ロール変更/停止/除名はここで実ロールを見て拒否する。
+  const managerMemberships = await db
     .select()
     .from(membership)
     .where(
       and(
         eq(membership.userEmail, email),
         eq(membership.circleId, targetCircleId),
+        eq(membership.role, "circle_manager"),
         eq(membership.isActive, true)
       )
     );
-  const managerMemberships = circleMemberships.filter(
-    (m) => effectiveCircleRole(m.role, advancedPermissions) === "circle_manager"
-  );
 
   if (managerMemberships.length === 0) {
     return { code: "FORBIDDEN" as const, error: "このサークルのメンバーを管理する権限がありません", status: 403 as const };

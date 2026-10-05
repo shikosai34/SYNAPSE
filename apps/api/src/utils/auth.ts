@@ -124,6 +124,33 @@ async function circleRoleForEvaluation(
   return (effectiveCircleRole(role, ev[0]?.advancedPermissions) ?? role) as string;
 }
 
+// サークルのオーナー操作 (譲渡・基本情報の変更・メンバー管理など) の可否 (2026-10-05)。
+// 高度な権限管理が OFF でも circle_staff は実効ロール上 circle_manager 相当になるため、
+// 権限表 (hasPermission) では「オーナーか一般スタッフか」を区別できない。ここでは実ロールを見る。
+// 呼び出し側は先に hasPermission でスコープ/閲覧のみモードを検証しておくこと。
+// オーナー = そのサークルの circle_manager、親イベントの event_manager、または
+// それらとしてなりすまし中の super_admin。
+export async function isCircleOwner(c: Context<AppEnv>, circleId: string): Promise<boolean> {
+  const db = c.get("db");
+  const session = await getSession(c);
+  if (!session || !session.user) return false;
+
+  const imp = await getImpersonation(c, betterAuthSessionId(session));
+  if (imp) return imp.role === "event_manager" || imp.role === "circle_manager";
+
+  const cs = await db.select().from(circle).where(eq(circle.id, circleId));
+  const eventId = cs[0]?.eventId;
+  const ms = await db
+    .select()
+    .from(membership)
+    .where(and(eq(membership.userEmail, session.user.email.toLowerCase()), eq(membership.isActive, true)));
+  return ms.some(
+    (m) =>
+      (m.role === "circle_manager" && m.circleId === circleId) ||
+      (m.role === "event_manager" && !!eventId && m.eventId === eventId)
+  );
+}
+
 export async function hasPermission(
   c: Context<AppEnv>,
   circleId: string | null,
