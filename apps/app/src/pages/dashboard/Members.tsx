@@ -49,7 +49,11 @@ function MembersContent() {
   // 2026-07-16: circleName も circleId 同様、localStorage(circleAuth) を mount 時に
   // 一度だけ読む独自 state だと、同一パス上でのスペース切り替え後に古いサークル名の
   // ままになる。useAuth() (authChange 購読) から直接取得するよう統一する。
-  const { circleId, role, userEmail, circleName: authCircleName } = useAuth();
+  const { circleId, role, userEmail, circleName: authCircleName, advancedPermissions } = useAuth();
+  // 高度な権限管理 OFF のイベントでは、サークル内は全員同権限なのでロールを選ばせない
+  // (circle_manager への昇格は API でも event_manager 限定のため、選ばせてもエラーになる)。
+  // イベント管理者は常にロールを調整できる (2026-10-05)。
+  const canChooseRole = advancedPermissions !== false || role === ROLES.EVENT_MANAGER;
   const circleName = authCircleName ?? "サークルダッシュボード";
   const queryClient = useQueryClient();
   const [showAddForm, setShowAddForm] = useState(false);
@@ -336,6 +340,7 @@ function MembersContent() {
             value={newMember.userName}
             onChange={(e) => setNewMember({ ...newMember, userName: e.target.value })}
           />
+          {canChooseRole && (
           <FormSelect
             id="role"
             label="ロール"
@@ -352,6 +357,7 @@ function MembersContent() {
                 </option>
               ))}
           </FormSelect>
+          )}
         </div>
 
         <FormSubmitButton
@@ -373,6 +379,7 @@ function MembersContent() {
       >
         {/* 2026-09-27: イベント招待と同じ縦並び・項目順にして設定の見落としを防ぐ。 */}
         <div className="space-y-4">
+          {canChooseRole && (
           <FormSelect
             id="invite-role"
             label="招待するロール"
@@ -389,6 +396,7 @@ function MembersContent() {
                 </option>
               ))}
           </FormSelect>
+          )}
           <FormField
             id="target-email"
             label="メールアドレス (任意)"
@@ -591,7 +599,7 @@ function MembersContent() {
                         </Badge>
                       }
                     >
-                      {MANAGEABLE_ROLES.includes(member.role as Role) ? (
+                      {canChooseRole && MANAGEABLE_ROLES.includes(member.role as Role) ? (
                         <select
                           value={member.role}
                           aria-label={`${member.userName} のロール`}

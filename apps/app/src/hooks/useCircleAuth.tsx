@@ -220,7 +220,9 @@ export function useAuth() {
         : selected.circle?.name ?? null;
       const nextInfo = {
         ...authInfo,
-        role: selected.role as RoleType,
+        // 高度な権限管理 OFF のイベントでは circle_staff が circle_manager 相当になる。
+        // サーバーが /my で effectiveRole を返す (2026-10-05)。実際の可否は API が判定する。
+        role: (selected.effectiveRole ?? selected.role) as RoleType,
         circleId: selectedCircleId,
         eventId: selected.eventId ?? null,
         circleName: selectedCircleName,
@@ -322,6 +324,9 @@ export function useAuth() {
     isAuthenticated: !!authInfo?.circleId || !!authInfo?.role || !!authInfo?.isEventAdmin,
     isEventAdmin: effectiveIsEventAdmin,
     permissions: authorityUnverified ? [] : permissionsForRole(effectiveRole),
+    // 現在のスペースの親イベントの「高度な権限管理」。不明 (取得前/イベント所属) は undefined。
+    // OFF (false) のときだけロール選択 UI を隠す用途で、可否の判定には使わない (2026-10-05)。
+    advancedPermissions: spaces?.find((space: any) => space.id === authInfo?.membershipId)?.advancedPermissions as boolean | undefined,
     membershipAuthorityError: authorityUnverified ? "権限情報を確認できません。再試行してください。" : null,
     retryAuthorization: () => {
       void queryClient.invalidateQueries({ queryKey: ["mySpaces"] });
@@ -658,7 +663,7 @@ export async function resolveActiveSpaceAfterAuth(
       eventId: circleMembership.eventId,
       userEmail: circleMembership.userEmail,
       userName: circleMembership.userName,
-      role: circleMembership.role,
+      role: circleMembership.effectiveRole ?? circleMembership.role,
       membershipId: circleMembership.id,
       circleName: circleMembership.circle?.name || null,
     });
