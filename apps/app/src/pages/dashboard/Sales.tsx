@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { CircleAuthGuard, useAuth } from "@/hooks/useCircleAuth";
+import { CircleAuthGuard, PermissionGuard, useAuth } from "@/hooks/useCircleAuth";
 import { orderApi } from "@/lib/api";
 import DashboardLayout from "@/components/DashboardLayout";
 import {
@@ -486,7 +486,10 @@ function SalesManagementContent() {
 export default function SalesManagementPage() {
   return (
     <CircleAuthGuard>
-      <SalesManagementContent />
+      {/* 権限のないユーザーは API 403 の読み込み失敗ではなく、権限なし画面にする (2026-10-05) */}
+      <PermissionGuard permission="sales:read" showDenied>
+        <SalesManagementContent />
+      </PermissionGuard>
     </CircleAuthGuard>
   );
 }

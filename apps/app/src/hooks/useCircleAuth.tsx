@@ -15,6 +15,7 @@ export const ROLE_NAMES: Record<RoleType, string> = {
   [ROLES.SUPER_ADMIN]: ROLE_LABELS.super_admin,
   [ROLES.EVENT_MANAGER]: ROLE_LABELS.event_manager,
   [ROLES.CIRCLE_MANAGER]: ROLE_LABELS.circle_manager,
+  [ROLES.CIRCLE_ADMIN]: ROLE_LABELS.circle_admin,
   [ROLES.CIRCLE_STAFF]: ROLE_LABELS.circle_staff,
 };
 export { ROLES, PERMISSION_NAMES, type Permission, type RoleType };

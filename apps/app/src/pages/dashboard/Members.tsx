@@ -229,7 +229,8 @@ function MembersContent() {
   const isLastManager = (m: any) => m.role === ROLES.CIRCLE_MANAGER && activeManagerCount <= 1;
 
   // ロールを変更できる対象か (サークルレベルのロールのみ。イベント/システムロールは読み取り専用表示)。
-  const MANAGEABLE_ROLES: Role[] = [ROLES.CIRCLE_MANAGER, ROLES.CIRCLE_STAFF];
+  // 表示順はオーナー → 管理者 → 一般スタッフ。管理者 (circle_admin) の付与はここで行う (2026-10-05)。
+  const MANAGEABLE_ROLES: Role[] = [ROLES.CIRCLE_MANAGER, ROLES.CIRCLE_ADMIN, ROLES.CIRCLE_STAFF];
 
   // 除名 / 招待リンク削除は確認ダイアログの代わりに undo 付きトーストで実行する
   const handleRemoveMember = (member: any) =>
@@ -289,6 +290,8 @@ function MembersContent() {
         return "error";
       case "circle_manager":
         return "active";
+      case "circle_admin":
+        return "default";
       case "circle_staff":
         return "warning";
       default:
@@ -358,7 +361,7 @@ function MembersContent() {
           >
             {Object.entries(ROLES)
               .filter(([, value]) =>
-                [ROLES.CIRCLE_MANAGER, ROLES.CIRCLE_STAFF].includes(value as any),
+                [ROLES.CIRCLE_MANAGER, ROLES.CIRCLE_ADMIN, ROLES.CIRCLE_STAFF].includes(value as any),
               )
               .map(([, value]) => (
                 <option key={value} value={value}>
@@ -397,7 +400,7 @@ function MembersContent() {
           >
             {Object.entries(ROLES)
               .filter(([, value]) =>
-                [ROLES.CIRCLE_MANAGER, ROLES.CIRCLE_STAFF].includes(value as any),
+                [ROLES.CIRCLE_MANAGER, ROLES.CIRCLE_ADMIN, ROLES.CIRCLE_STAFF].includes(value as any),
               )
               .map(([, value]) => (
                 <option key={value} value={value}>
@@ -689,7 +692,7 @@ function MembersContent() {
         <CardContent>
           <div className="grid gap-4 md:grid-cols-2">
             {rolesData &&
-              rolesData.filter((roleInfo) => roleInfo.role === "circle_manager" || roleInfo.role === "circle_staff").map((roleInfo) => (
+              rolesData.filter((roleInfo) => roleInfo.role === "circle_manager" || roleInfo.role === "circle_admin" || roleInfo.role === "circle_staff").map((roleInfo) => (
                 <div
                   key={roleInfo.role}
                   className="p-4 border-thick border-border space-y-2"

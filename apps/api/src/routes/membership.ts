@@ -44,6 +44,7 @@ const ROLES = [
   "super_admin",
   "event_manager",
   "circle_manager",
+  "circle_admin",
   "circle_staff",
 ] as const;
 
@@ -91,6 +92,23 @@ const ROLE_PERMISSIONS: Record<Role, string[]> = {
     "member:read",
     "member:write",
   ],
+  circle_admin: [
+    "circle:read",
+    "circle:write",
+    "menu:read",
+    "menu:write",
+    "menu:delete",
+    "order:read",
+    "order:write",
+    "staff:read",
+    "staff:write",
+    "staff:delete",
+    "stock:read",
+    "stock:write",
+    "sales:read",
+    "member:read",
+    "member:write",
+  ],
   circle_staff: [
     "circle:read",
     "menu:read",
@@ -107,6 +125,26 @@ function hasPermission(role: Role, permission: string): boolean {
   const permissions = ROLE_PERMISSIONS[role];
   if (!permissions) return false;
   return permissions.includes("*") || permissions.includes(permission);
+}
+
+// 対象がサークル唯一の有効な circle_manager か (2026-10-05)。
+// ロール変更/停止/除名で管理者が 0 人になると、そのサークルのメンバー管理ができなくなるため拒否する。
+async function isLastActiveCircleManager(
+  db: Context<AppEnv>["var"]["db"],
+  target: { id: string; circleId: string | null; role: string; isActive: boolean }
+): Promise<boolean> {
+  if (target.role !== "circle_manager" || !target.circleId || !target.isActive) return false;
+  const managers = await db
+    .select()
+    .from(membership)
+    .where(
+      and(
+        eq(membership.circleId, target.circleId),
+        eq(membership.role, "circle_manager"),
+        eq(membership.isActive, true)
+      )
+    );
+  return managers.every((m) => m.id === target.id);
 }
 
 // 管理者権限チェック（権限の序列チェック - 2026-07-04 SaaS対応）
@@ -228,10 +266,9 @@ async function checkMemberWritePermission(
     return { code: "FORBIDDEN" as const, error: "このサークルのメンバーを管理する権限がありません", status: 403 as const };
   }
 
-  // サークルマネージャーは一般スタッフ (circle_staff) のみ管理可能
-  if (targetCurrentRole === "circle_manager" || targetNewRole === "circle_manager") {
-    return { code: "FORBIDDEN" as const, error: "サークルマネージャー権限を操作する権限がありません", status: 403 as const };
-  }
+  // サークルマネージャー (オーナー) は他のメンバーを管理者に昇格/降格できる (2026-10-05, issue #99)。
+  // 以前は circle_manager が circle_manager 権限を扱えず、オーナーが権限を付与しようとすると
+  // 常に権限エラーになっていた。管理者不在の防止は isLastActiveCircleManager で別に守る。
 
   return null;
 }
@@ -511,6 +548,9 @@ membershipRoutes.patch(
     const target = targets[0]!;
     const err = await checkMemberWritePermission(c, target.circleId, target.role, input.role, target.eventId);
     if (err) apiError(err.code, err.error, { status: err.status });
+    if (input.role !== "circle_manager" && (await isLastActiveCircleManager(db, target))) {
+      apiError("BAD_REQUEST", "最後の管理者のロールは変更できません");
+    }
 
     await db
       .update(membership)
@@ -532,6 +572,9 @@ membershipRoutes.patch("/:id/deactivate", async (c) => {
   const target = targets[0]!;
   const err = await checkMemberWritePermission(c, target.circleId, target.role, undefined, target.eventId);
   if (err) apiError(err.code, err.error, { status: err.status });
+  if (await isLastActiveCircleManager(db, target)) {
+    apiError("BAD_REQUEST", "最後の管理者は停止できません");
+  }
 
   await db
     .update(membership)
@@ -573,6 +616,10 @@ membershipRoutes.delete("/:id", async (c) => {
   const target = targets[0]!;
   const err = await checkMemberWritePermission(c, target.circleId, target.role, undefined, target.eventId);
   if (err) apiError(err.code, err.error, { status: err.status });
+
+  if (await isLastActiveCircleManager(db, target)) {
+    apiError("BAD_REQUEST", "最後の管理者は除名できません");
+  }
 
   await db.delete(membership).where(eq(membership.id, id));
 
@@ -640,7 +687,7 @@ membershipRoutes.post(
       }
 
       const spaceName = circleName || eventName || "新しいスペース";
-      const displayRole = input.role === "circle_manager" ? "管理者" : input.role === "circle_staff" ? "スタッフ" : input.role === "event_manager" ? "イベントマネージャー" : "メンバー";
+      const displayRole = input.role === "circle_manager" ? "オーナー" : input.role === "circle_admin" ? "管理者" : input.role === "circle_staff" ? "スタッフ" : input.role === "event_manager" ? "イベントマネージャー" : "メンバー";
 
       await db.insert(notification).values({
         id: ulid(),
