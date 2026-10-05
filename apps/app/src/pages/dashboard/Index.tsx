@@ -37,13 +37,14 @@ function DashboardContent() {
       title: "メニュー管理",
       description: "メニューとトッピングの追加・編集",
       href: "/circle/dashboard/menu",
-      permission: "menu:read" as const,
+      // 遷移先ページのガード (menu:write / stock:write) に合わせる。read だと開いて権限なしになる (2026-10-05)。
+      permission: "menu:write" as const,
     },
     {
       title: "在庫管理",
       description: "商品の在庫を管理し、注文時の残数を自動反映",
       href: "/circle/dashboard/stock",
-      permission: "stock:read" as const,
+      permission: "stock:write" as const,
     },
     {
       title: "売上管理",

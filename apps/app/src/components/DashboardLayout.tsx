@@ -42,6 +42,9 @@ interface MenuItem {
   href?: string;
   tab?: string;
   icon: any;
+  // 指定時、この権限を持たないユーザーにはメニュー項目ごと出さない (2026-10-05)。
+  // 各ページのガードと同じ権限を指定し、開いても「権限がありません」になる項目を出さないようにする。
+  permission?: string;
 }
 
 // サイドメニューをカテゴリ見出し付きで表示するためのグループ単位 (2026-07-16)。
@@ -108,7 +111,7 @@ export default function DashboardLayout({
   // 拡張機能のON/OFF出し分け(在庫/スタッフ)が切り替え前のサークルの設定で
   // 表示され続ける不具合があった。useAuth() は authChange イベント購読で常に
   // 最新の circleId を返すため、これに乗り換えて再マウント不要で反映されるようにする。
-  const { circleId: authCircleId, isCircleOwner } = useAuth();
+  const { circleId: authCircleId, isCircleOwner, checkPermission, isLoading: authLoading } = useAuth();
   const circleId = type === "circle" ? (authCircleId ?? "") : "";
 
   // 2026-09-27: スタッフ管理の表示判定のためサークル設定を取得。在庫管理は組み込み機能とする。
@@ -140,24 +143,24 @@ export default function DashboardLayout({
       label: "運営",
       items: [
         { title: "ダッシュボード", href: "/circle/dashboard", icon: LayoutDashboard },
-        { title: "モバイルオーダーQR", href: "/circle/dashboard/qr", icon: QrCode },
+        { title: "モバイルオーダーQR", href: "/circle/dashboard/qr", icon: QrCode, permission: "circle:read" },
       ],
     },
     {
       label: "商品・在庫",
       items: [
-        { title: "メニュー管理", href: "/circle/dashboard/menu", icon: UtensilsCrossed },
-        { title: "在庫管理", href: "/circle/dashboard/stock", icon: Package },
+        { title: "メニュー管理", href: "/circle/dashboard/menu", icon: UtensilsCrossed, permission: "menu:write" },
+        { title: "在庫管理", href: "/circle/dashboard/stock", icon: Package, permission: "stock:write" },
       ],
     },
     {
       label: "売上・分析",
       items: [
-        { title: "売上管理", href: "/circle/dashboard/sales", icon: TrendingUp },
-        { title: "統計・分析", href: "/circle/dashboard/analytics", icon: BarChart3 },
-        { title: "レビュー", href: "/circle/dashboard/reviews", icon: Star },
-        { title: "データエクスポート", href: "/circle/dashboard/export", icon: Download },
-        { title: "クーポン管理", href: "/circle/dashboard/coupons", icon: Ticket },
+        { title: "売上管理", href: "/circle/dashboard/sales", icon: TrendingUp, permission: "sales:read" },
+        { title: "統計・分析", href: "/circle/dashboard/analytics", icon: BarChart3, permission: "sales:read" },
+        { title: "レビュー", href: "/circle/dashboard/reviews", icon: Star, permission: "sales:read" },
+        { title: "データエクスポート", href: "/circle/dashboard/export", icon: Download, permission: "sales:read" },
+        { title: "クーポン管理", href: "/circle/dashboard/coupons", icon: Ticket, permission: "coupon:read" },
       ],
     },
     {
@@ -168,7 +171,7 @@ export default function DashboardLayout({
         // メンバー管理もオーナー限定 (一覧/招待 API がオーナーのみ。2026-10-05)。
         ...(isCircleOwner ? [{ title: "メンバー管理", href: "/circle/dashboard/members", icon: Users }] : []),
         ...(circleSettings.extensions.staff
-          ? [{ title: "スタッフ管理", href: "/circle/dashboard/staff", icon: UserCheck }]
+          ? [{ title: "スタッフ管理", href: "/circle/dashboard/staff", icon: UserCheck, permission: "staff:read" }]
           : []),
         // 2026-07-07: 「拡張機能 (モッド)」の独立ページは廃止。モッド管理はサークル設定内へ統合済み。
       ],
@@ -250,7 +253,16 @@ export default function DashboardLayout({
       : systemGroups;
 
   // 空グループ (抽選OFFなど拡張機能が全て無効な場合) は見出しごと出さない
-  const visibleMenuGroups = menuGroups.filter((group) => group.items.length > 0);
+  // 権限のない項目は出さない (permission 指定のあるサークル項目のみ。権限の読み込み中は全項目を出して
+  // 一瞬メニューが空になるのを避ける)。可否の最終判定は各ページのガードと API が行う。
+  const visibleMenuGroups = menuGroups
+    .map((group) => ({
+      ...group,
+      items: group.items.filter(
+        (item) => !item.permission || authLoading || checkPermission(item.permission as any)
+      ),
+    }))
+    .filter((group) => group.items.length > 0);
 
   // アコーディオンの現在地表示や href/tab のアクティブ判定は、グループを問わずフラットに探索すれば足りる
   const menuItems = visibleMenuGroups.flatMap((group) => group.items);
