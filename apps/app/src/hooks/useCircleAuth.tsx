@@ -220,7 +220,9 @@ export function useAuth() {
         : selected.circle?.name ?? null;
       const nextInfo = {
         ...authInfo,
-        role: selected.role as RoleType,
+        // 高度な権限管理 OFF のイベントでは circle_staff が circle_manager 相当になる。
+        // サーバーが /my で effectiveRole を返す (2026-10-05)。実際の可否は API が判定する。
+        role: (selected.effectiveRole ?? selected.role) as RoleType,
         circleId: selectedCircleId,
         eventId: selected.eventId ?? null,
         circleName: selectedCircleName,
@@ -288,6 +290,14 @@ export function useAuth() {
     ? null
     : (impersonation?.role as RoleType | null) ?? authInfo?.role ?? null;
   const effectiveIsEventAdmin = effectiveRole === ROLES.EVENT_MANAGER;
+  // サークルのオーナー判定 (2026-10-05)。高度な権限管理 OFF では circle_staff の実効ロールが
+  // circle_manager になるため、effectiveRole では区別できない。オーナー限定の導線は実ロールで出し分ける。
+  // (最終的な可否は API の isCircleOwner が決める。)
+  const currentSpace = spaces?.find((space: any) => space.id === authInfo?.membershipId);
+  const isCircleOwner =
+    !authorityUnverified &&
+    (effectiveRole === ROLES.EVENT_MANAGER ||
+      (impersonation ? impersonation.role === ROLES.CIRCLE_MANAGER : currentSpace?.role === ROLES.CIRCLE_MANAGER));
 
   const checkPermission = useCallback(
     (permission: Permission) => {
@@ -322,6 +332,10 @@ export function useAuth() {
     isAuthenticated: !!authInfo?.circleId || !!authInfo?.role || !!authInfo?.isEventAdmin,
     isEventAdmin: effectiveIsEventAdmin,
     permissions: authorityUnverified ? [] : permissionsForRole(effectiveRole),
+    // 現在のスペースの親イベントの「高度な権限管理」。不明 (取得前/イベント所属) は undefined。
+    // OFF (false) のときだけロール選択 UI を隠す用途で、可否の判定には使わない (2026-10-05)。
+    advancedPermissions: currentSpace?.advancedPermissions as boolean | undefined,
+    isCircleOwner,
     membershipAuthorityError: authorityUnverified ? "権限情報を確認できません。再試行してください。" : null,
     retryAuthorization: () => {
       void queryClient.invalidateQueries({ queryKey: ["mySpaces"] });
@@ -345,15 +359,18 @@ export function PermissionGuard({
   requireAll = false,
   fallback = null,
   showDenied = false,
+  ownerOnly = false,
 }: {
   children: React.ReactNode;
   permission?: string;
+  // true なら権限に加えてサークルのオーナー (実ロール) であることを要求する (2026-10-05)。
+  ownerOnly?: boolean;
   permissions?: string[];
   requireAll?: boolean;
   fallback?: React.ReactNode;
   showDenied?: boolean;
 }) {
-  const { role, isLoading, isEventAdmin, membershipAuthorityError, retryAuthorization } = useAuth();
+  const { role, isLoading, isEventAdmin, isCircleOwner, membershipAuthorityError, retryAuthorization } = useAuth();
 
   if (isLoading) {
     return (
@@ -374,6 +391,8 @@ export function PermissionGuard({
       ? hasAllPermissions(role, permissions, isEventAdmin)
       : hasAnyPermission(role, permissions, isEventAdmin);
   }
+
+  if (hasAccess && ownerOnly && !isCircleOwner) hasAccess = false;
 
   if (!hasAccess) {
     if (membershipAuthorityError) {
@@ -658,7 +677,7 @@ export async function resolveActiveSpaceAfterAuth(
       eventId: circleMembership.eventId,
       userEmail: circleMembership.userEmail,
       userName: circleMembership.userName,
-      role: circleMembership.role,
+      role: circleMembership.effectiveRole ?? circleMembership.role,
       membershipId: circleMembership.id,
       circleName: circleMembership.circle?.name || null,
     });

@@ -108,7 +108,7 @@ export default function DashboardLayout({
   // 拡張機能のON/OFF出し分け(在庫/スタッフ)が切り替え前のサークルの設定で
   // 表示され続ける不具合があった。useAuth() は authChange イベント購読で常に
   // 最新の circleId を返すため、これに乗り換えて再マウント不要で反映されるようにする。
-  const { circleId: authCircleId } = useAuth();
+  const { circleId: authCircleId, isCircleOwner } = useAuth();
   const circleId = type === "circle" ? (authCircleId ?? "") : "";
 
   // 2026-09-27: スタッフ管理の表示判定のためサークル設定を取得。在庫管理は組み込み機能とする。
@@ -163,8 +163,10 @@ export default function DashboardLayout({
     {
       label: "管理",
       items: [
-        { title: "サークル設定", href: "/circle/dashboard/circle", icon: Settings },
-        { title: "メンバー管理", href: "/circle/dashboard/members", icon: Users },
+        // サークル設定は画面ごとオーナー限定 (2026-10-05)。一般スタッフには導線も出さない。
+        ...(isCircleOwner ? [{ title: "サークル設定", href: "/circle/dashboard/circle", icon: Settings }] : []),
+        // メンバー管理もオーナー限定 (一覧/招待 API がオーナーのみ。2026-10-05)。
+        ...(isCircleOwner ? [{ title: "メンバー管理", href: "/circle/dashboard/members", icon: Users }] : []),
         ...(circleSettings.extensions.staff
           ? [{ title: "スタッフ管理", href: "/circle/dashboard/staff", icon: UserCheck }]
           : []),

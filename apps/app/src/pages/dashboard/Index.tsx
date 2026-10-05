@@ -75,12 +75,14 @@ function DashboardContent() {
       description: "注文モード・拡張機能・サークル情報の編集",
       href: "/circle/dashboard/circle",
       permission: "circle:read" as const,
+      ownerOnly: true,
     },
     {
       title: "メンバー管理",
       description: "メンバーの追加・権限設定",
       href: "/circle/dashboard/members",
       permission: "member:read" as const,
+      ownerOnly: true,
     },
     {
       title: "モバイルオーダーQR",
@@ -131,7 +133,7 @@ function DashboardContent() {
 
         <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
           {menuItems.map((item) => (
-            <PermissionGuard key={item.href} permission={item.permission}>
+            <PermissionGuard key={item.href} permission={item.permission} ownerOnly={"ownerOnly" in item}>
               <Link to={item.href}>
                 <Card className="cursor-pointer border-thick border-border rounded-none shadow-none hover:bg-primary hover:text-primary-foreground group h-full transition-all">
                   <CardHeader className="p-4 pb-2">

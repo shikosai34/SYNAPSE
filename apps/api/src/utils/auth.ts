@@ -3,6 +3,7 @@ import { eq, and } from "drizzle-orm";
 import { ulid } from "ulidx";
 import { Context } from "hono";
 import { ROLE_PERMISSIONS, type Permission } from "@fesflow/db";
+import { effectiveCircleRole } from "@fesflow/config";
 import type { AppEnv } from "../types";
 import { getImpersonation, betterAuthSessionId, audit } from "./sudo";
 
@@ -110,6 +111,46 @@ async function isEventReadOnly(
   return status === "ended" || status === "archived";
 }
 
+// 高度な権限管理 (event.advancedPermissions) が OFF のイベントでは circle_staff を
+// circle_manager 相当で評価する (2026-10-05)。membership.role 自体は変えず、評価時だけ差し替える。
+// イベントを特定できない場合は従来どおり区別する側 (= 実ロールのまま) に倒す。
+async function circleRoleForEvaluation(
+  c: Context<AppEnv>,
+  role: string,
+  eventId: string | null | undefined
+): Promise<string> {
+  if (role !== "circle_staff" || !eventId) return role;
+  const ev = await c.get("db").select().from(event).where(eq(event.id, eventId));
+  return (effectiveCircleRole(role, ev[0]?.advancedPermissions) ?? role) as string;
+}
+
+// サークルのオーナー操作 (譲渡・基本情報の変更・メンバー管理など) の可否 (2026-10-05)。
+// 高度な権限管理が OFF でも circle_staff は実効ロール上 circle_manager 相当になるため、
+// 権限表 (hasPermission) では「オーナーか一般スタッフか」を区別できない。ここでは実ロールを見る。
+// 呼び出し側は先に hasPermission でスコープ/閲覧のみモードを検証しておくこと。
+// オーナー = そのサークルの circle_manager、親イベントの event_manager、または
+// それらとしてなりすまし中の super_admin。
+export async function isCircleOwner(c: Context<AppEnv>, circleId: string): Promise<boolean> {
+  const db = c.get("db");
+  const session = await getSession(c);
+  if (!session || !session.user) return false;
+
+  const imp = await getImpersonation(c, betterAuthSessionId(session));
+  if (imp) return imp.role === "event_manager" || imp.role === "circle_manager";
+
+  const cs = await db.select().from(circle).where(eq(circle.id, circleId));
+  const eventId = cs[0]?.eventId;
+  const ms = await db
+    .select()
+    .from(membership)
+    .where(and(eq(membership.userEmail, session.user.email.toLowerCase()), eq(membership.isActive, true)));
+  return ms.some(
+    (m) =>
+      (m.role === "circle_manager" && m.circleId === circleId) ||
+      (m.role === "event_manager" && !!eventId && m.eventId === eventId)
+  );
+}
+
 export async function hasPermission(
   c: Context<AppEnv>,
   circleId: string | null,
@@ -137,16 +178,18 @@ export async function hasPermission(
   // これが super_admin がテナント内容に触れる唯一の経路 (それ以外は下で false になる)。
   const imp = await getImpersonation(c, betterAuthSessionId(session));
   if (imp) {
-    const perms = ROLE_PERMISSIONS[imp.role as keyof typeof ROLE_PERMISSIONS] as
-      | readonly string[]
-      | undefined;
-    if (!perms || !perms.includes(requiredPermission)) return false;
     // 対象スコープ内のリクエストかを確認する
     let reqEventId = eventId;
     if (!reqEventId && circleId) {
       const cs = await db.select().from(circle).where(eq(circle.id, circleId));
       reqEventId = cs[0]?.eventId;
     }
+    // 権限表は実効ロールで引く (高度な権限管理 OFF なら circle_staff は circle_manager 相当)。
+    const impRole = await circleRoleForEvaluation(c, imp.role, reqEventId);
+    const perms = ROLE_PERMISSIONS[impRole as keyof typeof ROLE_PERMISSIONS] as
+      | readonly string[]
+      | undefined;
+    if (!perms || !perms.includes(requiredPermission)) return false;
     let allowed = false;
     if (imp.role === "event_manager") {
       allowed = !!imp.eventId && (!reqEventId || imp.eventId === reqEventId);
@@ -225,7 +268,8 @@ export async function hasPermission(
         (m) => m.circleId === circleId && (m.role === "circle_manager" || m.role === "circle_staff")
       );
       if (cm) {
-        const perms = ROLE_PERMISSIONS[cm.role as keyof typeof ROLE_PERMISSIONS] as readonly string[] | undefined;
+        const cmRole = await circleRoleForEvaluation(c, cm.role, resolvedEventId);
+        const perms = ROLE_PERMISSIONS[cmRole as keyof typeof ROLE_PERMISSIONS] as readonly string[] | undefined;
         if (perms && perms.includes(requiredPermission)) return true;
       }
     }
@@ -246,7 +290,7 @@ export async function hasPermission(
   if (circleId) {
     const circleM = memberships.find((m) => m.circleId === circleId);
     if (circleM) {
-      const role = circleM.role as keyof typeof ROLE_PERMISSIONS;
+      const role = (await circleRoleForEvaluation(c, circleM.role, resolvedEventId)) as keyof typeof ROLE_PERMISSIONS;
       const permissions = ROLE_PERMISSIONS[role];
       if (permissions && (permissions as readonly string[]).includes(requiredPermission)) {
         return true;
