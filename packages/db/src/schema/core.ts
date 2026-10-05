@@ -48,6 +48,9 @@ export const event = sqliteTable("event", {
   // lotteryEnabled: 抽選機能(イベント単位)の有効化フラグ。拡張機能=ONにしないと使えない。
   // 2026-07-12。実際の抽選設定・景品・応募・当選は lottery テーブル群。
   lotteryEnabled: integer("lottery_enabled", { mode: "boolean" }).default(false).notNull(),
+  // advancedPermissions: 高度な権限管理 (2026-10-05)。OFF (既定) ではサークル所属の全員が
+  // circle_manager 相当、ON では circle_manager / circle_staff の権限差を適用する。
+  advancedPermissions: integer("advanced_permissions", { mode: "boolean" }).default(false).notNull(),
   // ownerEmail: 作成者=主たる event_manager。課金・連絡の主体。
   ownerEmail: text("owner_email"),
   // Stripe 連携用 (将来フェーズ。現状は未使用の予約カラム)。

@@ -585,7 +585,7 @@ function ExtensionToggle({
 export default function CircleSettingsPage() {
   return (
     <CircleAuthGuard>
-      <PermissionGuard permission="circle:write" showDenied>
+      <PermissionGuard permission="circle:write" ownerOnly showDenied>
         <CircleSettingsContent />
       </PermissionGuard>
     </CircleAuthGuard>

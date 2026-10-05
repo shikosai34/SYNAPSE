@@ -218,6 +218,27 @@ eventRoutes.put(
   }
 );
 
+// 高度な権限管理の切り替え (2026-10-05)。event_manager(event:write)。
+// OFF (既定) ではサークル所属の全員が circle_manager 相当、ON で circle_manager/circle_staff の
+// 権限差を適用する。membership.role は書き換えず、判定時に実効ロールを求めるだけなので、
+// ON に戻せば元の区別がそのまま復活する。
+eventRoutes.put(
+  "/:id/advanced-permissions",
+  zBody(z.object({ enabled: z.boolean() })),
+  async (c) => {
+    const db = c.get("db");
+    const eventId = c.req.param("id");
+    if (!(await hasPermission(c, null, "event:write", eventId))) {
+      apiError("FORBIDDEN", "権限管理の設定を変更する権限がありません");
+    }
+    await db
+      .update(event)
+      .set({ advancedPermissions: c.req.valid("json").enabled })
+      .where(eq(event.id, eventId));
+    return c.json({ success: true });
+  }
+);
+
 // 日次締め (2026-07-12)
 // 指定日(JST)の売上を、支払い方法別・サークル別に集計して返す。日々の精算・引き継ぎ用。
 // date 省略時は本日(JST)。event_manager(sales:read) 権限。

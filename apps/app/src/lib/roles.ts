@@ -16,7 +16,9 @@ export type Role = RoleType | "visitor";
 export const ROLE_LABELS: Record<Role, string> = {
   super_admin: "システム最高管理者",
   event_manager: "イベント管理者",
-  circle_manager: "店舗管理者",
+  // 2026-10-05: オーナー(circle_manager) / 管理者(circle_admin) / 一般スタッフの3段階。
+  circle_manager: "オーナー",
+  circle_admin: "管理者",
   circle_staff: "一般スタッフ",
   visitor: "来場者",
 };
@@ -25,7 +27,8 @@ export const ROLE_LABELS: Record<Role, string> = {
 export const ROLE_BADGES: Record<Role, string> = {
   super_admin: "SUPER ADMIN",
   event_manager: "EVENT MGR",
-  circle_manager: "CIRCLE MGR",
+  circle_manager: "OWNER",
+  circle_admin: "ADMIN",
   circle_staff: "STAFF",
   visitor: "VISITOR",
 };

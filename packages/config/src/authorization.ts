@@ -4,6 +4,10 @@ export const ROLES = {
   SUPER_ADMIN: "super_admin",
   EVENT_MANAGER: "event_manager",
   CIRCLE_MANAGER: "circle_manager",
+  // 管理者 (2026-10-05): オーナー (circle_manager) が個別に付与する。メニュー編集・売上・クーポンなど
+  // サークルの運営権限はオーナーと同じだが、メンバー管理・オーナー譲渡・基本情報の変更は持たない
+  // (それらは権限表ではなく実ロールの circle_manager で判定する)。
+  CIRCLE_ADMIN: "circle_admin",
   CIRCLE_STAFF: "circle_staff",
 } as const;
 
@@ -24,6 +28,12 @@ export const ROLE_PERMISSIONS = {
     "member:read", "member:write", "member:delete", "coupon:read", "coupon:write",
   ],
   [ROLES.CIRCLE_MANAGER]: [
+    "circle:read", "circle:write", "menu:read", "menu:write", "menu:delete",
+    "order:read", "order:write", "staff:read", "staff:write", "staff:delete",
+    "stock:read", "stock:write", "sales:read", "member:read", "member:write",
+    "coupon:read", "coupon:write",
+  ],
+  [ROLES.CIRCLE_ADMIN]: [
     "circle:read", "circle:write", "menu:read", "menu:write", "menu:delete",
     "order:read", "order:write", "staff:read", "staff:write", "staff:delete",
     "stock:read", "stock:write", "sales:read", "member:read", "member:write",
@@ -80,4 +90,14 @@ export function hasRolePermission(
 ): boolean {
   if (!role || !Object.hasOwn(ROLE_PERMISSIONS, role)) return false;
   return (ROLE_PERMISSIONS[role as RoleType] as readonly string[]).includes(permission);
+}
+
+// 高度な権限管理 (event.advancedPermissions) が OFF のイベントでは、サークル所属の
+// circle_staff を circle_manager 相当として扱う。DB の membership.role は書き換えず、
+// API とブラウザーの双方でこの関数を通して実効ロールを求める (ON に戻せば元の区別が復活する)。
+export function effectiveCircleRole(
+  role: string | null | undefined,
+  advancedPermissions: boolean | null | undefined
+): string | null | undefined {
+  return role === ROLES.CIRCLE_STAFF && !advancedPermissions ? ROLES.CIRCLE_MANAGER : role;
 }

@@ -1,0 +1,1 @@
+ALTER TABLE `event` ADD `advanced_permissions` integer DEFAULT false NOT NULL;

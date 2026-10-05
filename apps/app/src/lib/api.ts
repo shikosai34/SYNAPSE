@@ -97,6 +97,8 @@ export const eventApi = {
   // 抽選機能の有効化トグル (event_manager event:write 権限)。
   setLotteryEnabled: (id: string, enabled: boolean) =>
     fetchApi<{ success: boolean }>(`/api/festivals/${id}/lottery-enabled`, { method: "PUT", body: { enabled } }),
+  setAdvancedPermissions: (id: string, enabled: boolean) =>
+    fetchApi<{ success: boolean }>(`/api/festivals/${id}/advanced-permissions`, { method: "PUT", body: { enabled } }),
   // 開催ライフサイクル状態の変更 (event_manager event:write 権限)。
   setLifecycleStatus: (id: string, status: EventLifecycleStatus) =>
     fetchApi<{ success: boolean }>(`/api/festivals/${id}/lifecycle-status`, { method: "PUT", body: { status } }),
@@ -487,6 +489,8 @@ export interface Event extends EventTheme {
   paymentMethods?: string;
   // 抽選機能(イベント単位)の有効化フラグ (2026-07-12)。
   lotteryEnabled?: boolean;
+  // 高度な権限管理 (2026-10-05)。OFF ではサークル所属の全員が circle_manager 相当。
+  advancedPermissions?: boolean;
   // 開催ライフサイクル状態 (2026-07-15): upcoming(開催前) / live(開催中) / ended(終了) / archived(保持)。
   lifecycleStatus?: "upcoming" | "live" | "ended" | "archived";
   startDate: Date | null;
