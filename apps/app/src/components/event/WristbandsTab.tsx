@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { wristbandApi } from "@/lib/api";
+import { wristbandApi, type WristbandBatch } from "@/lib/api";
 import { extractIdFromCode } from "@/lib/utils";
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -22,13 +22,15 @@ import {
   Copy,
   ChevronRight,
   Edit,
-  FileUp
+  FileUp,
 } from "lucide-react";
 import { toast } from "sonner";
 import { QrScannerModal } from "@/components/pos/qr-scanner-modal";
 import { Modal } from "@/components/ui/Modal";
 import { QRCodeSVG } from "qrcode.react";
 import { digitalQrIssueUrl } from "@/lib/digital-qr-url";
+import { generateWristbandIds } from "@/lib/wristband-id-generator";
+import { WristbandBatchHistory } from "@/components/event/WristbandBatchHistory";
 
 interface WristbandsTabProps {
   eventId: string;
@@ -43,6 +45,9 @@ type VisitorFilters = {
 type VisitorSortField = "createdAt" | "displayId" | "nickname" | "favoriteDate" | "accountStatus" | "wristbandId" | "bandStatus";
 
 const VISITOR_PAGE_SIZE = 500;
+// D1は1クエリあたりのバインド変数が100個まで。親行は4列を明示するため、
+// スキーマ変更にも余裕を残して20件ずつ取り込む。
+const WRISTBAND_GENERATION_MAX_COUNT = 50_000;
 const VISITOR_SORT_COLUMNS: { label: string; field: Exclude<VisitorSortField, "createdAt"> }[] = [
   { label: "呼出ID", field: "displayId" },
   { label: "ニックネーム", field: "nickname" },
@@ -77,6 +82,7 @@ export function WristbandsTab({ eventId }: WristbandsTabProps) {
   const [isScanModalOpen, setIsScanModalOpen] = useState(false);
   const [isIssueModalOpen, setIsIssueModalOpen] = useState(false);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [isGenerateModalOpen, setIsGenerateModalOpen] = useState(false);
   const [isDetailsModalOpen, setIsDetailsModalOpen] = useState(false);
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [scannerTarget, setScannerTarget] = useState<"search" | "reissue" | "lookup">("lookup");
@@ -94,6 +100,20 @@ export function WristbandsTab({ eventId }: WristbandsTabProps) {
 
   // 新規スマホ用来場者発行モーダル用の状態
   const [issuedUser, setIssuedUser] = useState<{ userId: string; displayId: number } | null>(null);
+  const [generatedPrefix, setGeneratedPrefix] = useState("");
+  const [generatedCount, setGeneratedCount] = useState(10_000);
+  const [suffixLengthMode, setSuffixLengthMode] = useState("16");
+  const [manualSuffixLength, setManualSuffixLength] = useState(16);
+  const [csvPreview, setCsvPreview] = useState<{
+    fileName: string;
+    fileSize: number;
+    urls: string[];
+    duplicateCount: number;
+    duplicateLines: number[];
+    invalidLines: number[];
+  } | null>(null);
+  const [activeBatchId, setActiveBatchId] = useState<string | null>(null);
+  const [activeBatchProgress, setActiveBatchProgress] = useState<WristbandBatch | null>(null);
 
   // 来場者一覧・検索クエリ (React Query を使って自動フェッチ&キャッシュ)
   const {
@@ -263,27 +283,100 @@ export function WristbandsTab({ eventId }: WristbandsTabProps) {
     },
   });
 
-  const importUrlsMutation = useMutation({
-    mutationFn: (urls: string[]) => wristbandApi.importUrls(eventId, urls),
-    onSuccess: (data) => {
-      toast.success(`${data.imported}件のリストバンドURLを登録しました`);
-      setIsImportModalOpen(false);
+  const batchOperationMutation = useMutation({
+    mutationFn: async (operation:
+      | { mode: "create"; source: "generated" | "csv"; urls: string[]; prefix?: string; suffixLength?: number }
+      | { mode: "resume"; batchId: string }
+    ) => {
+      let batch = operation.mode === "create"
+        ? await wristbandApi.createBatch({
+            eventId,
+            source: operation.source,
+            prefix: operation.prefix,
+            suffixLength: operation.suffixLength,
+            urls: operation.urls,
+          })
+        : { id: operation.batchId } as WristbandBatch;
+
+      setActiveBatchId(batch.id);
+      if (operation.mode === "create") {
+        setActiveBatchProgress(batch);
+        setIsImportModalOpen(false);
+        setIsGenerateModalOpen(false);
+      }
+
+      while (batch.status !== "completed" && batch.status !== "conflict") {
+        batch = await wristbandApi.processBatch(batch.id);
+        setActiveBatchProgress(batch);
+      }
+      return batch;
+    },
+    onSuccess: (batch) => {
+      if (batch.status === "completed") {
+        toast.success(`${batch.importedCount.toLocaleString("ja-JP")}件のリストバンドを登録しました。CSVは履歴から再取得できます。`);
+      } else {
+        toast.error(batch.errorMessage || "登録済みIDが見つかりました。CSVを確認してください。");
+      }
       queryClient.invalidateQueries({ queryKey: ["eventVisitors"] });
     },
-    onError: (err: any) => toast.error(err.message || "CSVの取り込みに失敗しました"),
+    onError: (error: any) => {
+      toast.error(error?.message || "登録が中断されました。履歴から再開できます。");
+    },
+    onSettled: () => {
+      setActiveBatchId(null);
+      setActiveBatchProgress(null);
+      queryClient.invalidateQueries({ queryKey: ["wristbandBatchHistory", eventId] });
+    },
   });
 
   const handleImportCsv = async (file: File) => {
-    const text = (await file.text()).replace(/^\uFEFF/, "");
-    const urls = text
-      .split(/\r?\n/)
-      .map((line) => line.trim().replace(/^"|"$/g, ""))
-      .filter((line) => line && line.toLowerCase() !== "url");
-    if (urls.length === 0) {
-      toast.error("URLが見つかりません");
-      return;
+    try {
+      const text = (await file.text()).replace(/^\uFEFF/, "");
+      const rows = text.split(/\r?\n/).map((line, index) => ({
+        line: index + 1,
+        value: line.trim().replace(/^"|"$/g, ""),
+      })).filter(({ value }) => value && value.toLowerCase() !== "url");
+      const seen = new Set<string>();
+      const duplicateLines: number[] = [];
+      const invalidLines: number[] = [];
+      const urls = rows.map(({ line, value }) => {
+        const id = extractIdFromCode(value);
+        if (!/^[a-zA-Z0-9_-]+$/.test(id) || (value.includes("/w/") && !/\/w\/[a-zA-Z0-9_-]+(?:[?#].*)?$/.test(value))) {
+          invalidLines.push(line);
+        }
+        if (seen.has(id)) duplicateLines.push(line);
+        seen.add(id);
+        return value;
+      });
+      setCsvPreview({
+        fileName: file.name,
+        fileSize: file.size,
+        urls,
+        duplicateCount: duplicateLines.length,
+        duplicateLines,
+        invalidLines,
+      });
+    } catch {
+      setCsvPreview(null);
+      toast.error("CSVファイルを読み取れませんでした。別のファイルを選択してください。");
     }
-    importUrlsMutation.mutate(urls);
+  };
+
+  const startCsvImport = () => {
+    if (!csvPreview || csvPreview.urls.length === 0 || csvPreview.duplicateCount > 0 || csvPreview.invalidLines.length > 0) return;
+    batchOperationMutation.mutate({ mode: "create", source: "csv", urls: csvPreview.urls });
+  };
+
+  const handleGenerateWristbandIds = () => {
+    try {
+      const prefix = generatedPrefix.trim();
+      const suffixLength = suffixLengthMode === "custom" ? manualSuffixLength : Number(suffixLengthMode);
+      const ids = generateWristbandIds(prefix, generatedCount, suffixLength);
+      const urls = ids.map((id) => getVisitorLink(id));
+      batchOperationMutation.mutate({ mode: "create", source: "generated", prefix, suffixLength, urls });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "リストバンドIDの生成に失敗しました");
+    }
   };
 
   // 紛失ロックの簡易実行
@@ -461,14 +554,43 @@ export function WristbandsTab({ eventId }: WristbandsTabProps) {
                 <p>2. 印刷したリストバンドを来場者へ渡します。</p>
                 <p>3. バンドのQR読み取り後、初回プロフィール登録へ進みます。</p>
               </div>
-              <Button
-                onClick={() => setIsImportModalOpen(true)}
-                variant="outline"
-                className="w-full self-start border-thick border-border text-xs font-bold sm:w-auto"
-              >
-                <FileUp className="mr-1.5 h-4 w-4" />
-                リストバンドURL CSVを取り込む
-              </Button>
+              <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+                <Button
+                  onClick={() => setIsImportModalOpen(true)}
+                  disabled={batchOperationMutation.isPending}
+                  variant="outline"
+                  className="w-full self-start border-thick border-border text-xs font-bold sm:w-auto"
+                >
+                  <FileUp className="mr-1.5 h-4 w-4" />
+                  リストバンドURL CSVを取り込む
+                </Button>
+                <Button
+                  disabled={batchOperationMutation.isPending}
+                  onClick={() => {
+                    setIsGenerateModalOpen(true);
+                  }}
+                  className="w-full self-start border-thick border-primary bg-primary text-xs font-bold text-primary-foreground hover:bg-background hover:text-foreground sm:w-auto"
+                >
+                  <Plus className="mr-1.5 h-4 w-4" />
+                  人数を指定してID生成
+                </Button>
+              </div>
+              {activeBatchProgress && (
+                <div role="status" aria-live="polite" className="border-thin border-border bg-muted/20 p-3 text-xs">
+                  <div className="flex items-center gap-2 font-bold">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    リストバンドを登録中
+                  </div>
+                  <p className="mt-1 text-[10px] text-muted-foreground">
+                    {activeBatchProgress.processedCount.toLocaleString("ja-JP")} / {activeBatchProgress.totalCount.toLocaleString("ja-JP")} 件
+                  </p>
+                </div>
+              )}
+              <WristbandBatchHistory
+                eventId={eventId}
+                activeBatchId={activeBatchId}
+                onResume={(batch) => batchOperationMutation.mutate({ mode: "resume", batchId: batch.id })}
+              />
             </CardContent>
           </Card>
         </div>
@@ -478,7 +600,7 @@ export function WristbandsTab({ eventId }: WristbandsTabProps) {
         isOpen={isImportModalOpen}
         title="[リストバンドURL CSV取り込み]"
         subtitle="印刷用URL CSVを取り込むと、このイベントの来場者とリストバンドを一括登録します。"
-        onClose={() => !importUrlsMutation.isPending && setIsImportModalOpen(false)}
+        onClose={() => !batchOperationMutation.isPending && setIsImportModalOpen(false)}
         maxWidth="md"
       >
         <div className="space-y-4">
@@ -486,7 +608,7 @@ export function WristbandsTab({ eventId }: WristbandsTabProps) {
             <p className="font-bold">対応形式</p>
             <p>1列目がURLのCSV（ヘッダー「url」は任意）</p>
             <p>例: https://fesflow.shikosai.net/w/34-0001</p>
-            <p className="text-muted-foreground">CSV内の重複URLと登録済みIDは取り込みません。</p>
+            <p className="text-muted-foreground">選択後に内容を確認できます。登録済みIDがある場合は安全のためそのバッチを停止します。</p>
           </div>
           <label className="flex cursor-pointer items-center justify-center gap-2 border-thick border-dashed border-border p-6 text-xs font-bold hover:bg-muted/30">
             <FileUp className="h-5 w-5" />
@@ -495,7 +617,7 @@ export function WristbandsTab({ eventId }: WristbandsTabProps) {
               type="file"
               accept=".csv,text/csv"
               className="sr-only"
-              disabled={importUrlsMutation.isPending}
+              disabled={batchOperationMutation.isPending}
               onChange={(event) => {
                 const file = event.target.files?.[0];
                 if (file) void handleImportCsv(file);
@@ -503,11 +625,154 @@ export function WristbandsTab({ eventId }: WristbandsTabProps) {
               }}
             />
           </label>
-          {importUrlsMutation.isPending && (
-            <p className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" /> 登録中...
-            </p>
+          {csvPreview && (
+            <section aria-label="CSVの確認" className="space-y-3 border-thin border-border p-3">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="break-all text-xs font-bold">{csvPreview.fileName}</p>
+                  <p className="text-[10px] text-muted-foreground">{(csvPreview.fileSize / 1024).toLocaleString("ja-JP", { maximumFractionDigits: 1 })} KB</p>
+                </div>
+                <Badge variant="default" className="shrink-0 rounded-none border-thin">
+                  {csvPreview.urls.length.toLocaleString("ja-JP")} 件
+                </Badge>
+              </div>
+              {csvPreview.urls.length === 0 ? (
+                <p role="alert" className="text-xs text-error">有効なURLが見つかりません。1行に1つ、/w/ID形式のURLが入ったCSVを選択してください。</p>
+              ) : csvPreview.duplicateCount === 0 && csvPreview.invalidLines.length === 0 ? (
+                <p className="text-xs text-success">URL形式と重複を確認しました。この内容で登録できます。</p>
+              ) : (
+                <div role="alert" className="space-y-1 text-xs text-error">
+                  {csvPreview.duplicateCount > 0 && <p>重複URLが {csvPreview.duplicateCount} 件あります（{csvPreview.duplicateLines.slice(0, 5).join(", ")}{csvPreview.duplicateLines.length > 5 ? "…" : ""} 行目）。CSVを修正してください。</p>}
+                  {csvPreview.invalidLines.length > 0 && <p>URL形式が正しくない行が {csvPreview.invalidLines.length} 件あります（{csvPreview.invalidLines.slice(0, 5).join(", ")}{csvPreview.invalidLines.length > 5 ? "…" : ""} 行目）。</p>}
+                </div>
+              )}
+              <div className="flex flex-col gap-2 border-t-thin border-border pt-3 sm:flex-row sm:justify-end">
+                <Button type="button" variant="outline" disabled={batchOperationMutation.isPending} onClick={() => setCsvPreview(null)} className="h-10 border-thick border-border text-xs">
+                  ファイルを選び直す
+                </Button>
+                <Button
+                  type="button"
+                  disabled={batchOperationMutation.isPending || csvPreview.urls.length === 0 || csvPreview.duplicateCount > 0 || csvPreview.invalidLines.length > 0}
+                  onClick={startCsvImport}
+                  className="h-10 border-thick border-primary bg-primary text-xs font-bold text-primary-foreground hover:bg-background hover:text-foreground"
+                >
+                  {batchOperationMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  確認して登録
+                </Button>
+              </div>
+            </section>
           )}
+          {batchOperationMutation.isError && <p role="alert" className="text-xs text-error">登録を完了できませんでした。登録済みの分は履歴から再開できます。</p>}
+        </div>
+      </Modal>
+
+      <Modal
+        isOpen={isGenerateModalOpen}
+        title="[リストバンドIDを人数指定で生成]"
+        subtitle="イベント固有IDとランダム文字列を組み合わせ、登録と印刷用CSVの作成を行います。"
+        onClose={() => !batchOperationMutation.isPending && setIsGenerateModalOpen(false)}
+        maxWidth="lg"
+      >
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className="space-y-1">
+              <label htmlFor="wristband-id-prefix" className="text-xs font-bold">イベント固有ID</label>
+              <Input
+                id="wristband-id-prefix"
+                value={generatedPrefix}
+                onChange={(event) => setGeneratedPrefix(event.target.value)}
+                placeholder="例: 34"
+                autoComplete="off"
+                maxLength={32}
+                required
+                aria-describedby="wristband-id-prefix-help"
+                className="h-10 border-thick border-border bg-background text-xs font-mono"
+              />
+              <p id="wristband-id-prefix-help" className="text-[10px] text-muted-foreground">
+                URLで使える半角英数字・ハイフン・アンダースコア。IDは「入力値-ランダム文字列」になります。
+              </p>
+            </div>
+            <div className="space-y-1">
+              <label htmlFor="wristband-id-count" className="text-xs font-bold">発行人数</label>
+              <Input
+                id="wristband-id-count"
+                type="number"
+                min={1}
+                max={WRISTBAND_GENERATION_MAX_COUNT}
+                step={1}
+                value={generatedCount}
+                onChange={(event) => setGeneratedCount(event.target.value === "" ? 0 : Number(event.target.value))}
+                aria-describedby="wristband-id-count-help"
+                className="h-10 border-thick border-border bg-background text-xs font-mono"
+              />
+              <p id="wristband-id-count-help" className="text-[10px] text-muted-foreground">1〜50,000人</p>
+            </div>
+            <div className="space-y-1">
+              <label htmlFor="wristband-id-length" className="text-xs font-bold">ランダム文字列の長さ</label>
+              <select
+                id="wristband-id-length"
+                value={suffixLengthMode}
+                onChange={(event) => setSuffixLengthMode(event.target.value)}
+                className="h-10 w-full border-thick border-border bg-background px-2 text-xs font-mono"
+              >
+                <option value="8">8文字（40 bit）</option>
+                <option value="10">10文字（50 bit）</option>
+                <option value="12">12文字（60 bit）</option>
+                <option value="16">16文字（80 bit・おすすめ）</option>
+                <option value="custom">手動で指定</option>
+              </select>
+            </div>
+            {suffixLengthMode === "custom" && (
+              <div className="space-y-1">
+                <label htmlFor="wristband-id-custom-length" className="text-xs font-bold">文字数（4〜32）</label>
+                <Input
+                  id="wristband-id-custom-length"
+                  type="number"
+                  min={4}
+                  max={32}
+                  step={1}
+                  value={manualSuffixLength}
+                  onChange={(event) => setManualSuffixLength(event.target.value === "" ? 0 : Number(event.target.value))}
+                  className="h-10 border-thick border-border bg-background text-xs font-mono"
+                />
+              </div>
+            )}
+          </div>
+
+          <div className="border-thin border-border bg-muted/20 p-3 text-[10px] leading-relaxed">
+            <p className="font-bold">生成例</p>
+            <p className="break-all font-mono">{generatedPrefix.trim() || "イベントID"}-{suffixLengthMode === "custom" ? "A1B2".repeat(Math.ceil(manualSuffixLength / 4)).slice(0, manualSuffixLength) : "A1B2".repeat(Math.ceil(Number(suffixLengthMode) / 4)).slice(0, Number(suffixLengthMode))}</p>
+            <p className="mt-1 text-muted-foreground">暗号学的乱数を使います。登録開始前にURLを履歴へ保存するため、画面を閉じても後からCSVを再取得できます。</p>
+          </div>
+
+          <div className="flex flex-col-reverse gap-2 border-t-thin border-border pt-4 sm:flex-row sm:justify-end">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setIsGenerateModalOpen(false)}
+              disabled={batchOperationMutation.isPending}
+              className="h-10 border-thick border-border px-4 text-xs font-bold"
+            >
+              閉じる
+            </Button>
+            <Button
+              type="button"
+              onClick={handleGenerateWristbandIds}
+              disabled={
+                batchOperationMutation.isPending ||
+                !generatedPrefix.trim() ||
+                generatedCount < 1 ||
+                generatedCount > WRISTBAND_GENERATION_MAX_COUNT ||
+                !Number.isInteger(generatedCount) ||
+                (suffixLengthMode === "custom" &&
+                  (manualSuffixLength < 4 || manualSuffixLength > 32 || !Number.isInteger(manualSuffixLength)))
+              }
+              className="h-10 border-thick border-primary bg-primary px-4 text-xs font-bold text-primary-foreground hover:bg-background hover:text-foreground"
+            >
+              {batchOperationMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Plus className="mr-2 h-4 w-4" />}
+              IDを生成して登録
+            </Button>
+          </div>
         </div>
       </Modal>
 

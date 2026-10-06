@@ -81,6 +81,21 @@ async function fetchApi<T>(
   return data;
 }
 
+// 権限付きファイルダウンロードも通常APIと同じセッション/アクティブ所属を使う。
+async function fetchApiBlob(endpoint: string): Promise<Blob> {
+  const headers: Record<string, string> = { Accept: "text/csv" };
+  const authInfo = readAuthContext<{ membershipId?: string | null }>();
+  if (authInfo?.membershipId) headers["X-Active-Membership-Id"] = authInfo.membershipId;
+  let response: Response;
+  try {
+    response = await fetch(`${getApiBaseUrl()}${endpoint}`, { headers, credentials: "include" });
+  } catch (err) {
+    throw networkApiError(err);
+  }
+  if (!response.ok) throw await apiErrorFromResponse(response);
+  return response.blob();
+}
+
 // Event API
 // 2026-07-04: 広告ブロック(Adblocker/Brave Shield)による誤認検知(ERR_BLOCKED_BY_CLIENT)を避けるため、
 // エンドポイントを /api/events から /api/festivals に変更。
@@ -1041,6 +1056,24 @@ export interface WristbandLookupResult {
   } | null;
 }
 
+export type WristbandBatchSource = "generated" | "csv";
+export type WristbandBatchStatus = "pending" | "processing" | "completed" | "conflict";
+export interface WristbandBatch {
+  id: string;
+  eventId: string;
+  source: WristbandBatchSource;
+  prefix: string | null;
+  suffixLength: number | null;
+  totalCount: number;
+  processedCount: number;
+  importedCount: number;
+  conflictCount: number;
+  status: WristbandBatchStatus;
+  errorMessage: string | null;
+  createdAt: string;
+  completedAt: string | null;
+}
+
 export const wristbandApi = {
   // 2026-07-11: 未知コードで偽ユーザーを捏造する .catch フォールバックを撤去。
   // これがあると本部未発行の任意コードでも擬似セッションが作れてしまい
@@ -1099,6 +1132,21 @@ export const wristbandApi = {
       method: "POST",
       body: { eventId, urls },
     }),
+  listBatches: (eventId: string, offset = 0, limit = 20) =>
+    fetchApi<{ items: WristbandBatch[]; total: number; offset: number; limit: number }>(
+      `/api/wristbands/batches?eventId=${encodeURIComponent(eventId)}&offset=${offset}&limit=${limit}`
+    ),
+  createBatch: (input: {
+    eventId: string;
+    source: WristbandBatchSource;
+    prefix?: string;
+    suffixLength?: number;
+    urls: string[];
+  }) => fetchApi<WristbandBatch>("/api/wristbands/batches", { method: "POST", body: input }),
+  processBatch: (batchId: string) =>
+    fetchApi<WristbandBatch>(`/api/wristbands/batches/${encodeURIComponent(batchId)}/process`, { method: "POST" }),
+  downloadBatchCsv: (batchId: string) =>
+    fetchApiBlob(`/api/wristbands/batches/${encodeURIComponent(batchId)}/csv`),
   update: (id: string, data: { status: "active" | "lost" | "replaced" | "revoked" | "smartphone"; userId?: string }) =>
     fetchApi<{ success: boolean }>(`/api/wristbands/${encodeURIComponent(id)}`, {
       method: "PATCH",

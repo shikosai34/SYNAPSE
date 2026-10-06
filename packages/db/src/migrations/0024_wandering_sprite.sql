@@ -17,3 +17,7 @@ CREATE TABLE `order_write_guard` (
 	`valid` integer NOT NULL,
 	CONSTRAINT "order_write_guard_valid" CHECK("order_write_guard"."valid" = 1)
 );
+--> statement-breakpoint
+DROP INDEX `orders_order_number_unique`;--> statement-breakpoint
+CREATE UNIQUE INDEX `orders_circle_order_number_unique` ON `orders` (`circle_id`,`order_number`);--> statement-breakpoint
+ALTER TABLE `event` ADD `advanced_permissions` integer DEFAULT false NOT NULL;
