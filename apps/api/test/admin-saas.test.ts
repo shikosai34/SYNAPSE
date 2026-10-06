@@ -5,7 +5,9 @@
  */
 import { describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
-import { event, membership } from "@fesflow/db";
+import { auditLog, event, membership, systemSetting } from "@fesflow/db";
+import { env } from "cloudflare:test";
+import { readCleanupRetentionDays } from "../src/services/cleanup";
 import { request, testDb, uid } from "./helpers";
 
 function extractCookieHeader(res: Response): string {
@@ -82,5 +84,37 @@ describe("SaaS 運営コンソール (admin)", () => {
 		expect(rows[0]!.maxCircles).toBe(20);
 		expect(rows[0]!.billingStatus).toBe("suspended");
 		expect(rows[0]!.suspendedAt).not.toBeNull();
+	});
+
+	it("システム管理者はイベント保持日数を既定365日で確認し、30〜3650日の範囲で保存できる", async () => {
+		const key = "cleanup_retention";
+		const db = testDb();
+		await db.delete(systemSetting).where(eq(systemSetting.key, key));
+		const admin = await signUp("retention-admin");
+		await makeSuperAdmin(admin.email);
+		const headers = { Cookie: admin.cookie };
+		try {
+			const initial = await request("/api/admin/settings", { headers });
+			expect(initial.status).toBe(200);
+			expect(await initial.json()).toMatchObject({
+				cleanup: { retentionDays: 365, dryRun: true },
+			});
+
+			const update = (retentionDays: number) => request("/api/admin/settings", {
+				method: "PUT",
+				headers: { ...headers, "Content-Type": "application/json" },
+				body: JSON.stringify({ cleanup: { retentionDays } }),
+			});
+			expect((await update(30)).status).toBe(200);
+			const saved = await request("/api/admin/settings", { headers });
+			expect(await saved.json()).toMatchObject({ cleanup: { retentionDays: 30, dryRun: true } });
+			expect(await readCleanupRetentionDays(env.DB)).toBe(30);
+			expect((await update(29)).status).toBe(400);
+			expect((await update(3651)).status).toBe(400);
+			const logs = await db.select().from(auditLog).where(eq(auditLog.actorEmail, admin.email.toLowerCase()));
+			expect(logs.some((entry) => entry.action === "system_setting_update" && entry.summary?.includes("保持期間"))).toBe(true);
+		} finally {
+			await db.delete(systemSetting).where(eq(systemSetting.key, key));
+		}
 	});
 });

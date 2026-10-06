@@ -15,7 +15,7 @@ import {
 } from "@fesflow/db";
 import { eq, and, isNull, lt, inArray } from "drizzle-orm";
 import { ulid } from "ulidx";
-import { hasPermission } from "../utils/auth";
+import { hasPermission, isCircleOwner } from "../utils/auth";
 import { requireAuth } from "../middleware/auth";
 import type { AppEnv } from "../types";
 
@@ -397,6 +397,10 @@ circleRoutes.put(
     if (!allowed) {
       apiError("FORBIDDEN", "権限がありません");
     }
+    // 名前/説明/アイコンは来場者に見える表示なので、一般スタッフには開放せずオーナーに限る (2026-10-05)。
+    if (!(await isCircleOwner(c, id))) {
+      apiError("FORBIDDEN", "サークルの基本情報はオーナーのみ変更できます");
+    }
 
     const input = c.req.valid("json");
 
@@ -495,6 +499,10 @@ circleRoutes.post(
     const allowed = await hasPermission(c, id, "circle:write");
     if (!allowed) {
       apiError("FORBIDDEN", "権限がありません");
+    }
+    // 高度な権限管理 OFF では一般スタッフも circle:write を持つため、譲渡はオーナーに限る (2026-10-05)。
+    if (!(await isCircleOwner(c, id))) {
+      apiError("FORBIDDEN", "オーナー権限の譲渡はオーナーのみ実行できます");
     }
 
     // 譲渡先メンバーが当該サークルに所属しているか確認

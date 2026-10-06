@@ -169,6 +169,13 @@
       "when": 1791225906299,
       "tag": "0023_spicy_kree",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "6",
+      "when": 1791280020537,
+      "tag": "0024_wandering_sprite",
+      "breakpoints": true
     }
   ]
 }

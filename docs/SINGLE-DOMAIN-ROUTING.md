@@ -1,7 +1,10 @@
 # 設計案: 単一ドメイン + パス分割ルーティング
 
-> ステータス: **アプリ/設定コードは実装済み (2026-07-07)**。残るは Cloudflare 側の
-> DNS/route 反映と本番検証 (このリポジトリ内では完結しない)。
+> ステータス: **2026-10-03 時点で歴史的な設計案。現行構成の説明としては使用しないこと。**
+> 2026-10-03 のアーキテクチャ再調査で、ここに記載した複数 Worker/サブドメイン構成は
+> 現在の monorepo・Workers Static Assets 構成と一致しないことを確認した。現行構成と
+> 運用方針は [ARCHITECTURE.md](./ARCHITECTURE.md) と [OPERATIONS.md](./OPERATIONS.md) を参照。
+> 以下は変更の経緯を追うために保存した当時の提案である。
 > 現行のサブドメイン構成 (`staff.` / `admin.` / `api.fesflow.shikosai.net`) を、
 > **1ドメイン `fesflow.shikosai.net` のパス分割**へ作り直した。
 >

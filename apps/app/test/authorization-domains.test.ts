@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   ROLE_PERMISSIONS,
   ROLES,
+  effectiveCircleRole,
   hasRolePermission,
   permissionsForRole,
 } from "../../../packages/config/src/authorization";
@@ -25,6 +26,12 @@ describe("shared authorization domains", () => {
         "member:read", "member:write", "member:delete", "coupon:read", "coupon:write",
       ],
       circle_manager: [
+        "circle:read", "circle:write", "menu:read", "menu:write", "menu:delete",
+        "order:read", "order:write", "staff:read", "staff:write", "staff:delete",
+        "stock:read", "stock:write", "sales:read", "member:read", "member:write",
+        "coupon:read", "coupon:write",
+      ],
+      circle_admin: [
         "circle:read", "circle:write", "menu:read", "menu:write", "menu:delete",
         "order:read", "order:write", "staff:read", "staff:write", "staff:delete",
         "stock:read", "stock:write", "sales:read", "member:read", "member:write",
@@ -77,5 +84,18 @@ describe("shared authorization domains", () => {
     expect(isUnauthorizedSessionError({})).toBe(false);
     expect(isUnauthorizedSessionError({ status: "401" } as unknown as { status?: number })).toBe(false);
     expect(isUnauthorizedSessionError(null)).toBe(false);
+  });
+});
+
+describe("effectiveCircleRole", () => {
+  test("OFF のとき circle_staff だけを circle_manager 相当にする", () => {
+    expect(effectiveCircleRole("circle_staff", false)).toBe("circle_manager");
+    expect(effectiveCircleRole("circle_staff", undefined)).toBe("circle_manager");
+    expect(effectiveCircleRole("circle_manager", false)).toBe("circle_manager");
+    expect(effectiveCircleRole("event_manager", false)).toBe("event_manager");
+  });
+
+  test("ON のときは実ロールのまま区別する", () => {
+    expect(effectiveCircleRole("circle_staff", true)).toBe("circle_staff");
   });
 });

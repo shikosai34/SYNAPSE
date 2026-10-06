@@ -470,7 +470,10 @@ function CouponsContent() {
 export default function CouponsPage() {
   return (
     <CircleAuthGuard>
-      <CouponsContent />
+      {/* 権限のないユーザーは API 403 の読み込み失敗ではなく、権限なし画面にする (2026-10-05) */}
+      <PermissionGuard permission="coupon:read" showDenied>
+        <CouponsContent />
+      </PermissionGuard>
     </CircleAuthGuard>
   );
 }

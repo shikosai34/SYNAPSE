@@ -5,7 +5,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Settings, Save, Upload, Loader2, Palette, CreditCard, Plus, X, Ticket, CalendarClock } from "lucide-react";
+import { Settings, Save, Upload, Loader2, Palette, CreditCard, Plus, X, Ticket, CalendarClock, Shield } from "lucide-react";
 import { ToggleSwitch } from "@/components/ui/ToggleSwitch";
 import { toast } from "sonner";
 import { resolveAssetUrl } from "@/lib/asset-url";
@@ -90,6 +90,25 @@ export function SettingsTab({ eventId, event }: SettingsTabProps) {
       queryClient.invalidateQueries({ queryKey: ["event", eventId] });
     },
     onError: (e: any) => toast.error(e?.message || "保存に失敗しました"),
+  });
+
+  // 高度な権限管理のトグル (2026-10-05)。OFF ではサークル所属の全員が管理者相当、
+  // ON でサークル管理者/スタッフの権限差を適用する。membership.role は変えないので戻せる。
+  const [advancedPermissions, setAdvancedPermissions] = useState(false);
+  useEffect(() => {
+    if (event) setAdvancedPermissions(!!event.advancedPermissions);
+  }, [event]);
+  const saveAdvancedPermissions = useMutation({
+    mutationFn: (enabled: boolean) => eventApi.setAdvancedPermissions(eventId, enabled),
+    onSuccess: () => {
+      toast.success("権限管理の設定を保存しました");
+      queryClient.invalidateQueries({ queryKey: ["event", eventId] });
+      queryClient.invalidateQueries({ queryKey: ["mySpaces"] });
+    },
+    onError: (e: any) => {
+      setAdvancedPermissions(!!event?.advancedPermissions);
+      toast.error(e?.message || "保存に失敗しました");
+    },
   });
 
   // 2026-07-16: 「基本情報・ロゴ」と「テーマカラー」は保存範囲が分かるよう別セクション・別ボタンに分離する
@@ -341,6 +360,30 @@ export function SettingsTab({ eventId, event }: SettingsTabProps) {
               onChange={(v) => { setLotteryEnabled(v); saveLottery.mutate(v); }}
               disabled={saveLottery.isPending}
               label="抽選機能"
+            />
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* 高度な権限管理 (2026-10-05) */}
+      <Card className="rounded-none bg-background shadow-none">
+        <CardContent className="pt-6">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-start gap-2 min-w-0">
+              <Shield className="h-4 w-4 mt-0.5 shrink-0" />
+              <div className="min-w-0">
+                <h3 className="text-xs font-bold uppercase tracking-wider">高度な権限管理</h3>
+                <p className="font-mono text-[11px] text-muted-foreground leading-[1.6] mt-0.5">
+                  OFF: サークルに所属する全員が管理者と同じ権限になります。
+                  ON: サークルの管理者とスタッフで権限を分けます(OFFに戻すと再び全員が同権限、ONに戻すと元のロール構成が復活します)。
+                </p>
+              </div>
+            </div>
+            <ToggleSwitch
+              checked={advancedPermissions}
+              onChange={(v) => { setAdvancedPermissions(v); saveAdvancedPermissions.mutate(v); }}
+              disabled={saveAdvancedPermissions.isPending}
+              label="高度な権限管理"
             />
           </div>
         </CardContent>

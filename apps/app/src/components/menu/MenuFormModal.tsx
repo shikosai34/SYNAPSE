@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { menuApi, toppingApi, type Menu } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { ImageUpload } from "@/components/image-upload";
@@ -51,6 +51,7 @@ export function MenuFormModal({ circleId, isOpen, onClose, menu }: MenuFormModal
     enabled: isOpen && !!circleId,
   });
 
+  const queryClient = useQueryClient();
   const {
     form, setForm, isEdit, isConfirmOpen, setIsConfirmOpen, isCreating, saveStatus,
     triggerAutoSave, saveNow, handleOverlayClose, handleSaveAndClose, handleDiscardAndClose,
@@ -144,14 +145,18 @@ export function MenuFormModal({ circleId, isOpen, onClose, menu }: MenuFormModal
         <ImageUpload
           label="メニュー画像"
           value={form.imagePath}
-          onChange={(path) => {
-            setForm((prev) => {
-              const next = { ...prev, imagePath: path };
-              // 画像パス変更時は blur を伴わないため即座に自動保存を発火
-              if (isEdit) saveNow(next);
-              return next;
-            });
-          }}
+          entityKey={menu?.id ? `menu:${menu.id}:image` : undefined}
+          // 2026-10-05 Issue #97: 画像だけを完了後に保存する。モーダルを閉じて saveNow が使えなくなっても
+          // アップロードマネージャが実行するため、画像が「no image」のまま残らない。
+          onCommit={
+            isEdit && menu
+              ? async (path) => {
+                  await menuApi.update(menu.id, { imagePath: path });
+                  queryClient.invalidateQueries({ queryKey: ["menus", circleId] });
+                }
+              : undefined
+          }
+          onChange={(path) => setForm((prev) => ({ ...prev, imagePath: path }))}
         />
 
         <FormField

@@ -88,7 +88,7 @@ export async function audit(
   c: Context<any>,
   entry: {
     actorEmail: string;
-    action: "elevate" | "impersonate_start" | "impersonate_stop" | "impersonated_write";
+    action: "elevate" | "impersonate_start" | "impersonate_stop" | "impersonated_write" | "system_setting_update";
     asRole?: string | null;
     eventId?: string | null;
     circleId?: string | null;

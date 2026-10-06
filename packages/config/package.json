@@ -16,10 +16,14 @@
 		"./cn": {
 			"default": "./src/cn.ts"
 		},
-		"./tsconfig.base.json": "./tsconfig.base.json"
+		"./tsconfig.base.json": "./tsconfig.base.json",
+		"./order-contract": {
+			"default": "./src/order-contract.ts"
+		}
 	},
 	"dependencies": {
 		"clsx": "^2.1.1",
-		"tailwind-merge": "^3.3.1"
+		"tailwind-merge": "^3.3.1",
+		"zod": "catalog:"
 	}
 }

@@ -7,6 +7,7 @@ import {
 import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
 import { ThemeProvider } from "./theme-provider";
 import { Toaster } from "./ui/sonner";
+import { UploadTray } from "./upload-tray";
 import { useState } from "react";
 import { handleApiErrorToast } from "@/lib/api-error";
 
@@ -43,6 +44,8 @@ export default function Providers({ children }: { children: React.ReactNode }) {
         <ReactQueryDevtools />
       </ThemeProvider>
       <Toaster />
+      {/* 2026-10-05 Issue #97: モーダルを閉じても続くアップロードの進行表示 */}
+      <UploadTray />
     </QueryClientProvider>
   );
 }

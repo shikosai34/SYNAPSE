@@ -7,6 +7,7 @@ import { eq, and, inArray, gt, isNull, lt } from "drizzle-orm";
 import { nanoid, customAlphabet } from "nanoid";
 import { ulid } from "ulidx";
 import { Context } from "hono";
+import { effectiveCircleRole } from "@fesflow/config";
 import { requireAuth } from "../middleware/auth";
 import type { AppEnv } from "../types";
 
@@ -43,6 +44,7 @@ const ROLES = [
   "super_admin",
   "event_manager",
   "circle_manager",
+  "circle_admin",
   "circle_staff",
 ] as const;
 
@@ -90,6 +92,23 @@ const ROLE_PERMISSIONS: Record<Role, string[]> = {
     "member:read",
     "member:write",
   ],
+  circle_admin: [
+    "circle:read",
+    "circle:write",
+    "menu:read",
+    "menu:write",
+    "menu:delete",
+    "order:read",
+    "order:write",
+    "staff:read",
+    "staff:write",
+    "staff:delete",
+    "stock:read",
+    "stock:write",
+    "sales:read",
+    "member:read",
+    "member:write",
+  ],
   circle_staff: [
     "circle:read",
     "menu:read",
@@ -106,6 +125,26 @@ function hasPermission(role: Role, permission: string): boolean {
   const permissions = ROLE_PERMISSIONS[role];
   if (!permissions) return false;
   return permissions.includes("*") || permissions.includes(permission);
+}
+
+// 対象がサークル唯一の有効な circle_manager か (2026-10-05)。
+// ロール変更/停止/除名で管理者が 0 人になると、そのサークルのメンバー管理ができなくなるため拒否する。
+async function isLastActiveCircleManager(
+  db: Context<AppEnv>["var"]["db"],
+  target: { id: string; circleId: string | null; role: string; isActive: boolean }
+): Promise<boolean> {
+  if (target.role !== "circle_manager" || !target.circleId || !target.isActive) return false;
+  const managers = await db
+    .select()
+    .from(membership)
+    .where(
+      and(
+        eq(membership.circleId, target.circleId),
+        eq(membership.role, "circle_manager"),
+        eq(membership.isActive, true)
+      )
+    );
+  return managers.every((m) => m.id === target.id);
 }
 
 // 管理者権限チェック（権限の序列チェック - 2026-07-04 SaaS対応）
@@ -208,7 +247,9 @@ async function checkMemberWritePermission(
     return null;
   }
 
-  // サークルマネージャーか確認
+  // サークルのメンバー管理はオーナー (実ロールが circle_manager) だけ (2026-10-05)。
+  // 高度な権限管理が OFF でも、circle_staff は実効ロール上 circle_manager 相当になるだけで、
+  // メンバーの追加/招待/ロール変更/停止/除名はここで実ロールを見て拒否する。
   const managerMemberships = await db
     .select()
     .from(membership)
@@ -225,10 +266,9 @@ async function checkMemberWritePermission(
     return { code: "FORBIDDEN" as const, error: "このサークルのメンバーを管理する権限がありません", status: 403 as const };
   }
 
-  // サークルマネージャーは一般スタッフ (circle_staff) のみ管理可能
-  if (targetCurrentRole === "circle_manager" || targetNewRole === "circle_manager") {
-    return { code: "FORBIDDEN" as const, error: "サークルマネージャー権限を操作する権限がありません", status: 403 as const };
-  }
+  // サークルマネージャー (オーナー) は他のメンバーを管理者に昇格/降格できる (2026-10-05, issue #99)。
+  // 以前は circle_manager が circle_manager 権限を扱えず、オーナーが権限を付与しようとすると
+  // 常に権限エラーになっていた。管理者不在の防止は isLastActiveCircleManager で別に守る。
 
   return null;
 }
@@ -310,6 +350,14 @@ membershipRoutes.get("/my", async (c) => {
           .where(and(inArray(event.id, eventIds), isNull(event.deletedAt)))
       : [];
 
+  // サークル所属の実効ロール判定用に、サークルの親イベントの権限モードも引く (2026-10-05)。
+  // membership.eventId が空のサークル所属でも circle.eventId から解決できるようにする。
+  const circleEventIds = [...new Set(circles.map((ci) => ci.eventId))];
+  const circleEvents =
+    circleEventIds.length > 0
+      ? await db.select().from(event).where(inArray(event.id, circleEventIds))
+      : [];
+
   const result = memberships
     // 参照先が論理削除済みのメンバーシップはスペース一覧に出さない
     // (circleId を持つなら生存サークル必須、eventId のみなら生存イベント必須)
@@ -318,11 +366,19 @@ membershipRoutes.get("/my", async (c) => {
       if (m.eventId) return events.some((e) => e.id === m.eventId);
       return true; // super_admin 等 (circle/event 紐付けなし) は常に残す
     })
-    .map((m) => ({
-      ...m,
-      circle: circles.find((c) => c.id === m.circleId),
-      event: events.find((e) => e.id === m.eventId),
-    }));
+    .map((m) => {
+      const ci = circles.find((c) => c.id === m.circleId);
+      const parentEvent = ci ? circleEvents.find((e) => e.id === ci.eventId) : undefined;
+      return {
+        ...m,
+        circle: ci,
+        event: events.find((e) => e.id === m.eventId),
+        // 画面の権限表示/ガード用。実際の可否は常にサーバーの hasPermission が決める。
+        // 高度な権限管理 OFF のイベントでは circle_staff が circle_manager 相当になる。
+        effectiveRole: ci ? effectiveCircleRole(m.role, parentEvent?.advancedPermissions) : m.role,
+        advancedPermissions: parentEvent?.advancedPermissions ?? false,
+      };
+    });
 
   return c.json(result);
 });
@@ -492,6 +548,9 @@ membershipRoutes.patch(
     const target = targets[0]!;
     const err = await checkMemberWritePermission(c, target.circleId, target.role, input.role, target.eventId);
     if (err) apiError(err.code, err.error, { status: err.status });
+    if (input.role !== "circle_manager" && (await isLastActiveCircleManager(db, target))) {
+      apiError("BAD_REQUEST", "最後の管理者のロールは変更できません");
+    }
 
     await db
       .update(membership)
@@ -513,6 +572,9 @@ membershipRoutes.patch("/:id/deactivate", async (c) => {
   const target = targets[0]!;
   const err = await checkMemberWritePermission(c, target.circleId, target.role, undefined, target.eventId);
   if (err) apiError(err.code, err.error, { status: err.status });
+  if (await isLastActiveCircleManager(db, target)) {
+    apiError("BAD_REQUEST", "最後の管理者は停止できません");
+  }
 
   await db
     .update(membership)
@@ -554,6 +616,10 @@ membershipRoutes.delete("/:id", async (c) => {
   const target = targets[0]!;
   const err = await checkMemberWritePermission(c, target.circleId, target.role, undefined, target.eventId);
   if (err) apiError(err.code, err.error, { status: err.status });
+
+  if (await isLastActiveCircleManager(db, target)) {
+    apiError("BAD_REQUEST", "最後の管理者は除名できません");
+  }
 
   await db.delete(membership).where(eq(membership.id, id));
 
@@ -621,7 +687,7 @@ membershipRoutes.post(
       }
 
       const spaceName = circleName || eventName || "新しいスペース";
-      const displayRole = input.role === "circle_manager" ? "管理者" : input.role === "circle_staff" ? "スタッフ" : input.role === "event_manager" ? "イベントマネージャー" : "メンバー";
+      const displayRole = input.role === "circle_manager" ? "オーナー" : input.role === "circle_admin" ? "管理者" : input.role === "circle_staff" ? "スタッフ" : input.role === "event_manager" ? "イベントマネージャー" : "メンバー";
 
       await db.insert(notification).values({
         id: ulid(),

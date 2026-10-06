@@ -6,6 +6,7 @@ import DashboardLayout from "@/components/DashboardLayout";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Building2 } from "lucide-react";
+import { loadCircleSalesOrders } from "@/features/event-dashboard/sales";
 
 // 切り出したタブコンポーネント
 import { CirclesTab } from "@/components/event/CirclesTab";
@@ -53,12 +54,11 @@ export default function EventDashboard() {
   } = useQuery({
     queryKey: ["circles", eventId],
     queryFn: () => circleApi.list(eventId!),
-    enabled: !!eventId,
+    // 2026-10-03: 表示していない管理タブの問い合わせを実行しない。
+    enabled: !!eventId && (activeTab === "circles" || activeTab === "sales"),
   });
 
-  // 全サークルの売上・注文情報の一括取得 (Promise.all)
-  // 注: 各サークルの注文取得は queryFn 内で try/catch 済み (1サークル分の失敗で全体を落とさない)。
-  // ここでの isError は Promise.all 自体が reject した場合 (通信断など) の保険。
+  // 2026-10-03: 注文全件は売上タブの表示時のみ取得し、失敗をゼロ売上として隠さない。
   const {
     data: allCirclesOrders,
     isLoading: ordersLoading,
@@ -66,22 +66,10 @@ export default function EventDashboard() {
     error: ordersErrorObj,
     refetch: refetchOrders,
   } = useQuery({
-    queryKey: ["allCirclesOrders", circles?.map((c) => c.id)],
-    queryFn: async () => {
-      if (!circles) return [];
-      return await Promise.all(
-        circles.map(async (cir) => {
-          try {
-            const oList = await orderApi.list(cir.id);
-            return { circleId: cir.id, circleName: cir.name, orders: oList };
-          } catch (e) {
-            console.error(e);
-            return { circleId: cir.id, circleName: cir.name, orders: [] };
-          }
-        })
-      );
-    },
-    enabled: !!circles && circles.length > 0,
+    queryKey: ["allCirclesOrders", eventId, circles?.map((c) => c.id)],
+    queryFn: () => loadCircleSalesOrders(circles ?? [], (circleId) => orderApi.list(circleId)),
+    enabled: activeTab === "sales" && !!eventId && !!circles,
+
   });
 
   // イベントスタッフ一覧取得
@@ -94,14 +82,14 @@ export default function EventDashboard() {
   } = useQuery({
     queryKey: ["eventStaff", eventId],
     queryFn: () => membershipApi.listByEvent(eventId!),
-    enabled: !!eventId,
+    enabled: !!eventId && activeTab === "staff",
   });
 
   // 招待中一覧取得
   const { data: invites } = useQuery({
     queryKey: ["invites", eventId],
     queryFn: () => membershipApi.listInvites(undefined, eventId!),
-    enabled: !!eventId,
+    enabled: !!eventId && activeTab === "staff",
   });
 
   if (!eventId) {
@@ -175,10 +163,10 @@ export default function EventDashboard() {
           {activeTab === "sales" && (
             <SalesTab
               allCirclesOrders={allCirclesOrders}
-              ordersLoading={ordersLoading}
-              ordersError={ordersError}
-              error={ordersErrorObj}
-              onRetry={() => refetchOrders()}
+              ordersLoading={circlesLoading || ordersLoading}
+              ordersError={circlesError || ordersError}
+              error={circlesErrorObj || ordersErrorObj}
+              onRetry={() => circlesError ? refetchCircles() : refetchOrders()}
             />
           )}
 

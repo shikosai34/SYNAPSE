@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { circleApi, orderApi, menuApi } from "@/lib/api";
-import { CircleAuthGuard, useAuth } from "@/hooks/useCircleAuth";
+import { CircleAuthGuard, PermissionGuard, useAuth } from "@/hooks/useCircleAuth";
 import DashboardLayout from "@/components/DashboardLayout";
 import { toast } from "sonner";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -214,7 +214,10 @@ function CircleExportContent() {
 export default function CircleExportPage() {
   return (
     <CircleAuthGuard>
-      <CircleExportContent />
+      {/* 権限のないユーザーは API 403 の読み込み失敗ではなく、権限なし画面にする (2026-10-05) */}
+      <PermissionGuard permission="sales:read" showDenied>
+        <CircleExportContent />
+      </PermissionGuard>
     </CircleAuthGuard>
   );
 }

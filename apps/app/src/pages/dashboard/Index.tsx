@@ -37,13 +37,14 @@ function DashboardContent() {
       title: "メニュー管理",
       description: "メニューとトッピングの追加・編集",
       href: "/circle/dashboard/menu",
-      permission: "menu:read" as const,
+      // 遷移先ページのガード (menu:write / stock:write) に合わせる。read だと開いて権限なしになる (2026-10-05)。
+      permission: "menu:write" as const,
     },
     {
       title: "在庫管理",
       description: "商品の在庫を管理し、注文時の残数を自動反映",
       href: "/circle/dashboard/stock",
-      permission: "stock:read" as const,
+      permission: "stock:write" as const,
     },
     {
       title: "売上管理",
@@ -75,12 +76,14 @@ function DashboardContent() {
       description: "注文モード・拡張機能・サークル情報の編集",
       href: "/circle/dashboard/circle",
       permission: "circle:read" as const,
+      ownerOnly: true,
     },
     {
       title: "メンバー管理",
       description: "メンバーの追加・権限設定",
       href: "/circle/dashboard/members",
       permission: "member:read" as const,
+      ownerOnly: true,
     },
     {
       title: "モバイルオーダーQR",
@@ -131,7 +134,7 @@ function DashboardContent() {
 
         <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
           {menuItems.map((item) => (
-            <PermissionGuard key={item.href} permission={item.permission}>
+            <PermissionGuard key={item.href} permission={item.permission} ownerOnly={"ownerOnly" in item}>
               <Link to={item.href}>
                 <Card className="cursor-pointer border-thick border-border rounded-none shadow-none hover:bg-primary hover:text-primary-foreground group h-full transition-all">
                   <CardHeader className="p-4 pb-2">

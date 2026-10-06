@@ -10,7 +10,7 @@ import {
   PERMISSION_NAMES,
   type RoleType,
 } from "@/hooks/useCircleAuth";
-import { membershipApi, type Role } from "@/lib/api";
+import { circleApi, membershipApi, parseCircleSettings, type Role } from "@/lib/api";
 import DashboardLayout from "@/components/DashboardLayout";
 import {
   Card,
@@ -49,7 +49,20 @@ function MembersContent() {
   // 2026-07-16: circleName も circleId 同様、localStorage(circleAuth) を mount 時に
   // 一度だけ読む独自 state だと、同一パス上でのスペース切り替え後に古いサークル名の
   // ままになる。useAuth() (authChange 購読) から直接取得するよう統一する。
-  const { circleId, role, userEmail, circleName: authCircleName } = useAuth();
+  const { circleId, role, userEmail, circleName: authCircleName, advancedPermissions } = useAuth();
+  // 高度な権限管理 OFF のイベントでは、サークル内は全員同権限なのでロールを選ばせない
+  // (circle_manager への昇格は API でも event_manager 限定のため、選ばせてもエラーになる)。
+  // イベント管理者は常にロールを調整できる (2026-10-05)。
+  // 「ロールと権限」の説明は、拡張機能「スタッフ管理」が OFF なら staff:* (名簿の閲覧/編集/削除) を
+  // 載せない。OFF ではスタッフ管理ページ自体が出ず、権限を持っていても使えないため (2026-10-05)。
+  // クエリキーは DashboardLayout と共通 (["circle", circleId]) なので追加リクエストにならない。
+  const { data: circleData } = useQuery({
+    queryKey: ["circle", circleId],
+    queryFn: () => circleApi.get(circleId!),
+    enabled: !!circleId,
+  });
+  const staffExtensionEnabled = parseCircleSettings(circleData?.settings).extensions.staff;
+  const canChooseRole = advancedPermissions !== false || role === ROLES.EVENT_MANAGER;
   const circleName = authCircleName ?? "サークルダッシュボード";
   const queryClient = useQueryClient();
   const [showAddForm, setShowAddForm] = useState(false);
@@ -216,7 +229,8 @@ function MembersContent() {
   const isLastManager = (m: any) => m.role === ROLES.CIRCLE_MANAGER && activeManagerCount <= 1;
 
   // ロールを変更できる対象か (サークルレベルのロールのみ。イベント/システムロールは読み取り専用表示)。
-  const MANAGEABLE_ROLES: Role[] = [ROLES.CIRCLE_MANAGER, ROLES.CIRCLE_STAFF];
+  // 表示順はオーナー → 管理者 → 一般スタッフ。管理者 (circle_admin) の付与はここで行う (2026-10-05)。
+  const MANAGEABLE_ROLES: Role[] = [ROLES.CIRCLE_MANAGER, ROLES.CIRCLE_ADMIN, ROLES.CIRCLE_STAFF];
 
   // 除名 / 招待リンク削除は確認ダイアログの代わりに undo 付きトーストで実行する
   const handleRemoveMember = (member: any) =>
@@ -276,6 +290,8 @@ function MembersContent() {
         return "error";
       case "circle_manager":
         return "active";
+      case "circle_admin":
+        return "default";
       case "circle_staff":
         return "warning";
       default:
@@ -290,7 +306,7 @@ function MembersContent() {
       type="circle"
       // 主要アクションは共通ヘッダー右側へ集約 (旧: children 内の二重見出し行) (2026-07-11)
       actions={
-        <PermissionGuard permission="member:write">
+        <PermissionGuard permission="member:write" ownerOnly>
           <Button
             onClick={() => setShowAddForm(true)}
             variant="outline"
@@ -336,6 +352,7 @@ function MembersContent() {
             value={newMember.userName}
             onChange={(e) => setNewMember({ ...newMember, userName: e.target.value })}
           />
+          {canChooseRole && (
           <FormSelect
             id="role"
             label="ロール"
@@ -344,7 +361,7 @@ function MembersContent() {
           >
             {Object.entries(ROLES)
               .filter(([, value]) =>
-                [ROLES.CIRCLE_MANAGER, ROLES.CIRCLE_STAFF].includes(value as any),
+                [ROLES.CIRCLE_MANAGER, ROLES.CIRCLE_ADMIN, ROLES.CIRCLE_STAFF].includes(value as any),
               )
               .map(([, value]) => (
                 <option key={value} value={value}>
@@ -352,6 +369,7 @@ function MembersContent() {
                 </option>
               ))}
           </FormSelect>
+          )}
         </div>
 
         <FormSubmitButton
@@ -373,6 +391,7 @@ function MembersContent() {
       >
         {/* 2026-09-27: イベント招待と同じ縦並び・項目順にして設定の見落としを防ぐ。 */}
         <div className="space-y-4">
+          {canChooseRole && (
           <FormSelect
             id="invite-role"
             label="招待するロール"
@@ -381,7 +400,7 @@ function MembersContent() {
           >
             {Object.entries(ROLES)
               .filter(([, value]) =>
-                [ROLES.CIRCLE_MANAGER, ROLES.CIRCLE_STAFF].includes(value as any),
+                [ROLES.CIRCLE_MANAGER, ROLES.CIRCLE_ADMIN, ROLES.CIRCLE_STAFF].includes(value as any),
               )
               .map(([, value]) => (
                 <option key={value} value={value}>
@@ -389,6 +408,7 @@ function MembersContent() {
                 </option>
               ))}
           </FormSelect>
+          )}
           <FormField
             id="target-email"
             label="メールアドレス (任意)"
@@ -487,7 +507,7 @@ function MembersContent() {
                         )}
                       </Button>
                     )}
-                    <PermissionGuard permission="member:write">
+                    <PermissionGuard permission="member:write" ownerOnly>
                       {expired ? (
                         <Button
                           size="sm"
@@ -511,7 +531,7 @@ function MembersContent() {
                         </Button>
                       )}
                     </PermissionGuard>
-                    <PermissionGuard permission="member:delete">
+                    <PermissionGuard permission="member:delete" ownerOnly>
                       <Button
                         size="sm"
                         variant="destructive"
@@ -584,14 +604,14 @@ function MembersContent() {
                     {/* ロール変更 (2026-07-15)。サークルロールのメンバーはインラインで昇格/降格できる。
                         イベント/システムロールは読み取り専用バッジのまま。最後の管理者は降格不可。 */}
                     <PermissionGuard
-                      permission="member:write"
+                      permission="member:write" ownerOnly
                       fallback={
                         <Badge variant={getRoleBadgeVariant(member.role)}>
                           {ROLE_NAMES[member.role as RoleType] || member.role}
                         </Badge>
                       }
                     >
-                      {MANAGEABLE_ROLES.includes(member.role as Role) ? (
+                      {canChooseRole && MANAGEABLE_ROLES.includes(member.role as Role) ? (
                         <select
                           value={member.role}
                           aria-label={`${member.userName} のロール`}
@@ -619,7 +639,7 @@ function MembersContent() {
                   <td className="p-3 text-right">
                     {/* アカウント停止/復帰 (2026-07-15)。停止すると権限が即無効化される。
                         最後のアクティブ管理者は停止不可 (ロックアウト防止)。 */}
-                    <PermissionGuard permission="member:write">
+                    <PermissionGuard permission="member:write" ownerOnly>
                       <Button
                         size="sm"
                         variant="ghost"
@@ -641,7 +661,7 @@ function MembersContent() {
                         )}
                       </Button>
                     </PermissionGuard>
-                    <PermissionGuard permission="member:delete">
+                    <PermissionGuard permission="member:delete" ownerOnly>
                       <Button
                         size="sm"
                         variant="ghost"
@@ -672,7 +692,7 @@ function MembersContent() {
         <CardContent>
           <div className="grid gap-4 md:grid-cols-2">
             {rolesData &&
-              rolesData.filter((roleInfo) => roleInfo.role === "circle_manager" || roleInfo.role === "circle_staff").map((roleInfo) => (
+              rolesData.filter((roleInfo) => roleInfo.role === "circle_manager" || roleInfo.role === "circle_admin" || roleInfo.role === "circle_staff").map((roleInfo) => (
                 <div
                   key={roleInfo.role}
                   className="p-4 border-thick border-border space-y-2"
@@ -683,7 +703,9 @@ function MembersContent() {
                     </Badge>
                   </div>
                   <p className="text-sm text-muted-foreground leading-relaxed">
-                    権限: {roleInfo.permissions.map(p => PERMISSION_NAMES[p] || p).join("、 ") || "なし"}
+                    権限: {roleInfo.permissions
+                      .filter((p) => staffExtensionEnabled || !p.startsWith("staff:"))
+                      .map(p => PERMISSION_NAMES[p] || p).join("、 ") || "なし"}
                   </p>
                 </div>
               ))}
@@ -698,8 +720,10 @@ function MembersContent() {
 export default function MembersPage() {
   return (
     <CircleAuthGuard>
+      {/* メンバー一覧/招待の取得 API はオーナー限定のため、一般スタッフには画面ごと出さない (2026-10-05) */}
       <PermissionGuard
         permission="member:read"
+        ownerOnly
         fallback={
           <div className="container mx-auto p-6">
             <Card>

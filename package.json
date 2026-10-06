@@ -8,7 +8,7 @@
       "packages/*"
     ],
     "catalog": {
-      "hono": "^4.8.2",
+      "hono": "^4.13.12",
       "better-auth": "^1.4.5",
       "zod": "^4.1.13",
       "dotenv": "^17.2.2",
@@ -30,7 +30,9 @@
     "db:migrate:local": "turbo -F api db:migrate:local",
     "db:migrate:remote": "turbo -F api db:migrate:remote",
     "setup:env": "sh scripts/setup-local-dev.sh --env-only",
-    "setup:local": "sh scripts/setup-local-dev.sh"
+    "setup:local": "sh scripts/setup-local-dev.sh",
+    "audit:dependencies": "bun scripts/audit-dependencies.ts",
+    "test:tooling": "bun test scripts/test"
   },
   "dependencies": {
     "zod": "^4.1.13"
@@ -39,5 +41,16 @@
     "turbo": "^2.5.4",
     "@types/node": "^22.13.11"
   },
-  "packageManager": "bun@1.3.13"
+  "packageManager": "bun@1.3.13",
+  "overrides": {
+    "dompurify": "3.4.16",
+    "source-map-js": "1.2.2",
+    "postcss": "8.5.28",
+    "sharp": "0.35.4",
+    "browserslist": "4.29.3",
+    "baseline-browser-mapping": "2.11.27",
+    "next": "16.3.8",
+    "undici": "7.30.0",
+    "esbuild": "0.25.12"
+  }
 }
