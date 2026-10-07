@@ -22,7 +22,7 @@ interface ToppingFormModalProps {
 
 // 売り切れフラグを保持 (2026-07-15)。メニュー同様、在庫数はトッピング編集では扱わず
 // 在庫管理から操作する。ここで持つのは売切かどうかだけ。
-type ToppingForm = { name: string; price: number; imagePath: string; description: string; soldOut: boolean };
+type ToppingForm = { name: string; category: string; price: number; imagePath: string; description: string; soldOut: boolean };
 
 export function ToppingFormModal({ circleId, isOpen, onClose, topping }: ToppingFormModalProps) {
   // 在庫管理拡張ONのサークルでは、売切はトッピング編集から変更不可 (在庫で自動制御)。
@@ -40,9 +40,10 @@ export function ToppingFormModal({ circleId, isOpen, onClose, topping }: Topping
   } = useEntityForm<ToppingForm, Topping>({
     isOpen,
     entity: topping,
-    emptyForm: { name: "", price: 0, imagePath: "", description: "", soldOut: false },
+    emptyForm: { name: "", category: "", price: 0, imagePath: "", description: "", soldOut: false },
     toForm: (t) => ({
       name: t.name,
+      category: t.category || "",
       price: t.price,
       imagePath: t.imagePath || "",
       description: t.description || "",
@@ -55,6 +56,7 @@ export function ToppingFormModal({ circleId, isOpen, onClose, topping }: Topping
       toppingApi.create({
         circleId,
         name: data.name,
+        category: data.category.trim(),
         price: data.price,
         imagePath: data.imagePath || undefined,
         description: data.description || undefined,
@@ -63,8 +65,10 @@ export function ToppingFormModal({ circleId, isOpen, onClose, topping }: Topping
     update: (t, data) =>
       toppingApi.update(t.id, {
         name: data.name,
+        category: data.category.trim(),
         price: data.price,
-        imagePath: data.imagePath || undefined,
+        // 2026-10-07 Issue #48: 空文字は画像削除の明示値として PUT に渡す。
+        imagePath: data.imagePath,
         description: data.description || null,
         soldOut: data.soldOut,
       }),
@@ -109,6 +113,19 @@ export function ToppingFormModal({ circleId, isOpen, onClose, topping }: Topping
             }}
             onBlur={triggerAutoSave}
           />
+        </div>
+
+        <div>
+          <FormField
+            id="toppingCategory"
+            label="トッピングカテゴリ"
+            maxLength={100}
+            value={form.category}
+            onChange={(e) => setForm({ ...form, category: e.target.value })}
+            onBlur={triggerAutoSave}
+            placeholder="例: サイズ / ソース"
+          />
+          <p className="mt-1 text-[10px] text-muted-foreground">同じ名前を入力すると選択ウィザードで同じステップにまとまります。</p>
         </div>
 
         <ImageUpload

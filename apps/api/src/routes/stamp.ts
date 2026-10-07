@@ -2,8 +2,8 @@ import { Hono } from "hono";
 import { zBody } from "../z-validator";
 import { apiError } from "../http-error";
 import { z } from "zod";
-import { userStamp, rewardRedemption } from "@fesflow/db";
-import { eq } from "drizzle-orm";
+import { userStamp, rewardRedemption, eventUser, wristband, event, circle, order } from "@fesflow/db";
+import { and, eq, isNull, ne, or } from "drizzle-orm";
 import { ulid } from "ulidx";
 import { getSession } from "../utils/auth";
 import type { AppEnv } from "../types";
@@ -15,6 +15,94 @@ const stampRoutes = new Hono<AppEnv>();
 // 本来はイベント/サークル単位で設定可能にすべきだが、スキーマ変更を伴うため
 // 今回はスコープ外とし、まずハードコードされたマジックナンバーを定数化するに留める (今後の課題)。
 const REQUIRED_STAMP_COUNT = 3;
+
+type StampRallyAreaSetting = {
+  id: string;
+  name: string;
+  requiredCount: number;
+  circleIds: string[];
+  rewardTitle: string;
+  rewardDescription: string;
+};
+
+function parseStampRallySettings(raw: string | null | undefined) {
+  try {
+    const value = JSON.parse(raw || "{}") as { enabled?: unknown; areas?: unknown };
+    const areas = Array.isArray(value.areas)
+      ? value.areas.filter((area): area is StampRallyAreaSetting =>
+          !!area && typeof area === "object" &&
+          typeof area.id === "string" && typeof area.name === "string" &&
+          Number.isInteger(area.requiredCount) && area.requiredCount > 0 &&
+          Array.isArray(area.circleIds) && area.circleIds.every((id: unknown) => typeof id === "string")
+        )
+      : [];
+    return { enabled: value.enabled === true, areas };
+  } catch {
+    return { enabled: false, areas: [] as StampRallyAreaSetting[] };
+  }
+}
+
+// 2026-10-07: 利用実績は来場者本人の完了注文をサークル単位に集約する。
+// 過去の注文受付時に発行された user_stamp はそのまま残しつつ、再購入や他イベントの
+// スタンプで進捗が二重計上されないよう、イベント設定の対象サークルだけを返す。
+stampRoutes.get("/visitor/:code", async (c) => {
+  const db = c.get("db");
+  const code = c.req.param("code");
+  const wristbands = await db
+    .select({ id: eventUser.id, eventId: eventUser.eventId })
+    .from(wristband)
+    .innerJoin(eventUser, eq(wristband.userId, eventUser.id))
+    .where(and(
+      eq(wristband.id, code),
+      or(eq(wristband.status, "active"), eq(wristband.status, "smartphone")),
+      eq(eventUser.status, "available"),
+    ));
+  const directUsers = wristbands.length === 0
+    ? await db.select({ id: eventUser.id, eventId: eventUser.eventId })
+        .from(eventUser).where(and(eq(eventUser.id, code), eq(eventUser.status, "available")))
+    : [];
+  const visitor = wristbands[0] ?? directUsers[0];
+  if (!visitor) return c.json({ enabled: false, areas: [], stampedCircleIds: [] });
+
+  const eventRows = await db.select({ stampRallySettings: event.stampRallySettings })
+    .from(event).where(eq(event.id, visitor.eventId));
+  const settings = parseStampRallySettings(eventRows[0]?.stampRallySettings);
+  if (!settings.enabled || settings.areas.length === 0) {
+    return c.json({ enabled: false, areas: [], stampedCircleIds: [] });
+  }
+
+  const circleIds = [...new Set(settings.areas.flatMap((area) => area.circleIds))];
+  const circles = circleIds.length > 0
+    ? await db.select({ id: circle.id, name: circle.name, iconImagePath: circle.iconImagePath })
+        .from(circle).where(and(
+          isNull(circle.deletedAt),
+          eq(circle.eventId, visitor.eventId),
+        ))
+    : [];
+  const configuredCircles = new Map(circles.filter((row) => circleIds.includes(row.id)).map((row) => [row.id, row]));
+  const completedOrders = circleIds.length > 0
+    ? await db.select({ circleId: order.circleId }).from(order).where(and(
+        eq(order.userId, visitor.id),
+        ne(order.status, "cancelled"),
+        or(eq(order.status, "completed"), eq(order.completed, true)),
+      ))
+    : [];
+  const stampedCircleIds = [...new Set(completedOrders.map((row) => row.circleId))]
+    .filter((id) => configuredCircles.has(id));
+  const stamped = new Set(stampedCircleIds);
+
+  return c.json({
+    enabled: true,
+    stampedCircleIds,
+    areas: settings.areas.map((area) => ({
+      ...area,
+      circles: area.circleIds.flatMap((id) => {
+        const row = configuredCircles.get(id);
+        return row ? [{ ...row, stamped: stamped.has(id) }] : [];
+      }),
+    })),
+  });
+});
 
 // ユーザーのスタンプ取得
 // 2026-07-05: フロント(apps/register, apps/visitor)を grep した結果、現時点では

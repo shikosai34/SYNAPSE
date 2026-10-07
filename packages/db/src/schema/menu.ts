@@ -20,6 +20,8 @@ export const menu = sqliteTable(
       .notNull()
       .references(() => circle.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
+    // 2026-10-07 Issue #112: 一覧をカテゴリ単位で絞り込めるよう、空文字を未分類として保持する。
+    category: text("category").default("").notNull(),
     price: integer("price").notNull(),
     imagePath: text("image_path").notNull(),
     description: text("description"),
@@ -36,6 +38,11 @@ export const menu = sqliteTable(
     // 参照系のクエリが増えるだけで恩恵が薄い。書き込みはメニュー編集時のみで低頻度。
     // アプリ側で JSON.parse に失敗した場合は空配列にフォールバックする前提。
     defaultToppingIds: text("default_topping_ids").default("[]").notNull(),
+    // 2026-10-07 Issue #111: 選択順とカテゴリごとの最低数を商品設定にまとめ、画面間で共通化する。
+    toppingWizardEnabled: integer("topping_wizard_enabled", { mode: "boolean" })
+      .default(false)
+      .notNull(),
+    toppingCategoryMinimums: text("topping_category_minimums").default("{}").notNull(),
     createdAt: integer("created_at", { mode: "timestamp_ms" })
       .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
       .notNull(),
@@ -56,6 +63,8 @@ export const topping = sqliteTable(
       .notNull()
       .references(() => circle.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
+    // 2026-10-07 Issue #111: トッピングのカテゴリは自由入力で追加できる分類名として扱う。
+    category: text("category").default("").notNull(),
     price: integer("price").notNull(),
     description: text("description"),
     imagePath: text("image_path"),

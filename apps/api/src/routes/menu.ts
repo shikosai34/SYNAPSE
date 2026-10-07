@@ -97,6 +97,7 @@ menuRoutes.post(
     z.object({
       circleId: z.string(),
       name: z.string().min(1, "メニュー名は必須です"),
+      category: z.string().max(100).optional(),
       // 価格は負値も許可 (割引メニュー等を表現するため。2026-07-07 に min(0) を撤廃)。
       price: z.number(),
       description: z.string().optional(),
@@ -110,6 +111,8 @@ menuRoutes.post(
       toppingIds: z.array(z.string()).optional(),
       // 既定トッピング (レジで自動適用)
       defaultToppingIds: z.array(z.string()).optional(),
+      toppingWizardEnabled: z.boolean().optional(),
+      toppingCategoryMinimums: z.record(z.string(), z.number().int().min(0).max(20)).optional(),
     })
   ),
   async (c) => {
@@ -126,6 +129,7 @@ menuRoutes.post(
       id,
       circleId: input.circleId,
       name: input.name,
+      category: input.category?.trim() ?? "",
       price: input.price,
       description: input.description,
       // image_path は NOT NULL のため未指定時は空文字を入れる (フロントは空=画像なし扱い)
@@ -137,6 +141,8 @@ menuRoutes.post(
         ? true
         : input.soldOut ?? false,
       defaultToppingIds: JSON.stringify(input.defaultToppingIds ?? []),
+      toppingWizardEnabled: input.toppingWizardEnabled ?? false,
+      toppingCategoryMinimums: JSON.stringify(input.toppingCategoryMinimums ?? {}),
     });
 
     // トッピングを関連付け
@@ -160,6 +166,7 @@ menuRoutes.put(
   zBody(
     z.object({
       name: z.string().min(1).optional(),
+      category: z.string().max(100).optional(),
       price: z.number().optional(), // 負値許可 (割引メニュー)
       description: z.string().optional(),
       imagePath: z.string().optional(),
@@ -169,6 +176,8 @@ menuRoutes.put(
       soldOut: z.boolean().optional(),
       toppingIds: z.array(z.string()).optional(),
       defaultToppingIds: z.array(z.string()).optional(),
+      toppingWizardEnabled: z.boolean().optional(),
+      toppingCategoryMinimums: z.record(z.string(), z.number().int().min(0).max(20)).optional(),
     })
   ),
   async (c) => {
@@ -187,6 +196,7 @@ menuRoutes.put(
     const updates: Partial<typeof menu.$inferSelect> = {};
 
     if (input.name !== undefined) updates.name = input.name;
+    if (input.category !== undefined) updates.category = input.category.trim();
     if (input.price !== undefined) updates.price = input.price;
     if (input.description !== undefined)
       updates.description = input.description;
@@ -200,6 +210,10 @@ menuRoutes.put(
     if (input.soldOut !== undefined) updates.soldOut = input.soldOut;
     if (input.defaultToppingIds !== undefined)
       updates.defaultToppingIds = JSON.stringify(input.defaultToppingIds);
+    if (input.toppingWizardEnabled !== undefined)
+      updates.toppingWizardEnabled = input.toppingWizardEnabled;
+    if (input.toppingCategoryMinimums !== undefined)
+      updates.toppingCategoryMinimums = JSON.stringify(input.toppingCategoryMinimums);
 
     // 2026-09-27: ON商品は残数0なら必ず売切だが、残数がある場合は運営者の手動売切を
     // 尊重する。管理開始や在庫補充時だけ在庫起因の売切を解除し、説明編集では状態を変えない。

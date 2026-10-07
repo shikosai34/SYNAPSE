@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { eventApi, circleApi } from "@/lib/api";
+import { eventApi, circleApi, activeWaitTimeReport } from "@/lib/api";
 import { useVisitor } from "@/hooks/useVisitor";
 import { EventTheme } from "@/components/EventTheme";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -90,6 +90,8 @@ function EventMenuContent({
   } = useQuery({
     queryKey: ["circles", eventId],
     queryFn: () => circleApi.list(eventId),
+    // 2026-10-07 (#9): 表示したまま30分経過した報告も未報告へ更新する。
+    refetchInterval: 60_000,
   });
 
   const theme = useMemo(() => event ?? null, [event]);
@@ -197,6 +199,10 @@ function EventMenuContent({
                       {circle.description}
                     </div>
                   )}
+                  {(() => {
+                    const report = activeWaitTimeReport(circle.settings);
+                    return <div className="mt-1 text-[10px] font-bold">待ち時間: {report ? `約${report.minutes}分（${report.minutesAgo}分前）` : "未報告"}</div>;
+                  })()}
                   <div className="mt-1 inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-wider">
                     メニューを見る
                     <ArrowRight className="h-3 w-3 transition-transform group-hover:translate-x-1" />

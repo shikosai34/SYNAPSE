@@ -1,0 +1,1 @@
+ALTER TABLE `event` ADD `stamp_rally_settings` text DEFAULT '{}' NOT NULL;

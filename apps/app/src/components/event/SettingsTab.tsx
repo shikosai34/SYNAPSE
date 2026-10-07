@@ -9,6 +9,7 @@ import { Settings, Save, Upload, Loader2, Palette, CreditCard, Plus, X, Ticket, 
 import { ToggleSwitch } from "@/components/ui/ToggleSwitch";
 import { toast } from "sonner";
 import { resolveAssetUrl } from "@/lib/asset-url";
+import { StampRallySettingsCard } from "@/components/event/StampRallySettingsCard";
 
 // 開催状態の選択肢 (主催者が切り替えられるのは upcoming/live/ended。archived は保持期間としてシステム側概念)。
 const LIFECYCLE_OPTIONS: { value: EventLifecycleStatus; label: string; desc: string }[] = [
@@ -364,6 +365,9 @@ export function SettingsTab({ eventId, event }: SettingsTabProps) {
           </div>
         </CardContent>
       </Card>
+
+      {/* 店舗利用スタンプラリー (2026-10-07)。景品条件は論理エリアごとに設定する。 */}
+      <StampRallySettingsCard eventId={eventId} event={event} />
 
       {/* 高度な権限管理 (2026-10-05) */}
       <Card className="rounded-none bg-background shadow-none">

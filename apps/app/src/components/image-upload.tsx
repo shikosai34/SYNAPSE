@@ -38,6 +38,8 @@ export function ImageUpload({
   const [error, setError] = useState<string | null>(null);
   const [dragActive, setDragActive] = useState(false);
   const [jobId, setJobId] = useState<string | null>(null);
+  const [isCommittingPath, setIsCommittingPath] = useState(false);
+  const [pathDirty, setPathDirty] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
@@ -105,10 +107,40 @@ export function ImageUpload({
     }
   };
 
-  const handleRemove = () => {
+  const handleRemove = async () => {
+    const previousValue = value;
+    setError(null);
     onChange("");
+    setPathDirty(false);
     if (inputRef.current) {
       inputRef.current.value = "";
+    }
+    if (!onCommit) return;
+
+    setIsCommittingPath(true);
+    try {
+      // 2026-10-07 Issue #48: 編集フォームの削除は blur を発生させないため、空文字も明示保存する。
+      await onCommit("");
+    } catch {
+      onChange(previousValue);
+      setError("画像の削除に失敗しました");
+    } finally {
+      setIsCommittingPath(false);
+    }
+  };
+
+  const commitPath = async (path: string) => {
+    if (!onCommit || !pathDirty) return;
+    setError(null);
+    setIsCommittingPath(true);
+    try {
+      // 2026-10-07 Issue #48: URL直接入力も編集フォームでは blur 時に永続化する。
+      await onCommit(path);
+      setPathDirty(false);
+    } catch {
+      setError("画像の保存に失敗しました");
+    } finally {
+      setIsCommittingPath(false);
     }
   };
 
@@ -130,7 +162,8 @@ export function ImageUpload({
             variant="destructive"
             size="icon"
             className="absolute top-2 right-2"
-            onClick={handleRemove}
+            onClick={() => void handleRemove()}
+            disabled={isCommittingPath}
             aria-label="画像を削除"
           >
             <X className="h-4 w-4" />
@@ -197,7 +230,11 @@ export function ImageUpload({
         <Input
           placeholder="画像URLを直接入力"
           value={value}
-          onChange={(e) => onChange(e.target.value)}
+          onChange={(e) => {
+            setPathDirty(true);
+            onChange(e.target.value);
+          }}
+          onBlur={(e) => void commitPath(e.currentTarget.value)}
           className="h-8 text-xs"
         />
       </div>

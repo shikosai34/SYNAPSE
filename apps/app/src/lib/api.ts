@@ -112,6 +112,9 @@ export const eventApi = {
   // 抽選機能の有効化トグル (event_manager event:write 権限)。
   setLotteryEnabled: (id: string, enabled: boolean) =>
     fetchApi<{ success: boolean }>(`/api/festivals/${id}/lottery-enabled`, { method: "PUT", body: { enabled } }),
+  // エリア単位のスタンプラリー設定 (event_manager event:write 権限)。
+  setStampRallySettings: (id: string, settings: StampRallySettings) =>
+    fetchApi<{ success: boolean }>(`/api/festivals/${id}/stamp-rally-settings`, { method: "PUT", body: { settings } }),
   setAdvancedPermissions: (id: string, enabled: boolean) =>
     fetchApi<{ success: boolean }>(`/api/festivals/${id}/advanced-permissions`, { method: "PUT", body: { enabled } }),
   // 開催ライフサイクル状態の変更 (event_manager event:write 権限)。
@@ -176,6 +179,12 @@ export const circleApi = {
       method: "PATCH",
       body: { settings },
     }),
+  // 2026-10-07 (#9): POSスタッフの手動報告は専用エンドポイントで追記し、他の設定と競合させない。
+  reportWaitTime: (id: string, waitMinutes: number) =>
+    fetchApi<{ success: boolean; waitTimeReport: { minutes: number; reportedAt: string } }>(
+      `/api/circles/${id}/wait-time`,
+      { method: "PATCH", body: { waitMinutes } },
+    ),
   transferOwner: (id: string, membershipId: string) =>
     fetchApi<{ success: boolean }>(`/api/circles/${id}/transfer-owner`, {
       method: "POST",
@@ -504,6 +513,8 @@ export interface Event extends EventTheme {
   paymentMethods?: string;
   // 抽選機能(イベント単位)の有効化フラグ (2026-07-12)。
   lotteryEnabled?: boolean;
+  // イベント別スタンプラリー設定 (JSON文字列)。
+  stampRallySettings?: string;
   // 高度な権限管理 (2026-10-05)。OFF ではサークル所属の全員が circle_manager 相当。
   advancedPermissions?: boolean;
   // 開催ライフサイクル状態 (2026-07-15): upcoming(開催前) / live(開催中) / ended(終了) / archived(保持)。
@@ -511,6 +522,35 @@ export interface Event extends EventTheme {
   startDate: Date | null;
   endDate: Date | null;
 }
+
+export interface StampRallyArea {
+  id: string;
+  name: string;
+  requiredCount: number;
+  circleIds: string[];
+  rewardTitle: string;
+  rewardDescription: string;
+}
+
+export interface StampRallySettings {
+  enabled: boolean;
+  areas: StampRallyArea[];
+}
+
+export interface VisitorStampRallyArea extends StampRallyArea {
+  circles: (Circle & { stamped: boolean })[];
+}
+
+export interface VisitorStampRally {
+  enabled: boolean;
+  stampedCircleIds: string[];
+  areas: VisitorStampRallyArea[];
+}
+
+export const stampRallyApi = {
+  visitor: (code: string) =>
+    fetchApi<VisitorStampRally>(`/api/stamps/visitor/${encodeURIComponent(code)}`),
+};
 
 export type EventLifecycleStatus = "upcoming" | "live" | "ended" | "archived";
 
@@ -679,6 +719,49 @@ export interface Circle {
   managerName?: string;
 }
 
+export interface WaitTimeReport {
+  minutes: number;
+  reportedAt: string;
+}
+
+// 2026-10-07 (#9): 本部と来場者は同じ30分の有効期限で最新報告を表示する。
+export function activeWaitTimeReport(raw?: string | null): (WaitTimeReport & { minutesAgo: number }) | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw)?.waitTimeReport as Partial<WaitTimeReport> | undefined;
+    if (!parsed || !Number.isInteger(parsed.minutes) || typeof parsed.reportedAt !== "string") return null;
+    const ageMs = Date.now() - Date.parse(parsed.reportedAt);
+    if (!Number.isFinite(ageMs) || ageMs < 0 || ageMs >= 30 * 60_000) return null;
+    return { minutes: parsed.minutes!, reportedAt: parsed.reportedAt, minutesAgo: Math.floor(ageMs / 60_000) };
+  } catch {
+    return null;
+  }
+}
+
+// 2026-10-07 (#9): 報告時系列は既存settings内の履歴を検証して、本部の推移表示に再利用する。
+export function recentWaitTimeReports(raw?: string | null, limit = 8): WaitTimeReport[] {
+  if (!raw || !Number.isInteger(limit) || limit < 1) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    const reports: unknown = parsed?.waitTimeReports;
+    if (!Array.isArray(reports)) return [];
+    return reports
+      .filter((report): report is WaitTimeReport =>
+        !!report &&
+        typeof report === "object" &&
+        Number.isInteger((report as WaitTimeReport).minutes) &&
+        (report as WaitTimeReport).minutes >= 0 &&
+        (report as WaitTimeReport).minutes <= 240 &&
+        typeof (report as WaitTimeReport).reportedAt === "string" &&
+        Number.isFinite(Date.parse((report as WaitTimeReport).reportedAt))
+      )
+      .sort((a, b) => Date.parse(a.reportedAt) - Date.parse(b.reportedAt))
+      .slice(-limit);
+  } catch {
+    return [];
+  }
+}
+
 // サークル運用設定 (circle.settings JSON のシェイプ)
 export type OrderFlowMode = "pending" | "preparing" | "completed";
 export interface CircleSettings {
@@ -727,6 +810,7 @@ export interface Menu {
   id: string;
   circleId: string;
   name: string;
+  category: string;
   price: number;
   description: string | null;
   imagePath: string | null;
@@ -735,12 +819,15 @@ export interface Menu {
   soldOut: boolean;
   /** 既定トッピングID配列を JSON 文字列で保持 (例: '["t1","t2"]') */
   defaultToppingIds?: string;
+  toppingWizardEnabled: boolean;
+  toppingCategoryMinimums: string;
 }
 
 export interface Topping {
   id: string;
   circleId: string;
   name: string;
+  category: string;
   price: number;
   description: string | null;
   imagePath: string | null;
@@ -914,6 +1001,7 @@ export interface UpdateCircleInput {
 export interface CreateMenuInput {
   circleId: string;
   name: string;
+  category?: string;
   price: number;
   description?: string;
   imagePath?: string;
@@ -925,10 +1013,13 @@ export interface CreateMenuInput {
   soldOut?: boolean;
   toppingIds?: string[];
   defaultToppingIds?: string[];
+  toppingWizardEnabled?: boolean;
+  toppingCategoryMinimums?: Record<string, number>;
 }
 
 export interface UpdateMenuInput {
   name?: string;
+  category?: string;
   price?: number;
   description?: string;
   imagePath?: string | null;
@@ -940,11 +1031,14 @@ export interface UpdateMenuInput {
   soldOut?: boolean;
   toppingIds?: string[];
   defaultToppingIds?: string[];
+  toppingWizardEnabled?: boolean;
+  toppingCategoryMinimums?: Record<string, number>;
 }
 
 export interface CreateToppingInput {
   circleId: string;
   name: string;
+  category?: string;
   price: number;
   description?: string;
   imagePath?: string;
@@ -954,6 +1048,7 @@ export interface CreateToppingInput {
 
 export interface UpdateToppingInput {
   name?: string;
+  category?: string;
   price?: number;
   description?: string | null;
   imagePath?: string | null;
@@ -1203,12 +1298,18 @@ export interface PreOrderWithDetails {
   totalPrice: number;
   status: string;
   createdAt: string;
+  // 2026-10-07 Issue #49: updated_atをミリ秒CAS tokenとしてautosaveとclaimで共有する。
+  draftVersion?: number;
+  // 2026-10-07 Issue #49: 自動保存したカートを開き直したとき、適用済みクーポンを復元する。
+  couponSlugs?: string[];
   items: PreOrderItemDetail[];
 }
 
 export interface CreatePreOrderInput {
   userId: string;
   circleId: string;
+  draftId: string;
+  expectedUpdatedAt: number | null;
   items: Array<{
     menuId: string;
     quantity: number;
@@ -1298,7 +1399,7 @@ export const couponApi = {
 
 export const preOrderApi = {
   create: (data: CreatePreOrderInput) =>
-    fetchApi<{ success: boolean; id: string; totalPrice: number }>("/api/pre-orders", {
+    fetchApi<{ success?: boolean; id: string; totalPrice: number; updatedAt: number; deleted?: boolean }>("/api/pre-orders", {
       method: "POST",
       body: data,
     }),

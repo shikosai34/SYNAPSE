@@ -173,6 +173,7 @@ function StockManagementContent() {
   // 集計サマリ
   const summary = useMemo(() => {
     const list = menus ?? [];
+    const toppingList = toppings ?? [];
     let units = 0;
     let value = 0;
     let soldOut = 0;
@@ -185,8 +186,22 @@ function StockManagementContent() {
       if (m.soldOut) soldOut += 1;
       else if (q <= lowThreshold) low += 1;
     }
-    return { total: list.filter((m) => m.inventoryEnabled).length, units, value, soldOut, low };
-  }, [menus, lowThreshold]);
+    // 2026-10-07 Issue #98: トッピングも在庫管理対象としてメニューと同じ警告集計に含める。
+    for (const t of toppingList) {
+      const q = t.stockQuantity ?? 0;
+      units += q;
+      value += q * t.price;
+      if (t.soldOut) soldOut += 1;
+      else if (q <= lowThreshold) low += 1;
+    }
+    return {
+      total: list.filter((m) => m.inventoryEnabled).length + toppingList.length,
+      units,
+      value,
+      soldOut,
+      low,
+    };
+  }, [menus, toppings, lowThreshold]);
 
   // 並べ替え(売切→僅少→通常, 同レベルは名前順) + 検索/要対応フィルタ
   const shown = useMemo(() => {
@@ -201,6 +216,21 @@ function StockManagementContent() {
     const rank = (m: Menu) => !m.inventoryEnabled ? 3 : m.soldOut ? 0 : (m.stockQuantity ?? 0) <= lowThreshold ? 1 : 2;
     return [...list].sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name, "ja"));
   }, [menus, search, onlyIssues, lowThreshold]);
+
+  // 2026-10-07 Issue #98: 要対応フィルタと並び順をトッピングにも適用して警告品を見つけやすくする。
+  const shownToppings = useMemo(() => {
+    let list = toppings ?? [];
+    if (search.trim()) {
+      const q = search.trim().toLowerCase();
+      list = list.filter((t) => t.name.toLowerCase().includes(q));
+    }
+    if (onlyIssues) {
+      list = list.filter((t) => t.soldOut || (t.stockQuantity ?? 0) <= lowThreshold);
+    }
+    const rank = (t: Topping) =>
+      t.soldOut ? 0 : (t.stockQuantity ?? 0) <= lowThreshold ? 1 : 2;
+    return [...list].sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name, "ja"));
+  }, [toppings, search, onlyIssues, lowThreshold]);
 
   if (isLoading) {
     return (
@@ -244,7 +274,7 @@ function StockManagementContent() {
           <div className="relative flex-1">
             <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
             <Input
-              placeholder="メニュー名で検索..."
+              placeholder="メニュー・トッピング名で検索..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="pl-8 border-thick border-border rounded-none h-9 text-xs bg-background focus-visible:ring-0"
@@ -403,15 +433,17 @@ function StockManagementContent() {
             </CardHeader>
             <CardContent className="p-0">
               <div className="divide-y divide-border">
-                {[...toppings]
-                  .sort((a, b) => (a.soldOut === b.soldOut ? a.name.localeCompare(b.name, "ja") : a.soldOut ? -1 : 1))
+                {shownToppings
                   .map((t) => {
                     const q = t.stockQuantity ?? 0;
+                    const level = t.soldOut ? "out" : q <= lowThreshold ? "low" : "ok";
                     const pending = isToppingRowPending(t.id);
                     return (
                       <div
                         key={t.id}
-                        className={`flex flex-wrap items-center gap-3 p-3 text-xs ${t.soldOut ? "bg-error/5" : ""}`}
+                        className={`flex flex-wrap items-center gap-3 p-3 text-xs ${
+                          level === "out" ? "bg-error/5" : level === "low" ? "bg-warning/5" : ""
+                        }`}
                       >
                         <div className="relative h-11 w-11 overflow-hidden shrink-0 border-thick border-border">
                           {t.imagePath ? (
@@ -430,8 +462,10 @@ function StockManagementContent() {
                         </div>
 
                         <div className="shrink-0 w-16 text-right tabular-nums">
-                          {t.soldOut ? (
+                          {level === "out" ? (
                             <span className="text-error font-bold">売切</span>
+                          ) : level === "low" ? (
+                            <span className="text-warning font-bold flex items-center justify-end gap-1"><AlertTriangle className="h-3 w-3" />残{q}</span>
                           ) : (
                             <span className="text-muted-foreground">残{q}</span>
                           )}
