@@ -112,6 +112,9 @@ export const eventApi = {
   // 抽選機能の有効化トグル (event_manager event:write 権限)。
   setLotteryEnabled: (id: string, enabled: boolean) =>
     fetchApi<{ success: boolean }>(`/api/festivals/${id}/lottery-enabled`, { method: "PUT", body: { enabled } }),
+  // エリア単位のスタンプラリー設定 (event_manager event:write 権限)。
+  setStampRallySettings: (id: string, settings: StampRallySettings) =>
+    fetchApi<{ success: boolean }>(`/api/festivals/${id}/stamp-rally-settings`, { method: "PUT", body: { settings } }),
   setAdvancedPermissions: (id: string, enabled: boolean) =>
     fetchApi<{ success: boolean }>(`/api/festivals/${id}/advanced-permissions`, { method: "PUT", body: { enabled } }),
   // 開催ライフサイクル状態の変更 (event_manager event:write 権限)。
@@ -504,6 +507,8 @@ export interface Event extends EventTheme {
   paymentMethods?: string;
   // 抽選機能(イベント単位)の有効化フラグ (2026-07-12)。
   lotteryEnabled?: boolean;
+  // イベント別スタンプラリー設定 (JSON文字列)。
+  stampRallySettings?: string;
   // 高度な権限管理 (2026-10-05)。OFF ではサークル所属の全員が circle_manager 相当。
   advancedPermissions?: boolean;
   // 開催ライフサイクル状態 (2026-07-15): upcoming(開催前) / live(開催中) / ended(終了) / archived(保持)。
@@ -511,6 +516,35 @@ export interface Event extends EventTheme {
   startDate: Date | null;
   endDate: Date | null;
 }
+
+export interface StampRallyArea {
+  id: string;
+  name: string;
+  requiredCount: number;
+  circleIds: string[];
+  rewardTitle: string;
+  rewardDescription: string;
+}
+
+export interface StampRallySettings {
+  enabled: boolean;
+  areas: StampRallyArea[];
+}
+
+export interface VisitorStampRallyArea extends StampRallyArea {
+  circles: (Circle & { stamped: boolean })[];
+}
+
+export interface VisitorStampRally {
+  enabled: boolean;
+  stampedCircleIds: string[];
+  areas: VisitorStampRallyArea[];
+}
+
+export const stampRallyApi = {
+  visitor: (code: string) =>
+    fetchApi<VisitorStampRally>(`/api/stamps/visitor/${encodeURIComponent(code)}`),
+};
 
 export type EventLifecycleStatus = "upcoming" | "live" | "ended" | "archived";
 

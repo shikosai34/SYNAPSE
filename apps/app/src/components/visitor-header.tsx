@@ -1,6 +1,6 @@
 import { Link, useLocation } from "react-router-dom";
 import { PRODUCT_NAME } from "@fesflow/config";
-import { QrCode, UtensilsCrossed, Receipt } from "lucide-react";
+import { QrCode, UtensilsCrossed, Receipt, Ticket } from "lucide-react";
 import { useVisitor } from "@/hooks/useVisitor";
 
 /**
@@ -17,6 +17,7 @@ export default function VisitorHeader() {
   const links = [
     { to: "/visitor/events", label: "メニュー", icon: UtensilsCrossed, match: ["/visitor/events", "/visitor/menu"] },
     { to: "/visitor/mypage", label: "マイQR", icon: QrCode, match: ["/visitor/mypage"] },
+    { to: "/visitor/stamps", label: "利用実績", icon: Ticket, match: ["/visitor/stamps"] },
     { to: "/visitor/orders", label: "注文履歴", icon: Receipt, match: ["/visitor/orders"] },
   ];
 

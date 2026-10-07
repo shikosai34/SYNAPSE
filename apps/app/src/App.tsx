@@ -50,6 +50,7 @@ const pageImports = {
 	Menu: () => import("@/pages/Menu"),
 	MyPage: () => import("@/pages/MyPage"),
 	Orders: () => import("@/pages/Orders"),
+	VisitorStampRally: () => import("@/pages/VisitorStampRally"),
 	VisitorReviews: () => import("@/pages/VisitorReviews"),
 	EventMenu: () => import("@/pages/EventMenu"),
 	CouponRedeem: () => import("@/pages/CouponRedeem"),
@@ -86,6 +87,7 @@ const StaffOnboarding = lazy(pageImports.StaffOnboarding);
 const Menu = lazy(pageImports.Menu);
 const MyPage = lazy(pageImports.MyPage);
 const Orders = lazy(pageImports.Orders);
+const VisitorStampRally = lazy(pageImports.VisitorStampRally);
 const VisitorReviews = lazy(pageImports.VisitorReviews);
 const EventMenu = lazy(pageImports.EventMenu);
 const CouponRedeem = lazy(pageImports.CouponRedeem);
@@ -204,6 +206,7 @@ export default function App() {
 					<Route element={<VisitorOnboardingGate />}>
 						<Route path="/visitor/mypage" element={<MyPage />} />
 						<Route path="/visitor/orders" element={<Orders />} />
+						<Route path="/visitor/stamps" element={<VisitorStampRally />} />
 						<Route path="/visitor/reviews" element={<VisitorReviews />} />
 					</Route>
 

@@ -176,6 +176,13 @@
       "when": 1791280020537,
       "tag": "0024_wandering_sprite",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "6",
+      "when": 1791359058167,
+      "tag": "0025_rainy_tarot",
+      "breakpoints": true
     }
   ]
 }
