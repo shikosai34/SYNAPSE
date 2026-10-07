@@ -27,6 +27,7 @@ import {
   redeemCouponWithGuard,
 } from "../utils/coupon";
 import type { AppEnv } from "../types";
+import { missingToppingCategoryMinimum } from "../utils/topping-wizard";
 
 const preOrderRoutes = new Hono<AppEnv>();
 
@@ -197,6 +198,15 @@ preOrderRoutes.post(
           if (!isLinked) {
             apiError("BAD_REQUEST", `トッピング ${t.name} はメニュー ${m.name} に紐付いていません`);
           }
+        }
+
+        const availableMenuToppings = toppings.filter((topping) =>
+          menuToppingLinks.some((link) => link.menuId === m.id && link.toppingId === topping.id)
+        );
+        const missingCategory = missingToppingCategoryMinimum(m, itemToppings, availableMenuToppings);
+        if (missingCategory) {
+          const label = missingCategory.category || "未分類";
+          apiError("BAD_REQUEST", `${m.name}: 「${label}」から最低${missingCategory.required}個選んでください`);
         }
 
         const toppingTotal = itemToppings.reduce((sum, t) => sum + t.price, 0);

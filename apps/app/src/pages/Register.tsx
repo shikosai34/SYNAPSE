@@ -25,6 +25,8 @@ import { resolveAssetUrl } from "@/lib/asset-url";
 import { addCartLine, updateCartQuantity, toggleCartTopping, lineSubtotal, cartTotal, cartCount, type CartLine, type CartTopping } from "@/features/orders/cart";
 import { useOrderSubmission } from "@/features/orders/use-order-submission";
 import type { CreateOrderInput } from "@fesflow/config/order-contract";
+import { ToppingSelection, parseToppingCategoryMinimums } from "@/components/menu/ToppingSelection";
+import { MenuCategoryFilter, menuCategoryKey } from "@/components/menu/MenuCategoryFilter";
 
 // カートは「行 (line)」単位。同じメニューでもトッピング構成が違えば別行として持てるように
 // menuId ではなく lineId をキーにする (トッピングあり/なしを同時注文したい要件のため)。
@@ -51,12 +53,16 @@ function MenuCard({
   };
 
   const [selected, setSelected] = useState<Set<string>>(defaultIds);
+  // 2026-10-07 Issue #111: トッピング未設定なら選択工程が存在しないため、追加を止めない。
+  const [selectionReady, setSelectionReady] = useState(!menu.toppingWizardEnabled || menu.toppings.length === 0);
+  const toppingMinimums = parseToppingCategoryMinimums(menu.toppingCategoryMinimums);
 
   // メニュー(既定トッピング)が変わったら選択状態を作り直す
   useEffect(() => {
     setSelected(defaultIds());
+    setSelectionReady(!menu.toppingWizardEnabled || menu.toppings.length === 0);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [menu.id, menu.defaultToppingIds]);
+  }, [menu.id, menu.defaultToppingIds, menu.toppingWizardEnabled]);
 
   const toggle = (id: string) =>
     setSelected((prev) => {
@@ -71,6 +77,7 @@ function MenuCard({
     .reduce((s, t) => s + t.price, 0);
 
   const handleAdd = () => {
+    if (!selectionReady) return;
     const chosen: CartTopping[] = availableToppings
       .filter((t) => selected.has(t.id))
       .map((t) => ({ toppingId: t.id, toppingName: t.name, toppingPrice: t.price }));
@@ -106,43 +113,24 @@ function MenuCard({
         {/* カート追加前のトッピング選択 (このメニューに紐づくトッピングのみ) */}
         {availableToppings.length > 0 && (
           <div className="space-y-1.5">
-            <p className="text-[10px] font-mono font-bold uppercase tracking-wider text-muted-foreground">
-              トッピング (追加前に選択)
-            </p>
-            <div className="flex flex-wrap gap-1">
-              {availableToppings.map((t) => {
-                const on = selected.has(t.id);
-                return (
-                  <button
-                    key={t.id}
-                    type="button"
-                    disabled={t.soldOut || menu.soldOut}
-                    onClick={() => toggle(t.id)}
-                    className={cn(
-                      "flex items-center gap-1 border-thin px-1.5 py-0.5 text-[10px] sm:text-xs font-bold rounded-none transition-all disabled:opacity-40 disabled:cursor-not-allowed",
-                      on
-                        ? "border-primary bg-primary text-primary-foreground"
-                        : "border-border bg-background hover:bg-muted"
-                    )}
-                  >
-                    {t.imagePath && (
-                      <img src={resolveAssetUrl(t.imagePath)} alt="" className="h-4 w-4 object-cover border-thin border-current shrink-0" />
-                    )}
-                    <span className="truncate max-w-[80px]">{t.name}</span>
-                    <span className={on ? "opacity-80" : "text-muted-foreground"}>
-                      {t.price >= 0 ? `+¥${t.price}` : `-¥${Math.abs(t.price)}`}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
+            <p className="text-[10px] font-mono font-bold uppercase tracking-wider text-muted-foreground">トッピング (追加前に選択)</p>
+            <ToppingSelection
+              menuId={menu.id}
+              toppings={availableToppings}
+              selected={selected}
+              onToggle={toggle}
+              wizardEnabled={menu.toppingWizardEnabled}
+              disabled={menu.soldOut}
+              minimums={toppingMinimums}
+              onReadyChange={setSelectionReady}
+            />
           </div>
         )}
 
         <Button
           className="w-full h-10 sm:h-11 border-thick border-border bg-primary text-primary-foreground font-mono text-xs sm:text-sm font-bold uppercase rounded-none hover:bg-background hover:text-foreground transition-all"
           onClick={handleAdd}
-          disabled={menu.soldOut}
+          disabled={menu.soldOut || !selectionReady}
         >
           <ShoppingCart className="mr-1 sm:mr-2 h-3 w-3 sm:h-4 sm:w-4" />
           追加{selectedExtra !== 0 && ` (¥${(menu.price + selectedExtra).toLocaleString()})`}
@@ -367,6 +355,8 @@ function RegisterPageContent() {
   const { circleId: authCircleId } = useAuth();
   const queryClient = useQueryClient();
   const circleId = authCircleId ?? "";
+  const [selectedMenuCategory, setSelectedMenuCategory] = useState<string | null>(null);
+  useEffect(() => setSelectedMenuCategory(null), [circleId]);
   const [cart, setCart] = useState<CartLine[]>([]);
   const [peopleCount, setPeopleCount] = useState(1);
   const [isQrModalOpen, setIsQrModalOpen] = useState(false);
@@ -834,8 +824,9 @@ function RegisterPageContent() {
           )}
 
           {/* メニューグリッド */}
+          <MenuCategoryFilter menus={menus ?? []} selectedCategory={selectedMenuCategory} onSelect={setSelectedMenuCategory} />
           <div className="grid gap-3 sm:gap-4 grid-cols-2 lg:grid-cols-3 xl:grid-cols-2 2xl:grid-cols-3">
-            {menus?.map((menu) => (
+            {menus?.filter((menu) => selectedMenuCategory === null || menuCategoryKey(menu.category) === selectedMenuCategory).map((menu) => (
               <MenuCard key={menu.id} menu={menu} onAdd={addLine} />
             ))}
           </div>

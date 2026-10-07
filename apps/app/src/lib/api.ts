@@ -810,6 +810,7 @@ export interface Menu {
   id: string;
   circleId: string;
   name: string;
+  category: string;
   price: number;
   description: string | null;
   imagePath: string | null;
@@ -818,12 +819,15 @@ export interface Menu {
   soldOut: boolean;
   /** 既定トッピングID配列を JSON 文字列で保持 (例: '["t1","t2"]') */
   defaultToppingIds?: string;
+  toppingWizardEnabled: boolean;
+  toppingCategoryMinimums: string;
 }
 
 export interface Topping {
   id: string;
   circleId: string;
   name: string;
+  category: string;
   price: number;
   description: string | null;
   imagePath: string | null;
@@ -997,6 +1001,7 @@ export interface UpdateCircleInput {
 export interface CreateMenuInput {
   circleId: string;
   name: string;
+  category?: string;
   price: number;
   description?: string;
   imagePath?: string;
@@ -1008,10 +1013,13 @@ export interface CreateMenuInput {
   soldOut?: boolean;
   toppingIds?: string[];
   defaultToppingIds?: string[];
+  toppingWizardEnabled?: boolean;
+  toppingCategoryMinimums?: Record<string, number>;
 }
 
 export interface UpdateMenuInput {
   name?: string;
+  category?: string;
   price?: number;
   description?: string;
   imagePath?: string | null;
@@ -1023,11 +1031,14 @@ export interface UpdateMenuInput {
   soldOut?: boolean;
   toppingIds?: string[];
   defaultToppingIds?: string[];
+  toppingWizardEnabled?: boolean;
+  toppingCategoryMinimums?: Record<string, number>;
 }
 
 export interface CreateToppingInput {
   circleId: string;
   name: string;
+  category?: string;
   price: number;
   description?: string;
   imagePath?: string;
@@ -1037,6 +1048,7 @@ export interface CreateToppingInput {
 
 export interface UpdateToppingInput {
   name?: string;
+  category?: string;
   price?: number;
   description?: string | null;
   imagePath?: string | null;

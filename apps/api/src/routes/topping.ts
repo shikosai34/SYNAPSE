@@ -57,6 +57,7 @@ toppingRoutes.post(
     z.object({
       circleId: z.string(),
       name: z.string().min(1, "トッピング名は必須です"),
+      category: z.string().max(100).optional(),
       // 価格は負値も許可 (割引トッピング等。2026-07-07 に min(0) を撤廃)。
       price: z.number(),
       description: z.string().optional(),
@@ -80,6 +81,7 @@ toppingRoutes.post(
       id,
       circleId: input.circleId,
       name: input.name,
+      category: input.category?.trim() ?? "",
       price: input.price,
       description: input.description,
       imagePath: input.imagePath ?? null,
@@ -97,6 +99,7 @@ toppingRoutes.put(
   zBody(
     z.object({
       name: z.string().min(1).optional(),
+      category: z.string().max(100).optional(),
       price: z.number().optional(), // 負値許可 (割引トッピング)
       description: z.string().optional(),
       imagePath: z.string().optional(),
@@ -125,6 +128,7 @@ toppingRoutes.put(
     const updates: Partial<typeof topping.$inferSelect> = {};
 
     if (input.name !== undefined) updates.name = input.name;
+    if (input.category !== undefined) updates.category = input.category.trim();
     if (input.price !== undefined) updates.price = input.price;
     if (input.description !== undefined)
       updates.description = input.description;

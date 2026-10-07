@@ -21,6 +21,7 @@ import { ulid } from "ulidx";
 import { hasPermission } from "../utils/auth";
 import { commitOrder, committedOrder, orderCommand } from "../services/order-commit";
 import { updateOrderStatus } from "../services/order-status";
+import { missingToppingCategoryMinimum } from "../utils/topping-wizard";
 import type { AppEnv } from "../types";
 
 const orderRoutes = new Hono<AppEnv>();
@@ -501,6 +502,15 @@ orderRoutes.post(
               apiError("BAD_REQUEST", `${t.name}の在庫が不足しています`);
             }
           }
+        }
+
+        const availableMenuToppings = toppings.filter((topping) =>
+          menuToppingLinks.some((link) => link.menuId === menuItem.id && link.toppingId === topping.id)
+        );
+        const missingCategory = missingToppingCategoryMinimum(menuItem, itemToppings, availableMenuToppings);
+        if (missingCategory) {
+          const label = missingCategory.category || "未分類";
+          apiError("BAD_REQUEST", `${menuItem.name}: 「${label}」から最低${missingCategory.required}個選んでください`);
         }
 
         // 2026-09-27: 在庫を商品単位の opt-in にする。ONなら数量0も在庫切れなので

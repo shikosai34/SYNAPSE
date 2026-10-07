@@ -29,6 +29,8 @@ import { resolveAssetUrl } from "@/lib/asset-url";
 import { addCartLine, updateCartQuantity, toggleCartTopping, lineSubtotal, cartTotal, cartCount, type CartLine, type CartTopping } from "@/features/orders/cart";
 import { useOrderSubmission } from "@/features/orders/use-order-submission";
 import type { CreateOrderInput } from "@fesflow/config/order-contract";
+import { ToppingSelection, parseToppingCategoryMinimums } from "@/components/menu/ToppingSelection";
+import { MenuCategoryFilter, menuCategoryKey } from "@/components/menu/MenuCategoryFilter";
 
 // 2026-07-13: 来場者モバイルオーダーもトッピング対応にするため、レジ (Register.tsx) と同じく
 // カートを「行 (line)」単位で持つ。同じメニューでもトッピング構成が違えば別行になる。
@@ -63,11 +65,15 @@ function VisitorMenuCard({
   };
 
   const [selected, setSelected] = useState<Set<string>>(defaultIds);
+  // 2026-10-07 Issue #111: トッピング未設定なら選択工程が存在しないため、追加を止めない。
+  const [selectionReady, setSelectionReady] = useState(!menu.toppingWizardEnabled || (menu.toppings ?? []).length === 0);
+  const toppingMinimums = parseToppingCategoryMinimums(menu.toppingCategoryMinimums);
 
   useEffect(() => {
     setSelected(defaultIds());
+    setSelectionReady(!menu.toppingWizardEnabled || (menu.toppings ?? []).length === 0);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [menu.id, menu.defaultToppingIds]);
+  }, [menu.id, menu.defaultToppingIds, menu.toppingWizardEnabled]);
 
   const toggle = (id: string) =>
     setSelected((prev) => {
@@ -96,6 +102,7 @@ function VisitorMenuCard({
     .reduce((s, t) => s + (freeToppingIds.has(t.id) ? 0 : t.price), 0);
 
   const handleAdd = () => {
+    if (!selectionReady) return;
     const chosen: CartTopping[] = availableToppings
       .filter((t) => selected.has(t.id))
       .map((t) => ({ toppingId: t.id, toppingName: t.name, toppingPrice: t.price }));
@@ -141,46 +148,18 @@ function VisitorMenuCard({
         {/* トッピング選択: ボタンを大きく・太枠にして選択状態がひと目で分かるようにする */}
         {availableToppings.length > 0 && (
           <div className="space-y-1.5">
-            <p className="text-xs font-mono font-black uppercase tracking-wider text-foreground">
-              トッピングを選ぶ
-            </p>
-            <div className="flex flex-wrap gap-2">
-              {availableToppings.map((t) => {
-                const on = selected.has(t.id);
-                const isFree = on && freeToppingIds.has(t.id);
-                return (
-                  <button
-                    key={t.id}
-                    type="button"
-                    disabled={t.soldOut || menu.soldOut}
-                    onClick={() => toggle(t.id)}
-                    className={cn(
-                      "flex items-center gap-1.5 border-thick px-3 py-2 text-sm font-bold rounded-none transition-all disabled:opacity-40 disabled:cursor-not-allowed",
-                      isFree
-                        ? "border-success bg-success text-white"
-                        : on
-                          ? "border-primary bg-primary text-primary-foreground"
-                          : "border-border bg-background hover:bg-muted"
-                    )}
-                  >
-                    {t.imagePath && (
-                      <img src={resolveAssetUrl(t.imagePath)} alt="" className="h-5 w-5 object-cover border-thin border-current shrink-0" />
-                    )}
-                    <span className="truncate max-w-[110px]">{t.name}</span>
-                    {isFree ? (
-                      <span className="flex items-center gap-1">
-                        <span className="line-through opacity-70">¥{t.price}</span>
-                        <span>無料</span>
-                      </span>
-                    ) : (
-                      <span className={on ? "opacity-90" : "text-muted-foreground"}>
-                        {t.price >= 0 ? `+¥${t.price}` : `-¥${Math.abs(t.price)}`}
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
+            <p className="text-xs font-mono font-black uppercase tracking-wider text-foreground">トッピングを選ぶ</p>
+            <ToppingSelection
+              menuId={menu.id}
+              toppings={availableToppings}
+              selected={selected}
+              freeIds={freeToppingIds}
+              onToggle={toggle}
+              wizardEnabled={menu.toppingWizardEnabled}
+              disabled={menu.soldOut}
+              minimums={toppingMinimums}
+              onReadyChange={setSelectionReady}
+            />
           </div>
         )}
 
@@ -237,7 +216,7 @@ function VisitorMenuCard({
       <CardFooter className="border-t-thick border-border pt-4">
         <Button
           onClick={handleAdd}
-          disabled={menu.soldOut}
+          disabled={menu.soldOut || !selectionReady}
           className="w-full h-14 border-thick border-border bg-primary font-mono text-lg font-black uppercase text-primary-foreground rounded-none hover:bg-background hover:text-foreground transition-colors"
         >
           <ShoppingCart className="mr-2 h-5 w-5" />
@@ -261,6 +240,7 @@ function MenuPageContent() {
     circleIdParam
   );
   const [cart, setCart] = useState<CartLine[]>([]);
+  const [selectedMenuCategory, setSelectedMenuCategory] = useState<string | null>(null);
   // クーポン適用 (2026-09-16, issue #50)。/visitor/coupon/:slug で合言葉検証済みのものは
   // localStorage (coupon-storage.ts) に複数枚まとめて保存されているので、このサークルの分を
   // 一覧で読み込む (以前は1枚しか保存/表示できず「クーポンが1つしか出ない」不具合になっていた)。
@@ -271,6 +251,7 @@ function MenuPageContent() {
   useEffect(() => {
     setAppliedCoupons(selectedCircleId ? getCouponsForCircle(selectedCircleId) : []);
     setEnabledCouponSlugs(new Set());
+    setSelectedMenuCategory(null);
   }, [selectedCircleId]);
 
   const toggleCoupon = (slug: string) =>
@@ -730,8 +711,10 @@ function MenuPageContent() {
           メニューを選択して事前注文
         </h2>
         {menus && menus.length > 0 ? (
+          <>
+          <MenuCategoryFilter menus={menus} selectedCategory={selectedMenuCategory} onSelect={setSelectedMenuCategory} />
           <div className="grid gap-sp-3 sm:grid-cols-2 lg:grid-cols-3">
-            {menus.map((menu) => (
+            {menus.filter((menu) => selectedMenuCategory === null || menuCategoryKey(menu.category) === selectedMenuCategory).map((menu) => (
               <VisitorMenuCard
                 key={menu.id}
                 menu={menu}
@@ -742,6 +725,7 @@ function MenuPageContent() {
               />
             ))}
           </div>
+          </>
         ) : (
           <EmptyState icon={ShoppingCart} message="メニューがまだ登録されていません" />
         )}
