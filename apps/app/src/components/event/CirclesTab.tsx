@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
-import { circleApi } from "@/lib/api";
+import { circleApi, activeWaitTimeReport, recentWaitTimeReports } from "@/lib/api";
 import { Card, CardTitle, CardContent, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -158,6 +158,39 @@ export function CirclesTab({
                 {cir.description && (
                   <p className="text-[10px] text-muted-foreground truncate mb-3">{cir.description}</p>
                 )}
+                {(() => {
+                  const report = activeWaitTimeReport(cir.settings);
+                  return <p className="mb-3 text-[10px] font-bold">待ち時間: {report ? `約${report.minutes}分（${report.minutesAgo}分前）` : "未報告"}</p>;
+                })()}
+                {(() => {
+                  // 2026-10-07 (#9): 中央から直近の待ち時間と平均を見て、報告値の変化を把握できるようにする。
+                  const reports = recentWaitTimeReports(cir.settings);
+                  if (reports.length === 0) return null;
+                  const average = Math.round(reports.reduce((sum, item) => sum + item.minutes, 0) / reports.length);
+                  const maxMinutes = Math.max(10, ...reports.map((item) => item.minutes));
+                  return (
+                    <div className="mb-4" aria-label="待ち時間の推移">
+                      <div className="mb-1 flex items-center justify-between text-[9px] text-muted-foreground">
+                        <span>直近 {reports.length} 回の推移</span>
+                        <span>平均 約{average}分</span>
+                      </div>
+                      <div className="flex h-12 items-end gap-1" role="img" aria-label={`直近${reports.length}回の待ち時間: ${reports.map((item) => `${item.minutes}分`).join("、")}`}>
+                        {reports.map((item) => {
+                          const height = Math.max(3, Math.round((item.minutes / maxMinutes) * 24));
+                          const reportedDate = new Date(item.reportedAt);
+                          const timeLabel = reportedDate.toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" });
+                          return (
+                            <div key={item.reportedAt} className="flex min-w-0 flex-1 flex-col items-center justify-end gap-0.5" title={`${reportedDate.toLocaleString("ja-JP")} · 約${item.minutes}分`}>
+                              <span className="text-[8px] tabular-nums">{item.minutes}</span>
+                              <div className="w-full bg-info/70" style={{ height: `${height}px` }} />
+                              <span className="text-[8px] text-muted-foreground">{timeLabel}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })()}
                 <div className="text-[10px] text-muted-foreground space-y-1 font-mono mb-4">
                   {/* 2026-07-07 (Phase 3b): サークル作成がセルフサービス化されたため
                       「代表者」= 作成時に circle_manager になったユーザーを表示する

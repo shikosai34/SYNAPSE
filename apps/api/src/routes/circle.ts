@@ -480,6 +480,44 @@ circleRoutes.patch(
   }
 );
 
+// 2026-10-07 (#9): 待ち時間はレジ担当が報告し、30分で「未報告」に戻す。既存の可変設定JSONへ
+// 最新値と履歴を同時に残し、来場者・本部の公開サークル一覧から同じ報告を参照できるようにする。
+circleRoutes.patch(
+  "/:id/wait-time",
+  zBody(z.object({ waitMinutes: z.number().int().min(0).max(240).multipleOf(10) })),
+  async (c) => {
+    const db = c.get("db");
+    const id = c.req.param("id");
+    const { waitMinutes } = c.req.valid("json");
+    if (!(await hasPermission(c, id, "order:write"))) {
+      apiError("FORBIDDEN", "待ち時間を報告する権限がありません");
+    }
+    const rows = await db.select().from(circle).where(eq(circle.id, id));
+    const target = rows[0];
+    if (!target || target.deletedAt) apiError("NOT_FOUND", "サークルが見つかりません");
+    let settings: Record<string, any> = {};
+    try {
+      const parsed: unknown = JSON.parse(target.settings || "{}");
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        settings = parsed as Record<string, any>;
+      }
+    } catch {
+      // 壊れた任意設定JSONは空から復旧し、待ち時間の報告を妨げない。
+    }
+    const reportedAt = new Date().toISOString();
+    const previous = Array.isArray(settings.waitTimeReports) ? settings.waitTimeReports : [];
+    await db.update(circle).set({
+      settings: JSON.stringify({
+        ...settings,
+        waitTimeReport: { minutes: waitMinutes, reportedAt },
+        // 直近500件を残し、将来の混雑推移分析に使えるよう報告ログを保持する。
+        waitTimeReports: [...previous, { minutes: waitMinutes, reportedAt }].slice(-500),
+      }),
+    }).where(eq(circle.id, id));
+    return c.json({ success: true, waitTimeReport: { minutes: waitMinutes, reportedAt } });
+  }
+);
+
 // オーナー権限の譲渡: 指定メンバーを circle_manager に昇格し、既存の
 // circle_manager を circle_staff へ降格する。circle_manager 本人または
 // 上位管理者(event_manager / super_admin)のみ実行可能。

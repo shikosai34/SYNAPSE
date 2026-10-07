@@ -179,6 +179,12 @@ export const circleApi = {
       method: "PATCH",
       body: { settings },
     }),
+  // 2026-10-07 (#9): POSスタッフの手動報告は専用エンドポイントで追記し、他の設定と競合させない。
+  reportWaitTime: (id: string, waitMinutes: number) =>
+    fetchApi<{ success: boolean; waitTimeReport: { minutes: number; reportedAt: string } }>(
+      `/api/circles/${id}/wait-time`,
+      { method: "PATCH", body: { waitMinutes } },
+    ),
   transferOwner: (id: string, membershipId: string) =>
     fetchApi<{ success: boolean }>(`/api/circles/${id}/transfer-owner`, {
       method: "POST",
@@ -711,6 +717,49 @@ export interface Circle {
   settings?: string;
   managerEmail?: string;
   managerName?: string;
+}
+
+export interface WaitTimeReport {
+  minutes: number;
+  reportedAt: string;
+}
+
+// 2026-10-07 (#9): 本部と来場者は同じ30分の有効期限で最新報告を表示する。
+export function activeWaitTimeReport(raw?: string | null): (WaitTimeReport & { minutesAgo: number }) | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw)?.waitTimeReport as Partial<WaitTimeReport> | undefined;
+    if (!parsed || !Number.isInteger(parsed.minutes) || typeof parsed.reportedAt !== "string") return null;
+    const ageMs = Date.now() - Date.parse(parsed.reportedAt);
+    if (!Number.isFinite(ageMs) || ageMs < 0 || ageMs >= 30 * 60_000) return null;
+    return { minutes: parsed.minutes!, reportedAt: parsed.reportedAt, minutesAgo: Math.floor(ageMs / 60_000) };
+  } catch {
+    return null;
+  }
+}
+
+// 2026-10-07 (#9): 報告時系列は既存settings内の履歴を検証して、本部の推移表示に再利用する。
+export function recentWaitTimeReports(raw?: string | null, limit = 8): WaitTimeReport[] {
+  if (!raw || !Number.isInteger(limit) || limit < 1) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    const reports: unknown = parsed?.waitTimeReports;
+    if (!Array.isArray(reports)) return [];
+    return reports
+      .filter((report): report is WaitTimeReport =>
+        !!report &&
+        typeof report === "object" &&
+        Number.isInteger((report as WaitTimeReport).minutes) &&
+        (report as WaitTimeReport).minutes >= 0 &&
+        (report as WaitTimeReport).minutes <= 240 &&
+        typeof (report as WaitTimeReport).reportedAt === "string" &&
+        Number.isFinite(Date.parse((report as WaitTimeReport).reportedAt))
+      )
+      .sort((a, b) => Date.parse(a.reportedAt) - Date.parse(b.reportedAt))
+      .slice(-limit);
+  } catch {
+    return [];
+  }
 }
 
 // サークル運用設定 (circle.settings JSON のシェイプ)
