@@ -16,7 +16,7 @@ export type CouponRow = typeof coupon.$inferSelect;
  */
 export async function checkCouponEligibility(
   db: DB,
-  params: { slug: string; passphrase: string; eventUserId: string; circleId?: string }
+  params: { slug: string; passphrase: string; eventUserId: string; circleId?: string; preOrderId?: string }
 ): Promise<CouponRow> {
   const rows = await db.select().from(coupon).where(eq(coupon.slug, params.slug));
   if (rows.length === 0) {
@@ -37,11 +37,6 @@ export async function checkCouponEligibility(
   if (cp.passphrase !== params.passphrase) {
     apiError("BAD_REQUEST", "合言葉が違います");
   }
-  // maxRedemptions が null なら無制限 (2026-09-16 フィードバック対応)。
-  if (cp.maxRedemptions !== null && cp.redeemedCount >= cp.maxRedemptions) {
-    apiError("BAD_REQUEST", "このクーポンは使用上限に達しました");
-  }
-
   const existing = await db
     .select()
     .from(couponRedemption)
@@ -52,7 +47,14 @@ export async function checkCouponEligibility(
       )
     );
   if (existing.length > 0) {
-    apiError("BAD_REQUEST", "このクーポンは既に使用済みです");
+    // 2026-10-07 Issue #49: 同じ来場者の同じ pending 事前注文を自動保存するときは、
+    // その注文が既に保有しているクーポンを再検証できるようにする。別注文への再利用は引き続き拒否する。
+    if (!params.preOrderId || existing.some((redemption) => redemption.preOrderId !== params.preOrderId)) {
+      apiError("BAD_REQUEST", "このクーポンは既に使用済みです");
+    }
+  } else if (cp.maxRedemptions !== null && cp.redeemedCount >= cp.maxRedemptions) {
+    // 既存のドラフトが枠を確保している場合は再消費せず、上限判定を通過させる。
+    apiError("BAD_REQUEST", "このクーポンは使用上限に達しました");
   }
 
   return cp;

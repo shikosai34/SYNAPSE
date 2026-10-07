@@ -1298,12 +1298,18 @@ export interface PreOrderWithDetails {
   totalPrice: number;
   status: string;
   createdAt: string;
+  // 2026-10-07 Issue #49: updated_atをミリ秒CAS tokenとしてautosaveとclaimで共有する。
+  draftVersion?: number;
+  // 2026-10-07 Issue #49: 自動保存したカートを開き直したとき、適用済みクーポンを復元する。
+  couponSlugs?: string[];
   items: PreOrderItemDetail[];
 }
 
 export interface CreatePreOrderInput {
   userId: string;
   circleId: string;
+  draftId: string;
+  expectedUpdatedAt: number | null;
   items: Array<{
     menuId: string;
     quantity: number;
@@ -1393,7 +1399,7 @@ export const couponApi = {
 
 export const preOrderApi = {
   create: (data: CreatePreOrderInput) =>
-    fetchApi<{ success: boolean; id: string; totalPrice: number }>("/api/pre-orders", {
+    fetchApi<{ success?: boolean; id: string; totalPrice: number; updatedAt: number; deleted?: boolean }>("/api/pre-orders", {
       method: "POST",
       body: data,
     }),

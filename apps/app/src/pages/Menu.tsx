@@ -1,11 +1,11 @@
 
-import { useEffect, useState, Suspense } from "react";
+import { useEffect, useRef, useState, Suspense } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { ModSandbox } from "@/components/ModSandbox";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { eventApi, circleApi, menuApi, preOrderApi, orderApi, type MenuWithToppings, type Topping } from "@/lib/api";
+import { eventApi, circleApi, menuApi, preOrderApi, orderApi, type CreatePreOrderInput, type MenuWithToppings, type Topping } from "@/lib/api";
 import { useVisitor } from "@/hooks/useVisitor";
-import { getCouponsForCircle, removeCouponForCircle, type StoredCoupon } from "@/lib/coupon-storage";
+import { getCouponsForCircle, type StoredCoupon } from "@/lib/coupon-storage";
 import { cn } from "@/lib/utils";
 import {
   Card,
@@ -23,8 +23,9 @@ import { ErrorState } from "@/components/ui/ErrorState";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { toast } from "sonner";
 import { EventTheme } from "@/components/EventTheme";
-import { ShoppingCart, Plus, Minus, CheckCircle, UtensilsCrossed, Ticket, X } from "lucide-react";
+import { ShoppingCart, Plus, Minus, CheckCircle, UtensilsCrossed, Ticket, X, QrCode } from "lucide-react";
 import { resolveAssetUrl } from "@/lib/asset-url";
+import { QRCodeSVG } from "qrcode.react";
 // 2026-10-03: 画面をまたぐカート規則と再送制御を機能モジュールに集約する。
 import { addCartLine, updateCartQuantity, toggleCartTopping, lineSubtotal, cartTotal, cartCount, type CartLine, type CartTopping } from "@/features/orders/cart";
 import { useOrderSubmission } from "@/features/orders/use-order-submission";
@@ -241,14 +242,23 @@ function MenuPageContent() {
   );
   const [cart, setCart] = useState<CartLine[]>([]);
   const [selectedMenuCategory, setSelectedMenuCategory] = useState<string | null>(null);
+  const [hydratedDraftKey, setHydratedDraftKey] = useState<string | null>(null);
+  const [isQrOpen, setIsQrOpen] = useState(false);
+  const [appOrigin, setAppOrigin] = useState("");
+  const draftIdentityRef = useRef<{ key: string; id: string; updatedAt: number | null } | null>(null);
+  const lastDraftPayloadRef = useRef<{ key: string; payload: string } | null>(null);
+  const suppressNextDraftSaveRef = useRef(false);
+  const draftSaveQueueRef = useRef<Promise<unknown>>(Promise.resolve());
   // クーポン適用 (2026-09-16, issue #50)。/visitor/coupon/:slug で合言葉検証済みのものは
   // localStorage (coupon-storage.ts) に複数枚まとめて保存されているので、このサークルの分を
   // 一覧で読み込む (以前は1枚しか保存/表示できず「クーポンが1つしか出ない」不具合になっていた)。
   // 検証済みでも自動では適用せず、客が「クーポン」欄で明示的に選んだものだけ (enabledCouponSlugs) 使う。
   const [appliedCoupons, setAppliedCoupons] = useState<StoredCoupon[]>([]);
   const [enabledCouponSlugs, setEnabledCouponSlugs] = useState<Set<string>>(new Set());
+  const [couponsLoadedCircleId, setCouponsLoadedCircleId] = useState<string | null>(null);
 
   useEffect(() => {
+    setCouponsLoadedCircleId(null);
     setAppliedCoupons(selectedCircleId ? getCouponsForCircle(selectedCircleId) : []);
     setEnabledCouponSlugs(new Set());
     setSelectedMenuCategory(null);
@@ -303,6 +313,59 @@ function MenuPageContent() {
     enabled: visitorLoaded && !!selectedCircleId && (!session?.userId || !session.eventId || circleData?.eventId === session.eventId),
   });
 
+  const draftKey = userId && selectedCircleId ? `${userId}:${selectedCircleId}` : null;
+  const { data: savedDrafts, isSuccess: draftsLoaded } = useQuery({
+    queryKey: ["preOrderDraft", userId, selectedCircleId],
+    queryFn: () => preOrderApi.getByCode(userId, selectedCircleId!),
+    enabled: visitorLoaded && !!userId && !!selectedCircleId,
+  });
+
+  useEffect(() => {
+    if (typeof window !== "undefined") setAppOrigin(window.location.origin);
+  }, []);
+
+  useEffect(() => {
+    setHydratedDraftKey(null);
+    setCart([]);
+    lastDraftPayloadRef.current = null;
+    draftIdentityRef.current = null;
+  }, [selectedCircleId, userId]);
+
+  useEffect(() => {
+    if (!draftKey || !draftsLoaded || !menus || hydratedDraftKey === draftKey) return;
+    const draft = savedDrafts?.[0];
+    // 2026-10-07 Issue #49: 以後のautosaveは初回から同じIDを使い、claim後の遅延要求を新規注文にしない。
+    draftIdentityRef.current = {
+      key: draftKey,
+      id: draft?.id ?? crypto.randomUUID(),
+      updatedAt: draft?.draftVersion ?? null,
+    };
+    const menuById = new Map(menus.map((item) => [item.id, item]));
+    const restoredCart: CartLine[] = (draft?.items ?? []).flatMap((item) => {
+      const menuItem = menuById.get(item.menuId);
+      if (!menuItem) return [];
+      return [{
+        lineId: crypto.randomUUID(),
+        menuId: menuItem.id,
+        menuName: menuItem.name,
+        menuPrice: menuItem.price,
+        quantity: item.quantity,
+        toppings: (item.toppings ?? []).map((topping) => ({
+          toppingId: topping.id,
+          toppingName: topping.name,
+          toppingPrice: topping.price,
+        })),
+      }];
+    });
+    const draftCouponSlugs = new Set(draft?.couponSlugs ?? []);
+    setEnabledCouponSlugs(new Set(
+      getCouponsForCircle(selectedCircleId!).filter((coupon) => draftCouponSlugs.has(coupon.slug)).map((coupon) => coupon.slug),
+    ));
+    setCart(restoredCart);
+    suppressNextDraftSaveRef.current = true;
+    setHydratedDraftKey(draftKey);
+  }, [draftKey, draftsLoaded, savedDrafts, menus, hydratedDraftKey, selectedCircleId]);
+
   // サークルが属するイベントのテーマ (配色/ロゴ) を取得して画面に反映
   const { data: circleEvent } = useQuery({
     queryKey: ["event", circleData?.eventId],
@@ -316,43 +379,41 @@ function MenuPageContent() {
     }
   }, [circleIdParam]);
 
-  // 事前オーダー作成ミューテーション
+  // 2026-10-07 Issue #49: 保存要求を直列化し、短時間の連続操作で古いカートが後から上書きしないようにする。
   const preOrderMutation = useMutation({
-    mutationFn: async () => {
-      if (!selectedCircleId || cart.length === 0) return;
-      if (!userId) throw new Error("注文にはリストバンドの発行(入場)が必要です");
-      return await preOrderApi.create({
-        userId,
-        circleId: selectedCircleId,
-        items: cart.map((line) => ({
-          menuId: line.menuId,
-          quantity: line.quantity,
-          toppingIds: line.toppings.map((t) => t.toppingId),
-        })),
-        // applicableCoupons (客が明示的に「使う」を選んでおり、かつ対象商品がカートにあるものだけ) を
-        // 送る。verify 済みというだけで自動送信すると「自動で適用しないで」に反する。
-        coupons: applicableCoupons.map((c) => ({ slug: c.slug, passphrase: c.passphrase })),
-      });
+    mutationFn: (payload: Omit<CreatePreOrderInput, "draftId" | "expectedUpdatedAt">) => {
+      const queued = draftSaveQueueRef.current
+        .catch(() => undefined)
+        .then(async () => {
+          const key = `${payload.userId}:${payload.circleId}`;
+          const identity = draftIdentityRef.current;
+          if (!identity || identity.key !== key) {
+            throw new Error("カート情報を読み込み直しています。少し待ってからお試しください");
+          }
+          const response = await preOrderApi.create({
+            ...payload,
+            draftId: identity.id,
+            expectedUpdatedAt: identity.updatedAt,
+          });
+          if (draftIdentityRef.current?.key === key && draftIdentityRef.current.id === identity.id) {
+            // 削除はIDを取消済みにした後、新しいカート用のIDへ移る。
+            draftIdentityRef.current = response.deleted
+              ? { key, id: crypto.randomUUID(), updatedAt: null }
+              : { ...identity, updatedAt: response.updatedAt };
+          }
+          return response;
+        });
+      draftSaveQueueRef.current = queued;
+      return queued;
     },
-    onSuccess: () => {
-      toast.success("事前オーダーを送信しました！店頭でマイQRを提示してください。");
-      setCart([]);
-      // クーポンは1人1回までなので、実際に使った (applicableCoupons に含まれる) 分だけ端末側の
-      // キャッシュを消す。使わなかったクーポンはまだ枠が残っているので、次の注文のために残しておく。
-      if (selectedCircleId && applicableCoupons.length > 0) {
-        for (const c of applicableCoupons) {
-          removeCouponForCircle(selectedCircleId, c.slug);
-        }
-        setAppliedCoupons((prev) => prev.filter((c) => !applicableCoupons.some((a) => a.slug === c.slug)));
-        setEnabledCouponSlugs(new Set());
-      }
-      // 送信直後は注文履歴に遷移し、事前オーダーの状態を確認できるようにする (2026-07-11 履歴を /orders に分離)
-      navigate("/visitor/orders");
-    },
+    // 2026-10-07 Issue #49: 一時的な通信失敗で同じカート内容が未保存のまま残らないよう、保存要求を限定回数再試行する。
+    retry: 2,
+    retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 5000),
     onError: (error: any) => {
-      toast.error(error.message || "事前オーダーの送信に失敗しました");
+      toast.error(error.message || "カートの自動保存に失敗しました");
     },
   });
+  const { mutate: saveDraft } = preOrderMutation;
 
   const orderInput: CreateOrderInput | null = selectedCircleId && userId && cart.length > 0 ? {
     circleId: selectedCircleId, userId, peopleCount: 1,
@@ -508,6 +569,39 @@ function MenuPageContent() {
     : appliedCoupons.filter((c) => enabledCouponSlugs.has(c.slug) && potentialDiscountFor(c) > 0);
   const couponDiscount = applicableCoupons.reduce((sum, c) => sum + potentialDiscountFor(c), 0);
   const getDiscountedTotal = () => Math.max(0, getTotalPrice() - couponDiscount);
+
+  const draftPayload = JSON.stringify({
+    items: cart.map((line) => ({
+      menuId: line.menuId,
+      quantity: line.quantity,
+      toppingIds: line.toppings.map((topping) => topping.toppingId),
+    })),
+    coupons: applicableCoupons.map((coupon) => ({ slug: coupon.slug, passphrase: coupon.passphrase })),
+  });
+
+  useEffect(() => {
+    if (
+      !draftKey || hydratedDraftKey !== draftKey || !userId || !visitorLoaded ||
+      couponsLoadedCircleId !== selectedCircleId || isPreOrderEnabled()
+    ) return;
+
+    if (suppressNextDraftSaveRef.current) {
+      lastDraftPayloadRef.current = { key: draftKey, payload: draftPayload };
+      suppressNextDraftSaveRef.current = false;
+      return;
+    }
+    if (lastDraftPayloadRef.current?.key === draftKey && lastDraftPayloadRef.current.payload === draftPayload) return;
+
+    // 2026-10-07 Issue #49: 操作をまとめてから保存し、変更のたびの通信を抑える。
+    lastDraftPayloadRef.current = { key: draftKey, payload: draftPayload };
+    const timeout = window.setTimeout(() => {
+      saveDraft({ userId, circleId: selectedCircleId!, ...JSON.parse(draftPayload) });
+    }, 600);
+    return () => window.clearTimeout(timeout);
+  }, [
+    draftKey, hydratedDraftKey, userId, visitorLoaded, couponsLoadedCircleId,
+    selectedCircleId, draftPayload, saveDraft,
+  ]);
 
   // 外部モッド用グローバルAPIの公開
   useEffect(() => {
@@ -731,11 +825,11 @@ function MenuPageContent() {
         )}
       </div>
 
-      {/* 標準カートバー */}
-      {cart.length > 0 && (
+      {/* 2026-10-07 Issue #49: カート保存状態とマイQRを同じ操作起点に置き、注文確定前でも提示できるようにする。 */}
+      {(cart.length > 0 || userId) && (
         <div id="standard-cart-bar" className="fixed bottom-0 left-0 right-0 z-40 bg-primary text-primary-foreground border-t-heavy border-border p-3 sm:p-4">
           <div className="max-w-4xl mx-auto flex flex-col gap-3">
-            <div className="flex items-center justify-between gap-2">
+            {cart.length > 0 && <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="bg-background text-foreground px-2 py-0.5 font-mono text-xs font-bold uppercase tracking-widest">
                   {getTotalCount()}点
@@ -758,20 +852,37 @@ function MenuPageContent() {
               <p className="text-[10px] sm:text-xs text-primary-foreground/80 font-mono hidden sm:block">
                 事前に注文を予約し、レジでスムーズに会計できます。
               </p>
-            </div>
+            </div>}
+            {cart.length > 0 && !isPreOrderEnabled() && (
+              <p className="text-[10px] font-mono text-primary-foreground/80" role="status">
+                {preOrderMutation.isPending ? "カートを保存しています…" : hydratedDraftKey === draftKey ? "カートは自動保存されます" : "カートを読み込んでいます…"}
+              </p>
+            )}
             {applicableCoupons.length > 0 && (
               <div className="flex items-center gap-1.5 bg-background text-foreground px-2 py-1 text-[11px] font-bold w-fit flex-wrap">
                 <Ticket className="h-3.5 w-3.5 shrink-0" />
                 {applicableCoupons.map((c) => `「${c.title}」`).join(" + ")} 適用中 (¥{couponDiscount.toLocaleString()}引き)
               </div>
             )}
-            <Button
-              onClick={() => setIsCartOpen(true)}
-              className="w-full h-14 border-thick border-border bg-background px-4 sm:px-8 font-mono text-base sm:text-lg font-black uppercase text-foreground rounded-none hover:bg-primary hover:text-primary-foreground transition-all shadow-none active:translate-y-1"
-            >
-              <ShoppingCart className="mr-2 h-5 w-5 sm:h-6 sm:w-6" />
-              注文を確認する
-            </Button>
+            <div className="flex flex-col sm:flex-row gap-2">
+              {userId && (
+                <Button
+                  type="button"
+                  onClick={() => setIsQrOpen(true)}
+                  className="w-full sm:flex-1 h-12 border-thick border-border bg-background px-3 font-mono text-sm font-black uppercase text-foreground rounded-none hover:bg-primary hover:text-primary-foreground"
+                >
+                  <QrCode className="mr-2 h-5 w-5 shrink-0" />マイQRを表示
+                </Button>
+              )}
+              {cart.length > 0 && (
+                <Button
+                  onClick={() => setIsCartOpen(true)}
+                  className="w-full sm:flex-1 h-12 border-thick border-border bg-background px-3 font-mono text-sm font-black uppercase text-foreground rounded-none hover:bg-primary hover:text-primary-foreground"
+                >
+                  <ShoppingCart className="mr-2 h-5 w-5 shrink-0" />注文を確認する
+                </Button>
+              )}
+            </div>
           </div>
         </div>
       )}
@@ -875,7 +986,7 @@ function MenuPageContent() {
           <p className="text-[11px] text-muted-foreground leading-normal">
             {isPreOrderEnabled()
               ? "※「注文を送信する」を押すと注文が送信されます。番号が呼ばれたら受取口にてお支払いください。"
-              : "※「注文を送信する」を押すと事前注文が送信されます。レジにてマイQRコード、または連携したリストバンドを提示してお支払いください。"}
+              : "カートの内容は自動保存されています。レジでマイQRコード、または連携したリストバンドを提示してお支払いください。"}
           </p>
         </div>
 
@@ -892,7 +1003,7 @@ function MenuPageContent() {
         )}
 
         <div className="flex flex-col gap-2 pt-2">
-          <Button
+          {isPreOrderEnabled() ? <Button
             onClick={() => {
               if (!userId) {
                 toast.error("注文にはリストバンドが必要です。QR を読み取って入場してください。");
@@ -901,20 +1012,46 @@ function MenuPageContent() {
               setIsCartOpen(false);
               if (isPreOrderEnabled()) {
                 codOrderMutation.mutate();
-              } else {
-                preOrderMutation.mutate();
               }
             }}
-            disabled={!userId || preOrderMutation.isPending || codOrderMutation.isPending}
+            disabled={!userId || codOrderMutation.isPending}
             className="w-full h-12 border-thick border-border bg-primary text-primary-foreground text-base font-black uppercase rounded-none hover:bg-background hover:text-foreground transition-all disabled:opacity-50"
           >
-            {preOrderMutation.isPending || codOrderMutation.isPending
+            {codOrderMutation.isPending
               ? "送信中..."
               : !userId
                 ? "入場が必要です"
                 : "注文を送信する"}
-          </Button>
+          </Button> : (
+            <Button
+              type="button"
+              onClick={() => setIsCartOpen(false)}
+              className="w-full h-12 border-thick border-border bg-primary text-primary-foreground text-base font-black uppercase rounded-none hover:bg-background hover:text-foreground"
+            >
+              カートへ戻る
+            </Button>
+          )}
         </div>
+      </Modal>
+
+      <Modal isOpen={isQrOpen} onClose={() => setIsQrOpen(false)} title="[マイQR]" maxWidth="md">
+        {userId ? (
+          <div className="space-y-3 text-center">
+            <p className="text-xs text-muted-foreground">店頭でこのQRを提示してください。</p>
+            <div className="inline-block border-thick border-border bg-background p-3">
+              <QRCodeSVG
+                value={`${appOrigin}/w/${session?.wristbandId || userId}`}
+                size={200}
+                level="M"
+                title="マイQR"
+                className="mx-auto block"
+              />
+            </div>
+            <p className="break-all text-xs font-bold">{userId}</p>
+          </div>
+        ) : (
+          <p className="text-sm">QRを表示するには入場が必要です。</p>
+        )}
       </Modal>
 
       {/* 外部モッドの動的ヘッダーインジェクション */}
