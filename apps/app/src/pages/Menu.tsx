@@ -264,6 +264,8 @@ function MenuPageContent() {
     setAppliedCoupons(selectedCircleId ? getCouponsForCircle(selectedCircleId) : []);
     setEnabledCouponSlugs(new Set());
     setSelectedMenuCategory(null);
+    // 2026-10-08: クーポンは localStorage から同期取得するため、対象サークル分の読込後に下書き保存を解放する。
+    setCouponsLoadedCircleId(selectedCircleId);
   }, [selectedCircleId]);
 
   const toggleCoupon = (slug: string) =>
