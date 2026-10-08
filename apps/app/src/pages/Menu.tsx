@@ -1,6 +1,6 @@
 
 import { useEffect, useRef, useState, Suspense } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ModSandbox } from "@/components/ModSandbox";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { eventApi, circleApi, menuApi, preOrderApi, orderApi, type CreatePreOrderInput, type MenuWithToppings, type Topping } from "@/lib/api";
@@ -32,6 +32,7 @@ import { useOrderSubmission } from "@/features/orders/use-order-submission";
 import type { CreateOrderInput } from "@fesflow/config/order-contract";
 import { ToppingSelection, parseToppingCategoryMinimums } from "@/components/menu/ToppingSelection";
 import { MenuCategoryFilter, menuCategoryKey } from "@/components/menu/MenuCategoryFilter";
+import { findVisitorRouteItem } from "@/lib/visitor-route";
 
 // 2026-07-13: 来場者モバイルオーダーもトッピング対応にするため、レジ (Register.tsx) と同じく
 // カートを「行 (line)」単位で持つ。同じメニューでもトッピング構成が違えば別行になる。
@@ -229,6 +230,7 @@ function VisitorMenuCard({
 }
 
 function MenuPageContent() {
+  const { eventName: eventNameParam, circleName: circleNameParam } = useParams();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const circleIdParam = searchParams.get("circleId");
@@ -279,12 +281,25 @@ function MenuPageContent() {
     queryFn: () => eventApi.list(),
   });
 
+  // 2026-10-08: App.tsx に登録済みの名称URLは、イベント一覧を読み込んでから選択状態へ解決する。
+  useEffect(() => {
+    if (circleIdParam || !eventNameParam || !events) return;
+    const event = findVisitorRouteItem(events, eventNameParam, (item) => item.id, (item) => item.eventName);
+    if (event) setSelectedEventId(event.id);
+  }, [circleIdParam, eventNameParam, events]);
+
   // 選択したイベントのサークル一覧取得
   const { data: circles, isLoading: circlesLoading } = useQuery({
     queryKey: ["circles", selectedEventId],
     queryFn: () => circleApi.list(selectedEventId!),
     enabled: !!selectedEventId,
   });
+
+  useEffect(() => {
+    if (circleIdParam || !circleNameParam || !circles) return;
+    const circle = findVisitorRouteItem(circles, circleNameParam, (item) => item.id, (item) => item.name);
+    if (circle) setSelectedCircleId(circle.id);
+  }, [circleIdParam, circleNameParam, circles]);
 
   // 選択したサークルの情報取得
   const {
