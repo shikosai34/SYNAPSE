@@ -46,7 +46,8 @@
 | `GET` / `POST` / `PUT` / `PATCH` / `DELETE` | `/menus`, `/menus/:id`, `/menus/:id/stock`, `/menus/:id/inventory` | メニュー参照 (`GET`) は公開。作成/編集/削除と在庫変更ではサークル権限を判定。 |
 | `GET` / `POST` / `PUT` / `DELETE` | `/toppings`, `/toppings/:id`, `/toppings/:id/stock` | トッピング管理。サークルのメニュー/在庫権限等を確認。 |
 | `GET` / `POST` / `PUT` / `DELETE` | `/staff`, `/staff/:id` | 店舗スタッフ情報の参照・管理。対象サークルのスタッフ権限。 |
-| `GET` | `/orders?circleId=...&status=...`, `/orders/by-number/:orderNumber`, `/orders/stats/sales` | 注文一覧・番号検索・売上集計。対象サークルの `order:read` 権限を確認。 |
+| `GET` | `/orders?circleId=...&status=...`, `/orders/by-number/:orderNumber` | 注文一覧・番号検索。対象サークルの `order:read` 権限を確認。 |
+| `GET` | `/orders/stats/sales` | 売上統計。対象サークルの `sales:read` 権限を確認。 |
 | `GET` | `/orders/:id` | 注文IDを知っている利用者向けの公開照会。注文IDがベアラー値として働く。`cashierId` は応答から除外。 |
 | `GET` | `/orders/user/:code` | 来場者本人の注文履歴。来場者コードで対象を絞り、応答項目を限定する。コードを秘密として扱う。 |
 | `POST` | `/orders` | POS注文作成。JSON注文データと発行済み来場者IDが必要。再送には `Idempotency-Key` を推奨。 |
@@ -57,7 +58,7 @@
 | `GET` | `/pre-orders/user/:code` | 来場者コードによる未受取の事前注文一覧。 |
 | `POST` | `/pre-orders` | ドラフト保存。発行済み来場者コード、同一イベント、受付状態等をサーバーで再検証。 |
 | `POST` | `/pre-orders/:id/claim` | POSでのclaim。運営セッションと `order:write` 権限、注文条件を検証。 |
-| `GET` / `POST` | `/stamps/*` | `GET /:userId` はID指定のスタンプ参照、`GET /visitor/:code` は来場者コードで設定と押印状態を参照。いずれも認証なし。景品交換 (`POST /redeem`) はスタッフログインが必要。付与ルートはイベント/サークル権限を判定。 |
+| `GET` / `POST` | `/stamps/*` | `GET /:userId` はID指定のスタンプ参照、`GET /visitor/:code` は来場者コードで設定と押印状態を参照。いずれも認証なし。景品交換 (`POST /redeem`) はログインセッションを要求し、対象者の交換済み状態と必要スタンプ数を検証する。 |
 | `GET` / `POST` / `DELETE` | `/lottery/*` | 抽選設定・景品・抽選・応募・結果・当選受取。来場者応募と運営操作で認可方法が異なる。 |
 | `GET` / `POST` | `/coupons/*` | サークルのクーポン管理、`/verify` で利用可否を確認。クーポン検証だけでは消費せず、注文確定側で再検証・適用する。 |
 | `GET` / `POST` | `/reviews/*` | 来場者コードを使う投稿と、サークル/イベント側の一覧。投稿者コードと対象スコープを検証。 |
