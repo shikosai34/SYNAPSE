@@ -275,6 +275,10 @@ curl -i -A 'OpenAI File Downloader, XaiImageApiFetch/1.0' 'http://localhost:8787
 
 `fields` は入力検証エラー時にのみ付く場合があります。よくあるHTTPステータスは `400` 入力不正、`401` 未認証、`403` 権限不足、`404` 未検出、`409` 競合、`429` 制限、`500` 内部エラーです。`429` は `Retry-After` 秒数を返す場合があります。現在、レート制限が確認できるのはメール認証や登録済みパスキー検証など一部の `/api/auth/*` です。全API共通のクォータは定義されていません。全APIレスポンスは `X-Request-ID` を返し、エラー本文の `requestId` と一致します。`/api/uploads/*` とBetter Auth応答はこのJSONエラー形式の対象外です。
 
+通常のRESTエラーコードは `BAD_REQUEST` / `VALIDATION` (400)、`UNAUTHORIZED` (401)、`FORBIDDEN` / `SUDO_REQUIRED` / `REAUTH_REQUIRED` (403)、`NOT_FOUND` (404)、`CONFLICT` (409)、`RATE_LIMITED` (429)、`INTERNAL` (500) です。内部例外の詳細は500応答に含めません。認証の失敗遅延はメールサインイン/登録および一部パスキー検証に限られ、識別子ごとに初回1秒から最大60秒まで増加します (15分の失敗計数窓)。このとき429に `Retry-After` 秒数が付く場合があります。他の業務APIへ一律の再試行ヘッダーやクォータを仮定しないでください。
+
+ページング方式もAPI共通ではありません。`GET /api/wristbands/search` は `offset` (既定0) / `limit` (既定50、最大500)、`GET /api/wristbands/batches` は `offset` (既定0) / `limit` (既定20、最大100) を受け取り、どちらも `{ items, total, offset, limit }` を返します。他の一覧APIに同じ方式を仮定せず、各ルートの応答とハンドラーを確認してください。
+
 ## 外部ソフトウェアからの連携範囲
 
 **HTTPレベルでは、匿名で利用できる一部のRESTルートと、セッションCookieを扱えるクライアントから利用できる運営APIがあります。** ただし現時点で外部向けSDK、OpenAPI/Swagger定義、APIキー発行、汎用OAuthクライアント資格情報フロー、契約済み互換バージョンは確認できません。Webhook、決済代行サービス向けAPI、全API共通のクォータもありません。管理画面の支払記録は内部運営機能で、決済処理APIではありません。したがってルートの存在は、第三者向けサポート済みAPI契約を意味しません。

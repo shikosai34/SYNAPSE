@@ -23,6 +23,9 @@ export const lineKey = (menuId: string, toppingIds: string[]) =>
 export const lineSubtotal = (line: CartLine) =>
   (line.menuPrice + line.toppings.reduce((sum, topping) => sum + topping.toppingPrice, 0)) * line.quantity;
 export const cartTotal = (cart: CartLine[]) => cart.reduce((sum, line) => sum + lineSubtotal(line), 0);
+// 2026-10-08: 事前注文の保存合計にはクーポン割引が含まれるため、店頭受取では明細小計より優先する。
+export const checkoutTotal = (cart: CartLine[], savedOrderTotal: number | null) =>
+  savedOrderTotal ?? cartTotal(cart);
 export const cartCount = (cart: CartLine[]) => cart.reduce((sum, line) => sum + line.quantity, 0);
 
 export function addCartLine(cart: CartLine[], menu: CartMenu, toppings: CartTopping[], newId = () => crypto.randomUUID()): CartLine[] {
