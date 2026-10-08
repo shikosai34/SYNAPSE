@@ -53,7 +53,7 @@
 | `POST` | `/orders` | POS注文作成。JSON注文データと発行済み来場者IDが必要。再送には `Idempotency-Key` を推奨。 |
 | `PATCH` / `POST` | `/orders/:id/status`, `/orders/:id/estimated-time`, `/orders/:id/complete` | 注文状態・見込み時間の更新/完了。スタッフ権限と許可された状態遷移を確認。 |
 | `GET` / `POST` / `PATCH` / `DELETE` | `/memberships/*` | `/roles`, `/my`, `/circle/:circleId`, `/event/:eventId`, メンバー作成/更新/停止/再開/削除、招待と通知。ルート全体でログイン必須、個々の変更は対象スコープとメンバー管理権限を追加確認。 |
-| `GET` / `POST` / `PATCH` / `DELETE` | `/account/*` | `/me`, `/profile`, `/email`, `/membership/:id`、アカウント削除。本人のCookieセッション必須。 |
+| `GET` / `PATCH` / `DELETE` | `/account/*` | `GET /me`、`PATCH /profile`・`/email`、`DELETE /membership/:id`、`DELETE /`（アカウント削除）。本人のCookieセッション必須。 |
 | `GET` / `POST` / `PATCH` | `/wristbands/*` | 来場者・リストバンドの検索/照会/発行/編集、スマートフォン発行、バッチ・CSV等。受付・管理用途。ルートと発行方式ごとに認証条件が異なる。`/lookup/:code` は認証なしで来場者行とバンド行を返すため、コードと応答を特に慎重に扱う。 |
 | `GET` | `/pre-orders/user/:code` | 来場者コードによる未受取の事前注文一覧。 |
 | `POST` | `/pre-orders` | ドラフト保存。発行済み来場者コード、同一イベント、受付状態等をサーバーで再検証。 |
