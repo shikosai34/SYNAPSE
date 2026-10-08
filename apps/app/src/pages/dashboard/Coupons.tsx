@@ -128,10 +128,16 @@ function CouponsContent() {
 
   const couponUrl = (slug: string) => `${window.location.origin}/visitor/coupon/${slug}`;
 
-  const copyShareText = (c: Coupon) => {
+  const copyShareText = async (c: Coupon) => {
     const text = `「${c.title}」\n${couponUrl(c.slug)}\n合言葉: ${c.passphrase}`;
-    navigator.clipboard?.writeText(text);
-    toast.success("共有用の文面をコピーしました(URLと合言葉は同じチャットで送ってOKですが、口頭で合言葉だけ言うのは避けてください)");
+    // 2026-10-08: 成功表示はブラウザーの書き込み完了後だけにし、失敗時の誤解を防ぐ。
+    try {
+      if (!navigator.clipboard) throw new Error("Clipboard API is unavailable");
+      await navigator.clipboard.writeText(text);
+      toast.success("共有用の文面をコピーしました(URLと合言葉は同じチャットで送ってOKですが、口頭で合言葉だけ言うのは避けてください)");
+    } catch {
+      toast.error("クリップボードにコピーできませんでした。ブラウザーの権限を確認してください");
+    }
   };
 
   const isFormValid =
