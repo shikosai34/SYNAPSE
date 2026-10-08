@@ -827,6 +827,7 @@ export interface Menu {
   defaultToppingIds?: string;
   toppingWizardEnabled: boolean;
   toppingCategoryMinimums: string;
+  toppingCategoryMaximums?: string;
 }
 
 export interface Topping {
@@ -1021,6 +1022,7 @@ export interface CreateMenuInput {
   defaultToppingIds?: string[];
   toppingWizardEnabled?: boolean;
   toppingCategoryMinimums?: Record<string, number>;
+  toppingCategoryMaximums?: Record<string, number>;
 }
 
 export interface UpdateMenuInput {
@@ -1039,6 +1041,7 @@ export interface UpdateMenuInput {
   defaultToppingIds?: string[];
   toppingWizardEnabled?: boolean;
   toppingCategoryMinimums?: Record<string, number>;
+  toppingCategoryMaximums?: Record<string, number>;
 }
 
 export interface CreateToppingInput {

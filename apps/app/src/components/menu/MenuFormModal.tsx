@@ -1,11 +1,12 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { menuApi, toppingApi, type Menu } from "@/lib/api";
+import { menuApi, toppingApi, type MenuWithToppings } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { ImageUpload } from "@/components/image-upload";
 import { Modal } from "@/components/ui/Modal";
 import { Label } from "@/components/ui/label";
 import {
   FormField,
+  FormSelect,
   FormSubmitButton,
   EditModeBanner,
 } from "@/components/ui/FormField";
@@ -13,13 +14,13 @@ import { UnsavedChangesDialog } from "@/components/ui/UnsavedChangesDialog";
 import { useEntityForm } from "@/hooks/useEntityForm";
 import { Save } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
-import { parseToppingCategoryMinimums } from "@/components/menu/ToppingSelection";
+import { parseToppingCategoryMaximums, parseToppingCategoryMinimums } from "@/components/menu/ToppingSelection";
 
 interface MenuFormModalProps {
   circleId: string;
   isOpen: boolean;
   onClose: () => void;
-  menu?: Menu | null; // 編集時は既存のMenuを渡す。null/undefined時は新規作成
+  menu?: MenuWithToppings | null; // 編集時は選択肢も一緒に受け取り、新規作成後に紐付け設定へ進む
 }
 
 type MenuForm = {
@@ -35,6 +36,7 @@ type MenuForm = {
   defaultToppingIds: string[];
   toppingWizardEnabled: boolean;
   toppingCategoryMinimums: Record<string, number>;
+  toppingCategoryMaximums: Record<string, number>;
 };
 
 function parseDefaultToppingIds(raw?: string): string[] {
@@ -59,10 +61,10 @@ export function MenuFormModal({ circleId, isOpen, onClose, menu }: MenuFormModal
   const {
     form, setForm, isEdit, isConfirmOpen, setIsConfirmOpen, isCreating, saveStatus,
     triggerAutoSave, saveNow, handleOverlayClose, handleSaveAndClose, handleDiscardAndClose,
-  } = useEntityForm<MenuForm, Menu>({
+  } = useEntityForm<MenuForm, MenuWithToppings>({
     isOpen,
     entity: menu,
-    emptyForm: { name: "", category: "", price: 0, imagePath: "", description: "", soldOut: false, inventoryEnabled: false, stockQuantity: 0, defaultToppingIds: [], toppingWizardEnabled: false, toppingCategoryMinimums: {} },
+    emptyForm: { name: "", category: "", price: 0, imagePath: "", description: "", soldOut: false, inventoryEnabled: false, stockQuantity: 0, defaultToppingIds: [], toppingWizardEnabled: false, toppingCategoryMinimums: {}, toppingCategoryMaximums: {} },
     toForm: (m) => ({
       name: m.name,
       category: m.category || "",
@@ -75,6 +77,7 @@ export function MenuFormModal({ circleId, isOpen, onClose, menu }: MenuFormModal
       defaultToppingIds: parseDefaultToppingIds(m.defaultToppingIds),
       toppingWizardEnabled: m.toppingWizardEnabled ?? false,
       toppingCategoryMinimums: parseToppingCategoryMinimums(m.toppingCategoryMinimums),
+      toppingCategoryMaximums: parseToppingCategoryMaximums(m.toppingCategoryMaximums),
     }),
     onClose,
     toastId: "menu-auto-save",
@@ -94,6 +97,7 @@ export function MenuFormModal({ circleId, isOpen, onClose, menu }: MenuFormModal
         defaultToppingIds: data.defaultToppingIds,
         toppingWizardEnabled: data.toppingWizardEnabled,
         toppingCategoryMinimums: data.toppingCategoryMinimums,
+        toppingCategoryMaximums: data.toppingCategoryMaximums,
       }),
     update: (m, data) =>
       menuApi.update(m.id, {
@@ -109,6 +113,7 @@ export function MenuFormModal({ circleId, isOpen, onClose, menu }: MenuFormModal
         defaultToppingIds: data.defaultToppingIds,
         toppingWizardEnabled: data.toppingWizardEnabled,
         toppingCategoryMinimums: data.toppingCategoryMinimums,
+        toppingCategoryMaximums: data.toppingCategoryMaximums,
       }),
     validate: (data) => (!data.name ? "メニュー名を入力してください" : null),
     messages: {
@@ -118,11 +123,30 @@ export function MenuFormModal({ circleId, isOpen, onClose, menu }: MenuFormModal
     },
   });
 
-  const wizardToppingSource = toppings ?? [];
-  const wizardCategories = Array.from(new Set(wizardToppingSource
-    .map((t) => t.category?.trim() ?? "")
-    .filter(Boolean)))
+  const wizardToppingSource = menu?.toppings ?? [];
+  const wizardCategories = [...new Set(wizardToppingSource.map((t) => t.category?.trim() ?? ""))]
     .sort((a, b) => a.localeCompare(b, "ja"));
+
+  const updateCategoryRule = (category: string, rule: "optional" | "one_or_more" | "exactly_one" | "minimum") => {
+    const minimums = { ...form.toppingCategoryMinimums };
+    const maximums = { ...form.toppingCategoryMaximums };
+    if (rule === "optional") {
+      delete minimums[category];
+      delete maximums[category];
+    } else if (rule === "one_or_more") {
+      minimums[category] = 1;
+      delete maximums[category];
+    } else if (rule === "exactly_one") {
+      minimums[category] = 1;
+      maximums[category] = 1;
+    } else {
+      minimums[category] = Math.max(2, minimums[category] ?? 2);
+      delete maximums[category];
+    }
+    const next = { ...form, toppingCategoryMinimums: minimums, toppingCategoryMaximums: maximums };
+    setForm(next);
+    if (isEdit) saveNow(next);
+  };
 
   return (
     <>
@@ -319,7 +343,7 @@ export function MenuFormModal({ circleId, isOpen, onClose, menu }: MenuFormModal
           </div>
         )}
 
-        {/* 2026-10-07 Issue #111: 同じメニュー設定を来場者画面とレジで共有し、カテゴリごとの必須数を表示する。 */}
+        {/* 2026-10-08: 設定手順を先に示し、抽象的な最低数だけでなく現場の選び方でルールを選べるようにする。 */}
         <div className="space-y-3 border-t-thin border-border pt-4">
           <div className="flex items-start gap-3">
             <Checkbox
@@ -333,45 +357,83 @@ export function MenuFormModal({ circleId, isOpen, onClose, menu }: MenuFormModal
               aria-describedby="menuToppingWizardHelp"
             />
             <div className="space-y-1">
-              <Label htmlFor="menuToppingWizardEnabled" className="cursor-pointer text-xs font-bold uppercase">トッピングを順番に選んでもらう</Label>
-              <p id="menuToppingWizardHelp" className="text-[10px] text-muted-foreground">来場者画面とレジに同じカテゴリ別ステップを表示します。</p>
+              <Label htmlFor="menuToppingWizardEnabled" className="cursor-pointer text-xs font-bold uppercase">トッピングをカテゴリ順に選ぶ</Label>
+              <p id="menuToppingWizardHelp" className="text-[10px] text-muted-foreground">レジの「選択」からカテゴリを順に選び、最後にまとめてカートへ入れます。来場者の事前注文にも同じ条件が適用されます。</p>
             </div>
           </div>
           {form.toppingWizardEnabled && (
             <div className="space-y-3 border-thin border-border bg-muted/20 p-3">
-              <div>
-                <p className="text-[10px] font-bold uppercase">来場者・レジの表示イメージ</p>
-                <p className="mt-1 text-[10px] text-muted-foreground">各カテゴリを順に表示し、最低数を選ぶまで次へ進めません。</p>
+              <div className="space-y-2 border-b-thin border-border pb-3">
+                <p className="text-xs font-bold">設定は3ステップ</p>
+                <ol className="list-decimal space-y-1 pl-5 text-[11px] leading-relaxed text-muted-foreground">
+                  <li>トッピングを登録し、同じ種類には同じカテゴリ名を付ける（例: ソース）。</li>
+                  <li>「トッピング対応設定」で、このメニューに選択肢を紐付ける。</li>
+                  <li>カテゴリごとに「任意」「1つ以上」「1つだけ」または必要数を選ぶ。</li>
+                </ol>
+                <p className="text-[10px] font-bold">設定後はレジで「選択」→カテゴリを選ぶ→「カートに入れる」で完了します。</p>
               </div>
               {wizardCategories.length > 0 ? wizardCategories.map((category, index) => {
                 const availableCount = wizardToppingSource
                   .filter((t) => t.category?.trim() === category && !t.soldOut).length;
                 const minimum = form.toppingCategoryMinimums[category] ?? 0;
+                const maximum = form.toppingCategoryMaximums[category];
+                const rule = maximum === 1 && minimum === 1
+                  ? "exactly_one"
+                  : minimum === 0
+                    ? "optional"
+                    : minimum === 1
+                      ? "one_or_more"
+                      : "minimum";
                 return (
-                  <div key={category} className="flex flex-wrap items-center justify-between gap-3 border-t-thin border-border pt-2">
-                    <div>
-                      <p className="text-xs font-bold">STEP {index + 1}: {category}</p>
-                      <p className="text-[10px] text-muted-foreground">選択肢 {availableCount} 件 / 最低 {minimum} 件</p>
+                  <div key={category} className="space-y-2 border-t-thin border-border pt-3">
+                    <div className="flex flex-wrap items-baseline justify-between gap-2">
+                      <p className="text-xs font-bold">カテゴリ {index + 1}: {category || "未分類"}</p>
+                      <p className="text-[10px] text-muted-foreground">登録中の選択肢 {availableCount} 件</p>
                     </div>
-                    <FormField
-                      id={`menuToppingMinimum-${index}`}
-                      label="最低選択数"
-                      type="number"
-                      min={0}
-                      max={20}
-                      value={minimum}
-                      onChange={(e) => {
-                        const count = Math.max(0, Math.min(20, Math.trunc(Number(e.target.value) || 0)));
-                        setForm({ ...form, toppingCategoryMinimums: { ...form.toppingCategoryMinimums, [category]: count } });
-                      }}
-                      onBlur={triggerAutoSave}
-                    />
+                    <FormSelect
+                      id={`menuToppingRule-${index}`}
+                      label="このカテゴリの選び方"
+                      value={rule}
+                      disabled={availableCount === 0}
+                      onChange={(event) => updateCategoryRule(category, event.target.value as typeof rule)}
+                    >
+                      <option value="optional">任意（選ばなくてもよい）</option>
+                      <option value="one_or_more">1つ以上選ぶ</option>
+                      <option value="exactly_one">1つだけ選ぶ</option>
+                      <option value="minimum">指定した数以上を選ぶ</option>
+                    </FormSelect>
+                    {rule === "minimum" && (
+                      <FormField
+                        id={`menuToppingMinimum-${index}`}
+                        label="最低選択数"
+                        type="number"
+                        min={2}
+                        max={20}
+                        value={minimum}
+                        onChange={(e) => {
+                          const count = Math.max(2, Math.min(20, Math.trunc(Number(e.target.value) || 2)));
+                          const next = { ...form, toppingCategoryMinimums: { ...form.toppingCategoryMinimums, [category]: count } };
+                          setForm(next);
+                        }}
+                        onBlur={triggerAutoSave}
+                      />
+                    )}
+                    {availableCount === 0 ? (
+                      <p className="text-[10px] text-warning">販売中のトッピングがありません。選択肢を販売中にしてからルールを設定できます。</p>
+                    ) : (
+                      <p className="text-[10px] text-muted-foreground">
+                        {rule === "optional" && "このカテゴリは選ばずに進めます。"}
+                        {rule === "one_or_more" && "このカテゴリから最低1つ選ぶまで次へ進めません。"}
+                        {rule === "exactly_one" && "このカテゴリから1つ選びます。別のものを選ぶと選択が切り替わります。"}
+                        {rule === "minimum" && `このカテゴリから${minimum}つ以上選ぶまで次へ進めません。`}
+                      </p>
+                    )}
                   </div>
                 );
               }) : (
-                <p className="text-[11px] text-warning">先にトッピングを追加し、カテゴリを設定するとステップと最低数を指定できます。</p>
+                <p className="text-[11px] text-warning">メニューを保存し、「トッピング対応設定」で選択肢を紐付けてから、メニューを再度編集してください。</p>
               )}
-              <p className="text-[10px] text-muted-foreground">最低数は、このメニューに紐づけた同カテゴリの選択肢に適用されます。未紐づけカテゴリは選択肢がないため最低数を0にしてください。0は任意選択です。</p>
+              <p className="border-t-thin border-border pt-2 text-[10px] text-muted-foreground">レジに表示されるのは、このメニューに紐付けたトッピングだけです。必須ルールの選択肢が売り切れた場合は、注文できなくなるため販売状態も確認してください。</p>
             </div>
           )}
         </div>

@@ -27,7 +27,7 @@ import {
   getCouponToppingIds,
 } from "../utils/coupon";
 import type { AppEnv } from "../types";
-import { missingToppingCategoryMinimum } from "../utils/topping-wizard";
+import { validateToppingCategorySelection } from "../utils/topping-wizard";
 
 const preOrderRoutes = new Hono<AppEnv>();
 
@@ -358,10 +358,13 @@ preOrderRoutes.post(
         const availableMenuToppings = toppings.filter((topping) =>
           menuToppingLinks.some((link) => link.menuId === m.id && link.toppingId === topping.id)
         );
-        const missingCategory = missingToppingCategoryMinimum(m, itemToppings, availableMenuToppings);
-        if (missingCategory) {
-          const label = missingCategory.category || "未分類";
-          apiError("BAD_REQUEST", `${m.name}: 「${label}」から最低${missingCategory.required}個選んでください`);
+        const selectionViolation = validateToppingCategorySelection(m, itemToppings, availableMenuToppings);
+        if (selectionViolation) {
+          const label = selectionViolation.category || "未分類";
+          const requirement = selectionViolation.reason === "minimum"
+            ? `最低${selectionViolation.minimum}個選んでください`
+            : `${selectionViolation.maximum}個まで選べます`;
+          apiError("BAD_REQUEST", `${m.name}: 「${label}」は${requirement}`);
         }
 
         const toppingTotal = itemToppings.reduce((sum, t) => sum + t.price, 0);
