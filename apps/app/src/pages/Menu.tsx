@@ -1,6 +1,6 @@
 
 import { useEffect, useRef, useState, Suspense } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ModSandbox } from "@/components/ModSandbox";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { eventApi, circleApi, menuApi, preOrderApi, orderApi, type CreatePreOrderInput, type MenuWithToppings, type Topping } from "@/lib/api";
@@ -29,9 +29,11 @@ import { QRCodeSVG } from "qrcode.react";
 // 2026-10-03: 画面をまたぐカート規則と再送制御を機能モジュールに集約する。
 import { addCartLine, updateCartQuantity, toggleCartTopping, lineSubtotal, cartTotal, cartCount, type CartLine, type CartTopping } from "@/features/orders/cart";
 import { useOrderSubmission } from "@/features/orders/use-order-submission";
+import { getPreOrderSaveRetryAfterMs, getPreOrderSaveRetryDelay, isRetryablePreOrderSaveError, shouldRetryPreOrderSave } from "@/features/orders/pre-order-save";
 import type { CreateOrderInput } from "@fesflow/config/order-contract";
 import { ToppingSelection, parseToppingCategoryMinimums } from "@/components/menu/ToppingSelection";
 import { MenuCategoryFilter, menuCategoryKey } from "@/components/menu/MenuCategoryFilter";
+import { findVisitorRouteItem } from "@/lib/visitor-route";
 
 // 2026-07-13: 来場者モバイルオーダーもトッピング対応にするため、レジ (Register.tsx) と同じく
 // カートを「行 (line)」単位で持つ。同じメニューでもトッピング構成が違えば別行になる。
@@ -229,6 +231,7 @@ function VisitorMenuCard({
 }
 
 function MenuPageContent() {
+  const { eventName: eventNameParam, circleName: circleNameParam } = useParams();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const circleIdParam = searchParams.get("circleId");
@@ -245,6 +248,8 @@ function MenuPageContent() {
   const [hydratedDraftKey, setHydratedDraftKey] = useState<string | null>(null);
   const [isQrOpen, setIsQrOpen] = useState(false);
   const [appOrigin, setAppOrigin] = useState("");
+  const [draftSaveRetry, setDraftSaveRetry] = useState(0);
+  const [draftRetryWaitElapsed, setDraftRetryWaitElapsed] = useState(true);
   const draftIdentityRef = useRef<{ key: string; id: string; updatedAt: number | null } | null>(null);
   const lastDraftPayloadRef = useRef<{ key: string; payload: string } | null>(null);
   const suppressNextDraftSaveRef = useRef(false);
@@ -262,6 +267,8 @@ function MenuPageContent() {
     setAppliedCoupons(selectedCircleId ? getCouponsForCircle(selectedCircleId) : []);
     setEnabledCouponSlugs(new Set());
     setSelectedMenuCategory(null);
+    // 2026-10-08: クーポンは localStorage から同期取得するため、対象サークル分の読込後に下書き保存を解放する。
+    setCouponsLoadedCircleId(selectedCircleId);
   }, [selectedCircleId]);
 
   const toggleCoupon = (slug: string) =>
@@ -279,12 +286,25 @@ function MenuPageContent() {
     queryFn: () => eventApi.list(),
   });
 
+  // 2026-10-08: App.tsx に登録済みの名称URLは、イベント一覧を読み込んでから選択状態へ解決する。
+  useEffect(() => {
+    if (circleIdParam || !eventNameParam || !events) return;
+    const event = findVisitorRouteItem(events, eventNameParam, (item) => item.id, (item) => item.eventName);
+    if (event) setSelectedEventId(event.id);
+  }, [circleIdParam, eventNameParam, events]);
+
   // 選択したイベントのサークル一覧取得
   const { data: circles, isLoading: circlesLoading } = useQuery({
     queryKey: ["circles", selectedEventId],
     queryFn: () => circleApi.list(selectedEventId!),
     enabled: !!selectedEventId,
   });
+
+  useEffect(() => {
+    if (circleIdParam || !circleNameParam || !circles) return;
+    const circle = findVisitorRouteItem(circles, circleNameParam, (item) => item.id, (item) => item.name);
+    if (circle) setSelectedCircleId(circle.id);
+  }, [circleIdParam, circleNameParam, circles]);
 
   // 選択したサークルの情報取得
   const {
@@ -406,14 +426,29 @@ function MenuPageContent() {
       draftSaveQueueRef.current = queued;
       return queued;
     },
-    // 2026-10-07 Issue #49: 一時的な通信失敗で同じカート内容が未保存のまま残らないよう、保存要求を限定回数再試行する。
-    retry: 2,
-    retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 5000),
+    // 2026-10-08 Issue #49: 通信障害は限定回数再試行し、競合などの修正不能な要求は自動再送しない。
+    retry: shouldRetryPreOrderSave,
+    retryDelay: getPreOrderSaveRetryDelay,
     onError: (error: any) => {
       toast.error(error.message || "カートの自動保存に失敗しました");
     },
   });
   const { mutate: saveDraft } = preOrderMutation;
+
+  useEffect(() => {
+    const waitMs = preOrderMutation.isError
+      ? getPreOrderSaveRetryAfterMs(preOrderMutation.error)
+      : null;
+    if (waitMs === null || waitMs === 0) {
+      setDraftRetryWaitElapsed(true);
+      return;
+    }
+
+    // 2026-10-08 Issue #49: Retry-After がある場合、手動再試行もサーバー指定時刻まで待つ。
+    setDraftRetryWaitElapsed(false);
+    const timeout = window.setTimeout(() => setDraftRetryWaitElapsed(true), waitMs);
+    return () => window.clearTimeout(timeout);
+  }, [preOrderMutation.error, preOrderMutation.isError]);
 
   const orderInput: CreateOrderInput | null = selectedCircleId && userId && cart.length > 0 ? {
     circleId: selectedCircleId, userId, peopleCount: 1,
@@ -600,7 +635,7 @@ function MenuPageContent() {
     return () => window.clearTimeout(timeout);
   }, [
     draftKey, hydratedDraftKey, userId, visitorLoaded, couponsLoadedCircleId,
-    selectedCircleId, draftPayload, saveDraft,
+    selectedCircleId, draftPayload, saveDraft, draftSaveRetry,
   ]);
 
   // 外部モッド用グローバルAPIの公開
@@ -853,10 +888,33 @@ function MenuPageContent() {
                 事前に注文を予約し、レジでスムーズに会計できます。
               </p>
             </div>}
-            {cart.length > 0 && !isPreOrderEnabled() && (
-              <p className="text-[10px] font-mono text-primary-foreground/80" role="status">
-                {preOrderMutation.isPending ? "カートを保存しています…" : hydratedDraftKey === draftKey ? "カートは自動保存されます" : "カートを読み込んでいます…"}
-              </p>
+            {!isPreOrderEnabled() && (cart.length > 0 || preOrderMutation.isError) && (
+              <div className="flex flex-wrap items-center gap-2 text-[10px] font-mono text-primary-foreground/80" role="status">
+                {preOrderMutation.isError ? (
+                  <>
+                    <span>
+                      {isRetryablePreOrderSaveError(preOrderMutation.error)
+                        ? "カートを保存できませんでした。通信を確認して再試行してください。"
+                        : "カートの保存状態を確認できません。画面を再読み込みしてください。"}
+                    </span>
+                    {isRetryablePreOrderSaveError(preOrderMutation.error) && (
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        disabled={preOrderMutation.isPending || !draftRetryWaitElapsed}
+                        onClick={() => {
+                          // 2026-10-08 Issue #49: 同一内容の自動保存失敗後も、利用者が保存を再開できるよう重複抑止を解除する。
+                          lastDraftPayloadRef.current = null;
+                          setDraftSaveRetry((attempt) => attempt + 1);
+                        }}
+                        className="h-7 rounded-none px-2 text-[10px] font-bold"
+                      >
+                        {draftRetryWaitElapsed ? "再試行" : "再試行待ち…"}
+                      </Button>
+                    )}
+                  </>
+                ) : preOrderMutation.isPending ? "カートを保存しています…" : hydratedDraftKey === draftKey ? "カートは自動保存されます" : "カートを読み込んでいます…"}
+              </div>
             )}
             {applicableCoupons.length > 0 && (
               <div className="flex items-center gap-1.5 bg-background text-foreground px-2 py-1 text-[11px] font-bold w-fit flex-wrap">

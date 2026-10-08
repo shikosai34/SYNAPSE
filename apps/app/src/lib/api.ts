@@ -97,10 +97,9 @@ async function fetchApiBlob(endpoint: string): Promise<Blob> {
 }
 
 // Event API
-// 2026-07-04: 広告ブロック(Adblocker/Brave Shield)による誤認検知(ERR_BLOCKED_BY_CLIENT)を避けるため、
-// エンドポイントを /api/events から /api/festivals に変更。
+// 2026-10-08: 来場者の公開イベント一覧と、所属に絞った運営一覧を別エンドポイントにする。
 export const eventApi = {
-  list: () => fetchApi<Event[]>("/api/festivals"),
+  list: () => fetchApi<PublicEventSummary[]>("/api/festivals/public"),
   get: (id: string) => fetchApi<Event>(`/api/festivals/${id}`),
   // イベント統計・分析 (2026-07-12)。event_manager (sales:read) 権限が必要。
   analytics: (id: string) => fetchApi<EventAnalytics>(`/api/festivals/${id}/analytics`),
@@ -521,6 +520,13 @@ export interface Event extends EventTheme {
   lifecycleStatus?: "upcoming" | "live" | "ended" | "archived";
   startDate: Date | null;
   endDate: Date | null;
+}
+
+export interface PublicEventSummary {
+  id: string;
+  eventName: string;
+  description: string | null;
+  logoUrl: string | null;
 }
 
 export interface StampRallyArea {

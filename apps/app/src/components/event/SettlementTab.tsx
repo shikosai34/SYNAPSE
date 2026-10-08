@@ -61,8 +61,11 @@ export function SettlementTab({ eventId, eventName }: { eventId: string; eventNa
     const link = document.createElement("a");
     link.href = url;
     link.download = `${eventName || "event"}_精算_${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(link);
     link.click();
-    URL.revokeObjectURL(url);
+    link.remove();
+    // 2026-10-08: Blob URLの即時解放によるダウンロード開始前の失効を防ぐ。
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
 
   return (

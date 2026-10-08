@@ -45,6 +45,15 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
+// 2026-10-08: 直接追加APIと同じく、ブラウザー標準の email 判定で誤入力を送信前に止める。
+function isValidEmailAddress(value: string): boolean {
+  const input = document.createElement("input");
+  input.type = "email";
+  input.required = true;
+  input.value = value;
+  return input.validity.valid;
+}
+
 function MembersContent() {
   // 2026-07-16: circleName も circleId 同様、localStorage(circleAuth) を mount 時に
   // 一度だけ読む独自 state だと、同一パス上でのスペース切り替え後に古いサークル名の
@@ -374,7 +383,7 @@ function MembersContent() {
 
         <FormSubmitButton
           onClick={handleAddMember}
-          disabled={!newMember.userEmail || !newMember.userName}
+          disabled={!isValidEmailAddress(newMember.userEmail) || !newMember.userName.trim()}
           isPending={addMemberMutation.isPending}
           icon={UserPlus}
         >

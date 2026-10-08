@@ -500,7 +500,8 @@ membershipRoutes.post(
   "/",
   zBody(
     z.object({
-      userEmail: z.string(),
+      // 2026-10-08: 直接追加でも形式不正な宛先を所属として保存しない。
+      userEmail: z.string().email(),
       userName: z.string(),
       circleId: z.string().optional(),
       eventId: z.string().optional(),

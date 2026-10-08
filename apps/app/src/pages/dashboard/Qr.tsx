@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from "react";
+import { useState, useRef } from "react";
 import {
   CircleAuthGuard,
   PermissionGuard,
@@ -19,7 +19,7 @@ import {
   Loader2,
   Download,
 } from "lucide-react";
-import { VISITOR_BASE_URL } from "@/lib/visitor-url";
+import { visitorUrl } from "@/lib/visitor-url";
 import { QRCodeSVG } from "qrcode.react";
 import { toPng } from "html-to-image";
 import jsPDF from "jspdf";
@@ -39,15 +39,8 @@ function CircleQrContent() {
   // ままになる。useAuth() (authChange 購読) から直接取得するよう統一する。
   const { circleId, circleName: authCircleName } = useAuth();
   const circleName = authCircleName ?? "サークルダッシュボード";
-  const [origin, setOrigin] = useState("");
   const [isExporting, setIsExporting] = useState(false);
   const popRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      setOrigin(window.location.origin);
-    }
-  }, []);
 
   const {
     data: circle,
@@ -82,8 +75,8 @@ function CircleQrContent() {
 
   // 2026-07-06: 来場者アプリへ直接リンクする。以前は register の /visitor/menu 経由で
   // ExternalRedirect していたが、リダイレクト時に ?circleId が落ちてサークルが特定できず
-  // 「メニューが開けない」不具合になっていた。VISITOR_BASE_URL へ直接飛ばして circleId を渡す。
-  const mobileOrderUrl = `${VISITOR_BASE_URL}/visitor/menu?circleId=${circleId}`;
+  // 「メニューが開けない」不具合になっていた。2026-10-08: 共通URL関数で開発時の実ポートにも追従する。
+  const mobileOrderUrl = `${visitorUrl("/visitor/menu")}?circleId=${encodeURIComponent(circleId)}`;
 
   const handlePrint = () => {
     window.print();
@@ -304,4 +297,3 @@ export default function CircleQrPage() {
     </CircleAuthGuard>
   );
 }
-

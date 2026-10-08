@@ -46,7 +46,7 @@
     "dompurify": "3.4.16",
     "source-map-js": "1.2.2",
     "postcss": "8.5.28",
-    "sharp": "0.35.4",
+    "sharp": "0.35.5",
     "browserslist": "4.29.3",
     "baseline-browser-mapping": "2.11.27",
     "next": "16.3.8",

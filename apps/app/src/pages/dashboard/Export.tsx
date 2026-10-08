@@ -21,8 +21,11 @@ function downloadCsvFile(filename: string, headers: string[], rows: (string | nu
   const link = document.createElement("a");
   link.href = url;
   link.download = `${filename}_${new Date().toISOString().slice(0, 10)}.csv`;
+  document.body.appendChild(link);
   link.click();
-  URL.revokeObjectURL(url);
+  link.remove();
+  // 2026-10-08: Chromium may read the Blob URL after click() returns, so keep it alive briefly.
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 function CircleExportContent() {

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { env } from "cloudflare:test";
 import { circle, event, eventUser, menu, order, preOrder, type WorkerEnv } from "@fesflow/db";
+import { eq } from "drizzle-orm";
 import { commitOrder, jstOrderDay, orderCommand, type CommitOrderInput } from "../src/services/order-commit";
 import { updateOrderStatus } from "../src/services/order-status";
 import { postJson, testDb, uid } from "./helpers";
@@ -17,6 +18,14 @@ async function seed(stock = 100, inventoryEnabled = true) {
     status: "pending", items: [{ menuId, menuName: "Item", menuPrice: 300, quantity: 1, inventoryEnabled: true, toppings: [] }] };
   const body = { circleId, userId, items: [{ menuId, quantity: 1 }] };
   return { eventId, circleId, menuId, userId, input, body };
+}
+// 2026-10-08 (#49): claim用テストは本番と同じupdated_at CAS tokenを読み、再試行時にも固定して使う。
+async function seedPendingPreOrder(f: Awaited<ReturnType<typeof seed>>) {
+  const preOrderId = uid("pre");
+  const db = testDb();
+  await db.insert(preOrder).values({ id: preOrderId, circleId: f.circleId, userId: f.userId, totalPrice: 300 });
+  const rows = await db.select({ updatedAt: preOrder.updatedAt }).from(preOrder).where(eq(preOrder.id, preOrderId)).limit(1);
+  return { preOrderId, expectedPreOrderUpdatedAt: rows[0]!.updatedAt.getTime() };
 }
 async function count(sql: string, value: string) {
   return env.DB.prepare(sql).bind(value).first<number>("value");
@@ -140,11 +149,10 @@ describe("atomic order commits", () => {
 
   it("claim is exactly once including stamp and stock, even across concurrent commits", async () => {
     const f = await seed();
-    const preOrderId = uid("pre");
-    await testDb().insert(preOrder).values({ id: preOrderId, circleId: f.circleId, userId: f.userId, totalPrice: 300 });
+    const { preOrderId, expectedPreOrderUpdatedAt } = await seedPendingPreOrder(f);
     const command = await orderCommand(`claim:${preOrderId}`, preOrderId, { preOrderId });
     const results = await Promise.all(Array.from({ length: 20 }, () => commitOrder(env.DB, command, {
-      ...f.input, id: uid("order"), status: "preparing", preOrderId,
+      ...f.input, id: uid("order"), status: "preparing", preOrderId, expectedPreOrderUpdatedAt,
     })));
     expect(new Set(results.map(r => r.id)).size).toBe(1);
     expect(await count("SELECT stock_quantity AS value FROM menu WHERE id=?", f.menuId)).toBe(99);
@@ -154,8 +162,7 @@ describe("atomic order commits", () => {
 
   it.each([2, 3, 5, 7])("SQL failure after batch step %i rolls back stock, order, items and claim", async (step) => {
     const f = await seed();
-    const preOrderId = uid("pre");
-    await testDb().insert(preOrder).values({ id: preOrderId, circleId: f.circleId, userId: f.userId, totalPrice: 300 });
+    const { preOrderId, expectedPreOrderUpdatedAt } = await seedPendingPreOrder(f);
     const failingDb = {
       prepare: env.DB.prepare.bind(env.DB),
       batch: (statements: Parameters<WorkerEnv["DB"]["batch"]>[0]) => env.DB.batch([
@@ -165,7 +172,7 @@ describe("atomic order commits", () => {
       ]),
     } as WorkerEnv["DB"];
     const command = await orderCommand("failure", uid("key"), f.body);
-    const input = { ...f.input, status: "preparing" as const, preOrderId };
+    const input = { ...f.input, status: "preparing" as const, preOrderId, expectedPreOrderUpdatedAt };
     await expect(commitOrder(failingDb, command, input)).rejects.toThrow();
     expect(await count("SELECT count(*) AS value FROM orders WHERE circle_id=?", f.circleId)).toBe(0);
     expect(await count("SELECT stock_quantity AS value FROM menu WHERE id=?", f.menuId)).toBe(100);

@@ -45,11 +45,12 @@ Vite はルート `.env` を読み込みます（`apps/app/vite.config.ts` の `
 ローカルでよく使う値:
 
 - `VITE_API_URL=http://localhost:8787`
-- `VITE_VISITOR_URL=http://localhost:3000`（同一アプリ内の来場者向けリンク）
 - `VITE_STAFF_URL=http://localhost:3000`（店頭アプリへのリンク）
 - `ENABLE_EMAIL_PASSWORD=true`（Wrangler ローカル開発のメール/パスワードログイン）
 - `VITE_ENABLE_LOCAL_AUTH=true`（Vite 開発画面のメール/パスワード認証 UI）
 - `INITIAL_SUPER_ADMIN_EMAIL`（初期システム管理者のローカル設定。デモメンバーシップには使われません）
+
+開発時の来場者向けリンクは、Vite が実際に起動したオリジンを使います。3000番ポートが使用中でアプリが3001番などへ移動しても、リンク先は現在のアプリに追従します。別ホストへ分けて配信する環境では `VITE_VISITOR_URL` を設定してください。
 
 ローカル `.env` を変更したら Vite と Wrangler を再起動してください。
 

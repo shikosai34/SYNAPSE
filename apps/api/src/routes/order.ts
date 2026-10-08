@@ -74,15 +74,15 @@ orderRoutes.get("/", async (c) => {
   const items = await db
     .select()
     .from(orderItem)
-    // 2026-10-03: D1のbound parameter上限を超えないよう、可変IDをJSON 1 bindにする。
-    .where(inArray(orderItem.orderId, sql`SELECT value FROM json_each(${JSON.stringify(orderIds)})`));
+    // 2026-10-08: 副問い合わせをINの括弧内に置く。DrizzleのinArrayへSQL断片を渡すと括弧が補われず構文エラーになる。
+    .where(sql`${orderItem.orderId} IN (SELECT value FROM json_each(${JSON.stringify(orderIds)}))`);
 
   const itemIds = items.map((i) => i.id);
   const allItemToppings = itemIds.length > 0
     ? await db
         .select()
         .from(orderItemTopping)
-        .where(inArray(orderItemTopping.orderItemId, sql`SELECT value FROM json_each(${JSON.stringify(itemIds)})`))
+        .where(sql`${orderItemTopping.orderItemId} IN (SELECT value FROM json_each(${JSON.stringify(itemIds)}))`)
     : [];
 
   // 注文にアイテムを追加

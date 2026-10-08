@@ -1,14 +1,12 @@
 /**
- * 来場者アプリ (apps/visitor) への クロスアプリ URL を組み立てる。
- *
- * 本番は単一ドメインのパス分割 (visitor=apex `/`, register=`/circle` 等) なので
- * 同一オリジンだが、ローカル開発では visitor が別ポート (:3001) で動くため
- * VITE_VISITOR_URL を基点にする。SPA が異なるので遷移は react-router ではなく
- * フルページ遷移 (<a href> / window.location) で行うこと。
+ * 来場者向けパスの絶対URLを組み立てる。
+ * 本番は VITE_VISITOR_URL で公開先を指定し、開発時は同じSPAの現在のオリジンを使う。
  */
 export const VISITOR_BASE_URL =
 	(import.meta.env.VITE_VISITOR_URL as string) || "http://localhost:3001";
 
 export function visitorUrl(path: string): string {
-	return `${VISITOR_BASE_URL}${path}`;
+	// 2026-10-08: 開発ポートは3000番が使用中だとViteが自動でずらすため、実際の同一SPAを指す。
+	const baseUrl = import.meta.env.DEV ? window.location.origin : VISITOR_BASE_URL;
+	return `${baseUrl}${path}`;
 }

@@ -10,12 +10,17 @@ type Line = {
   inventoryEnabled: boolean;
   toppings: { toppingId: string; toppingName: string; toppingPrice: number }[];
 };
-export type CommitOrderInput = {
+type CommitOrderInputBase = {
   id: string; circleId: string; userId: string; cashierId?: string;
   peopleCount: number; totalPrice: number; paymentMethod?: string;
   status: "pending" | "preparing" | "completed";
-  items: Line[]; preOrderId?: string; expectedPreOrderUpdatedAt?: number;
+  items: Line[];
 };
+// 2026-10-08 (#49): claimのCAS tokenをpreOrderIdと必ず対にし、D1へundefinedをbindできないよう型で制約する。
+export type CommitOrderInput = CommitOrderInputBase & (
+  | { preOrderId: string; expectedPreOrderUpdatedAt: number }
+  | { preOrderId?: undefined; expectedPreOrderUpdatedAt?: undefined }
+);
 
 async function digest(value: string): Promise<string> {
   const hash = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));

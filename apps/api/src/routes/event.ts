@@ -69,12 +69,53 @@ eventRoutes.get("/", async (c) => {
   return c.json(events);
 });
 
+// 2026-10-08: 未入場の来場者が公開イベントを選べるよう、運営一覧とは分けて
+// 公開表示に必要な項目だけ返す。運営用一覧の所属ベース認可は維持する。
+eventRoutes.get("/public", async (c) => {
+  const db = c.get("db");
+  const events = await db
+    .select({
+      id: event.id,
+      eventName: event.eventName,
+      description: event.description,
+      logoUrl: event.logoUrl,
+    })
+    .from(event)
+    .where(isNull(event.deletedAt))
+    .orderBy(desc(event.startDate));
+
+  return c.json(events);
+});
+
 // イベント取得
 eventRoutes.get("/:id", async (c) => {
   const db = c.get("db");
   const id = c.req.param("id");
   const events = await db
-    .select()
+    // 2026-10-08: このルートは来場者画面からも認証なしで呼ばれるため、
+    // 契約情報・所有者メール・運営メモなどを含むイベント行全体を返さず、画面用項目に限定する。
+    .select({
+      id: event.id,
+      eventName: event.eventName,
+      description: event.description,
+      startDate: event.startDate,
+      endDate: event.endDate,
+      lifecycleStatus: event.lifecycleStatus,
+      paymentMethods: event.paymentMethods,
+      stampRallySettings: event.stampRallySettings,
+      lotteryEnabled: event.lotteryEnabled,
+      advancedPermissions: event.advancedPermissions,
+      logoUrl: event.logoUrl,
+      fontFamily: event.fontFamily,
+      customFontUrl: event.customFontUrl,
+      primaryColor: event.primaryColor,
+      primaryTextColor: event.primaryTextColor,
+      accentColor: event.accentColor,
+      accentTextColor: event.accentTextColor,
+      backgroundColor: event.backgroundColor,
+      textColor: event.textColor,
+      hasPhysicalWristband: event.hasPhysicalWristband,
+    })
     .from(event)
     .where(and(eq(event.id, id), isNull(event.deletedAt)));
 

@@ -22,7 +22,7 @@ import { toast } from "sonner";
 import { Minus, Plus, ShoppingCart, Trash2, QrCode, X, ScanLine } from "lucide-react";
 import { resolveAssetUrl } from "@/lib/asset-url";
 // 2026-10-03: 画面をまたぐカート規則と再送制御を機能モジュールに集約する。
-import { addCartLine, updateCartQuantity, toggleCartTopping, lineSubtotal, cartTotal, cartCount, type CartLine, type CartTopping } from "@/features/orders/cart";
+import { addCartLine, updateCartQuantity, toggleCartTopping, lineSubtotal, checkoutTotal, cartCount, type CartLine, type CartTopping } from "@/features/orders/cart";
 import { useOrderSubmission } from "@/features/orders/use-order-submission";
 import type { CreateOrderInput } from "@fesflow/config/order-contract";
 import { ToppingSelection, parseToppingCategoryMinimums } from "@/components/menu/ToppingSelection";
@@ -154,6 +154,7 @@ function CartBody({
   onSubmit,
   onClear,
   total,
+  preOrderCouponApplied,
   paymentMethods,
   paymentMethod,
   onSetPayment,
@@ -170,6 +171,7 @@ function CartBody({
   onSubmit: () => void;
   onClear: () => void;
   total: number;
+  preOrderCouponApplied: boolean;
   // 支払い方法 (2026-07-12)。要素が2つ以上のときだけ選択UIを出す。
   paymentMethods: string[];
   paymentMethod: string;
@@ -291,6 +293,9 @@ function CartBody({
           <span className="font-mono text-sm uppercase tracking-wider">合計金額</span>
           <span className="font-headline text-2xl sm:text-3xl font-black">¥{total.toLocaleString()}</span>
         </div>
+        {preOrderCouponApplied && (
+          <p className="text-xs text-muted-foreground">事前注文に適用済みのクーポンを反映した金額です。</p>
+        )}
 
         {/* 支払い方法の選択 (対応が2つ以上のサークルのみ表示。1つなら自動採用) */}
         {paymentMethods.length > 1 && (
@@ -365,6 +370,8 @@ function RegisterPageContent() {
   const [scannedCode, setScannedCode] = useState("");
   const [activeCustomer, setActiveCustomer] = useState<{ userId: string; wristbandId: string | null } | null>(null);
   const [activePreOrderId, setActivePreOrderId] = useState<string | null>(null);
+  const [activePreOrderTotalPrice, setActivePreOrderTotalPrice] = useState<number | null>(null);
+  const [activePreOrderCouponApplied, setActivePreOrderCouponApplied] = useState(false);
 
   const { data: circle } = useQuery({
     queryKey: ["circle", circleId],
@@ -457,6 +464,8 @@ function RegisterPageContent() {
   useEffect(() => {
     if (!activeCustomer) {
       setActivePreOrderId(null);
+      setActivePreOrderTotalPrice(null);
+      setActivePreOrderCouponApplied(false);
       return;
     }
 
@@ -472,6 +481,8 @@ function RegisterPageContent() {
         if (pendingOrders.length > 0) {
           const po = pendingOrders[0]!;
           setActivePreOrderId(po.id);
+          setActivePreOrderTotalPrice(po.totalPrice);
+          setActivePreOrderCouponApplied((po.couponSlugs?.length ?? 0) > 0);
           setCart(
             po.items.map((item) => ({
               lineId: crypto.randomUUID(),
@@ -498,10 +509,16 @@ function RegisterPageContent() {
           });
         } else {
           setActivePreOrderId(null);
+          setActivePreOrderTotalPrice(null);
+          setActivePreOrderCouponApplied(false);
         }
       } catch (err) {
         console.error("Failed to load pre-order items:", err);
-        if (isMounted) setActivePreOrderId(null);
+        if (isMounted) {
+          setActivePreOrderId(null);
+          setActivePreOrderTotalPrice(null);
+          setActivePreOrderCouponApplied(false);
+        }
       }
     };
 
@@ -609,7 +626,9 @@ function RegisterPageContent() {
     setCart((prev) => toggleCartTopping(prev, lineId, topping));
   };
 
-  const getTotalPrice = () => cartTotal(cart);
+  // 2026-10-08: 店頭受取では事前注文に保存済みの合計を請求額として見せる。
+  // 明細の現行価格を足すとクーポン値引きが消えて見え、画面表示とclaim後の記録額がずれる。
+  const getTotalPrice = () => checkoutTotal(cart, activePreOrderId ? activePreOrderTotalPrice : null);
   const getTotalCount = () => cartCount(cart);
 
   const handleSubmitOrder = async () => {
@@ -882,6 +901,7 @@ function RegisterPageContent() {
             onSubmit={handleSubmitOrder}
             onClear={clearCart}
             total={getTotalPrice()}
+            preOrderCouponApplied={!!activePreOrderId && activePreOrderCouponApplied}
             paymentMethods={effectivePayments}
             paymentMethod={paymentMethod}
             onSetPayment={setPaymentMethod}
@@ -942,6 +962,7 @@ function RegisterPageContent() {
               onSubmit={handleSubmitOrder}
               onClear={clearCart}
               total={getTotalPrice()}
+              preOrderCouponApplied={!!activePreOrderId && activePreOrderCouponApplied}
               paymentMethods={effectivePayments}
               paymentMethod={paymentMethod}
               onSetPayment={setPaymentMethod}
