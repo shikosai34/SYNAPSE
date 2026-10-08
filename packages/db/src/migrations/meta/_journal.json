@@ -197,6 +197,13 @@
       "when": 1791454402894,
       "tag": "0027_real_thunderbird",
       "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "6",
+      "when": 1791455262082,
+      "tag": "0028_dry_satana",
+      "breakpoints": true
     }
   ]
 }
