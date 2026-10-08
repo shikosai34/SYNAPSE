@@ -55,7 +55,7 @@
 | `PATCH` / `POST` | `/orders/:id/status`, `/orders/:id/estimated-time`, `/orders/:id/complete` | 注文状態・見込み時間の更新/完了。スタッフ権限と許可された状態遷移を確認。 |
 | `GET` | `/memberships/roles`, `/memberships/my`, `/memberships/circle/:circleId`, `/memberships/event/:eventId` | ロール定義、自分の所属、サークル/イベントのメンバー一覧。ログイン必須。所属一覧は本人に限定し、対象スコープのメンバー閲覧権限を確認。 |
 | `POST` | `/memberships/check-permission` | ログイン中本人の権限を指定スコープで照会。`userEmail` はセッション本人と一致する必要がある。 |
-| `POST` | `/memberships` | メンバーを追加。対象スコープのメンバー管理権限が必要。 |
+| `POST` | `/memberships` | `{ userEmail, userName, circleId または eventId, role }` で所属を追加。対象スコープのメンバー管理権限が必要。イベント所属はイベント管理者のみ、サークル所属はサークルオーナーまたはイベント管理者が追加できる。システム管理者ロールの付与は `super_admin` のみ。 |
 | `PATCH` / `DELETE` | `/memberships/:id/role`, `/memberships/:id/deactivate`, `/memberships/:id/reactivate`, `/memberships/:id` | ロール変更、停止/再開、削除。対象スコープのメンバー管理権限が必要で、最後のサークル管理者は停止・降格・削除できない。 |
 | `POST` | `/memberships/invite`, `/memberships/invite/accept`, `/memberships/invite/:id/regenerate` | 招待作成、招待受諾、新しいtoken/codeで再発行。作成・再発行は対象スコープのメンバー管理権限が必要。 |
 | `GET` | `/memberships/invite/lookup`, `/memberships/invite/list` | token/codeによる招待照会、管理者向け招待一覧。照会にはログインが必要で、一覧は対象スコープのメンバー管理権限が必要。 |
@@ -79,6 +79,7 @@
 ### メンバーシップ・招待・通知の連携条件
 
 - `/memberships/*` はログイン必須です。所属や招待を管理するルートは、対象イベント/サークルのメンバー管理権限も検証します。
+- `POST /memberships` の本文は `{ userEmail, userName, circleId または eventId, role }` です。`userEmail` と `userName` は文字列、`role` は認可設定にあるロール値で、所属先は `circleId` または `eventId` のどちらかを指定します。イベント所属の追加は対象イベントの `event_manager`、サークル所属の追加は対象サークルの実ロール `circle_manager` またはイベント管理者が行えます。`super_admin` の付与/変更にはシステム管理者が必要です。
 - `GET /memberships/invite/lookup?token=...` または `?code=...` は招待の種別、ロール、対象イベント/サークル、期限・使用上限を返します。`POST /memberships/invite/accept` は `{ token?, code?, userName }` を受け取り、ログイン中のメールアドレスで受諾します。招待が `targetEmail` に結び付いている場合、そのメールでログインする必要があります。
 - `GET /memberships/invite/list?circleId=...` または `?eventId=...` は対象を一つ指定します。管理権限のある呼び出し元には共有用の `token` と `code` が返るため、応答を公開ログや無関係な外部サービスへ送らないでください。作成時の有効期限は1〜168時間 (省略時24時間)、最大使用回数は1〜100です。
 - `PATCH /memberships/invite/:id/extend` は `{ expiresInHours }` (1〜168、既定168) で期限を延ばします。`POST /memberships/invite/:id/regenerate` は新しいtoken/codeを作り、旧招待は履歴のため残します。`DELETE /memberships/invite/:id` は招待を削除します。
@@ -245,6 +246,30 @@ curl -i -A 'OpenAI File Downloader, XaiImageApiFetch/1.0' 'http://localhost:8787
 - 注文作成は `Idempotency-Key` による再送保護があります。ほかの書込みAPIに同じ冪等性があるとは限りません。
 
 ブラウザー/運用手順が前提となる、またはHTTP APIで完結すると確認できない作業には、Google/パスキー認証UI、対面でのリストバンド発行や本人確認、システム管理者の再認証/昇格操作、画面上のスペース選択状態、CSVを使った作業手順があります。API経由で類似操作を行える箇所も、その操作自体が認められているとは限らないため、当該ルートのロール・監査・運用条件を満たす必要があります。録画/配信制御用 `apps/stream` は未着手であり、OBS連携APIはこのリファレンスに含めていません。
+
+### システム管理API
+
+以下のルートは `/api/admin` 配下で、全てログイン済み `super_admin` が必要です。一般のイベント/サークル運営者や外部ソフト用の管理APIではありません。HTTPメソッド、パス、主な用途は次のとおりです。
+
+| メソッド | パス | 用途・追加条件 |
+| --- | --- | --- |
+| `GET` / `PUT` | `/admin/settings` | メンテナンス表示、終了済みイベントのデータ保持期間の取得/更新。更新本文は `maintenance: { enabled, message }` と `cleanup: { retentionDays }` の任意項目。保持期間は設定範囲内で監査記録される。 |
+| `GET` / `POST` | `/admin/announcements` | 全体お知らせの一覧/作成。作成本文は `{ title, body?, level?, published? }`。 |
+| `PATCH` / `DELETE` | `/admin/announcements/:id` | 全体お知らせの部分更新/削除。 |
+| `GET` | `/admin/overview`, `/admin/events`, `/admin/users` | システム概要、契約情報付きイベント一覧、所属から集約したアカウント一覧。個人/契約データを含むため外部送信しない。 |
+| `PATCH` / `DELETE` | `/admin/events/:id` | イベント名・プラン・サークル上限・契約状態/金額/メモの更新、または論理削除。契約・テナント状態を直接変える管理操作。 |
+| `GET` / `POST` | `/admin/events/:id/payments` | 手動入金台帳の取得/入金記録。POST本文は `{ amount, method?, paidAt, note? }`。決済処理や資金移動は行わない。 |
+| `DELETE` | `/admin/payments/:paymentId` | 手動入金記録の削除。 |
+| `PATCH` | `/admin/memberships/:id` | システム所属のロール/有効状態変更。本文は `role?` と `isActive?`。自分自身や最後の有効 `super_admin` を無効化・降格できない。 |
+| `GET` / `POST` | `/admin/sessions/expired-count`, `/admin/sessions/cleanup` | 期限切れセッション数の照会/期限切れセッションの削除。削除操作は監査対象。 |
+| `GET` / `DELETE` | `/admin/lockouts`, `/admin/lockouts/:id` | 現在ロック中の認証試行一覧/ロック解除。 |
+| `GET` | `/admin/sudo/status`, `/admin/impersonate/status` | 現在の昇格/なりすまし状態の照会。 |
+| `POST` | `/admin/sudo/elevate`, `/admin/sudo/end` | 一時昇格の開始/終了。UIは開始前にパスキーで再認証し、APIはセッション作成から5分以内であることを確認する。昇格は15分で失効する。 |
+| `POST` | `/admin/impersonate` | イベント/サークル運営者としての一時的ななりすまし。`sudo` 昇格状態が必要。本文のロールと `eventId`/`circleId` の組合せも検証する。 |
+| `POST` | `/admin/impersonate/stop` | なりすまし終了。 |
+| `GET` | `/admin/audit` | 直近200件の管理監査ログ。 |
+
+`super_admin` セッションの存在だけで第三者システムが安全に管理操作を自動化できるわけではありません。UIはパスキー再認証後に一時昇格APIを呼び出し、APIはセッション作成時刻の新しさを確認します。ロール/契約/入金/テナント状態の変更は監査と運用判断を伴います。これらのルートを通常の外部連携に利用しないでください。
 
 ## 参照ソース
 
