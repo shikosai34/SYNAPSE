@@ -32,10 +32,12 @@
 | --- | --- | --- |
 | `GET` | `/system/public`, `/system/announcements` | メンテナンス表示情報、公開お知らせ。公開。 |
 | `GET` | `/festivals`, `/festivals/:id` | イベント一覧・詳細。詳細と一覧で公開範囲が異なる場合がある。 |
-| `POST` | `/festivals` | イベント作成。イベント管理権限を確認。 |
-| `PUT` / `DELETE` | `/festivals/:id` | イベント更新・削除。イベント管理権限を確認。 |
+| `POST` | `/festivals` | イベント作成。ログインセッション必須。作成者が `event_manager` になり、無料枠のイベントが作成される。 |
+| `DELETE` | `/festivals/:id` | イベントの論理削除。`super_admin` セッション必須。 |
 | `GET` | `/festivals/:id/analytics`, `/behavior`, `/contract`, `/daily-close`, `/inventory`, `/visitors`, `/orders/live` | 分析、行動、契約、日次集計、在庫、来場者一覧、注文状況。対象イベントの権限を確認。`daily-close` は集計取得であり締め確定APIではない。 |
-| `PUT` | `/festivals/:id/advanced-permissions`, `/lifecycle-status`, `/lottery-enabled`, `/payment-methods`, `/theme` | イベント設定。対象イベントの管理権限と入力条件を確認。 |
+| `PUT` | `/festivals/:id/advanced-permissions`, `/lifecycle-status`, `/lottery-enabled`, `/payment-methods` | イベント設定。対象イベントの権限と入力条件を確認。 |
+| `PUT` | `/festivals/:id/stamp-rally-settings` | スタンプラリー設定。対象イベントの `event:write` 権限を確認。 |
+| `PUT` | `/festivals/:id/theme` | テーマ・基本設定の更新または作成。`super_admin` セッション必須。 |
 | `POST` / `DELETE` | `/festivals/:id/announce`, `/festivals/:id/announcements/:announcementId` | 告知送信・履歴削除。対象イベントのメンバー管理権限を確認。 |
 | `PATCH` | `/circles/:id/settings`, `/mods`, `/wait-time` | サークル設定、モデレーション、待ち時間報告。対象サークルの権限を確認。 |
 | `POST` | `/circles/:id/transfer-owner` | オーナー移譲。サークル権限に加えオーナー条件を確認。 |
@@ -44,12 +46,14 @@
 | `GET` / `POST` / `PUT` / `PATCH` / `DELETE` | `/menus`, `/menus/:id`, `/menus/:id/stock`, `/menus/:id/inventory` | メニュー参照 (`GET`) は公開。作成/編集/削除と在庫変更ではサークル権限を判定。 |
 | `GET` / `POST` / `PUT` / `DELETE` | `/toppings`, `/toppings/:id`, `/toppings/:id/stock` | トッピング管理。サークルのメニュー/在庫権限等を確認。 |
 | `GET` / `POST` / `PUT` / `DELETE` | `/staff`, `/staff/:id` | 店舗スタッフ情報の参照・管理。対象サークルのスタッフ権限。 |
-| `GET` | `/orders?circleId=...&status=...`, `/orders/:id`, `/orders/by-number/:orderNumber`, `/orders/stats/sales`, `/orders/user/:code` | 注文一覧・詳細・番号検索・売上集計は運営権限。`/orders/user/:code` は来場者本人の注文履歴で、応答項目を絞る。 |
+| `GET` | `/orders?circleId=...&status=...`, `/orders/by-number/:orderNumber`, `/orders/stats/sales` | 注文一覧・番号検索・売上集計。対象サークルの `order:read` 権限を確認。 |
+| `GET` | `/orders/:id` | 注文IDを知っている利用者向けの公開照会。注文IDがベアラー値として働く。`cashierId` は応答から除外。 |
+| `GET` | `/orders/user/:code` | 来場者本人の注文履歴。来場者コードで対象を絞り、応答項目を限定する。コードを秘密として扱う。 |
 | `POST` | `/orders` | POS注文作成。JSON注文データと発行済み来場者IDが必要。再送には `Idempotency-Key` を推奨。 |
 | `PATCH` / `POST` | `/orders/:id/status`, `/orders/:id/estimated-time`, `/orders/:id/complete` | 注文状態・見込み時間の更新/完了。スタッフ権限と許可された状態遷移を確認。 |
 | `GET` / `POST` / `PATCH` / `DELETE` | `/memberships/*` | `/roles`, `/my`, `/circle/:circleId`, `/event/:eventId`, メンバー作成/更新/停止/再開/削除、招待と通知。ルート全体でログイン必須、個々の変更は対象スコープとメンバー管理権限を追加確認。 |
 | `GET` / `POST` / `PATCH` / `DELETE` | `/account/*` | `/me`, `/profile`, `/email`, `/membership/:id`、アカウント削除。本人のCookieセッション必須。 |
-| `GET` / `POST` / `PATCH` | `/wristbands/*` | 来場者・リストバンドの検索/照会/発行/編集、スマートフォン発行、バッチ・CSV等。受付・管理用途。ルートと発行方式ごとに認証条件が異なる。`/lookup/:code` はコードを使う照会。 |
+| `GET` / `POST` / `PATCH` | `/wristbands/*` | 来場者・リストバンドの検索/照会/発行/編集、スマートフォン発行、バッチ・CSV等。受付・管理用途。ルートと発行方式ごとに認証条件が異なる。`/lookup/:code` は認証なしで来場者行とバンド行を返すため、コードと応答を特に慎重に扱う。 |
 | `GET` | `/pre-orders/user/:code` | 来場者コードによる未受取の事前注文一覧。 |
 | `POST` | `/pre-orders` | ドラフト保存。発行済み来場者コード、同一イベント、受付状態等をサーバーで再検証。 |
 | `POST` | `/pre-orders/:id/claim` | POSでのclaim。運営セッションと `order:write` 権限、注文条件を検証。 |
@@ -72,14 +76,17 @@
 | --- | --- | --- |
 | `GET` | `/menus`, `/menus/:id` | メニュー参照。`GET /menus` は `circleId` が必要。 |
 | `POST` | `/orders` | 発行済み来場者 `userId` と注文条件を検証してPOS注文を作成。 |
+| `GET` | `/orders/:id` | 注文IDによる注文・明細照会。IDを知る利用者が読めるため、URLやログへ不用意に記録しない。スタッフ内部情報の `cashierId` は返さない。 |
 | `POST` | `/pre-orders` | ドラフト新規作成・自動保存。来場者ID等を検証し、更新にはCAS用のドラフトID/更新時刻が必要。 |
 | `GET` | `/pre-orders/user/:code` | 来場者コードで未受取の事前注文を参照。コードは本人性を証明する強い認証ではない。 |
-| `POST` | `/wristbands/onboard`, `/wristbands/issue`, `/wristbands/register` | オンボード、デジタルバンド発行、初回登録。`issue` は方式によって認証要件が異なり、物理IDを指定する発行は運営認証が必要。 |
+| `POST` | `/wristbands/onboard`, `/wristbands/issue`, `/wristbands/register` | オンボード、デジタルバンド発行、初回登録。`issue` は `wristbandId` を省略すると匿名で来場者とスマートフォンバンドを発行し、物理IDを指定するとログインセッションを要求する（このルート自身はスタッフ権限を確認しない）。 |
+| `POST` | `/wristbands/:id/report-lost` | セッションなしで紛失報告し、active/smartphone のバンドを lost に変更する。コードを知る第三者が状態を変えられるため、外部連携から呼ばない。 |
+| `GET` | `/wristbands/lookup/:code` | セッションなしでコード照会し、該当する来場者行とリストバンド行を返す。個人情報を含み得るため、URL・ログ・第三者サービスへ送らない。 |
 | `POST` | `/lottery/:id/enter`, `/coupons/verify`, `/reviews/visitor/:code` | 来場者応募、クーポン検証、来場者レビュー投稿。各ハンドラーの状態・回数・対象条件を満たす必要がある。 |
 | `GET` | `/stamps/:userId` | ID指定でスタンプと交換状態を参照。来場者ID自体を秘密として扱う必要がある。 |
 | `GET` | `/stamps/visitor/:code` | 来場者コードでスタンプラリー設定と押印済みサークルを参照。コードは秘密として扱う。未設定または無効コードでは `enabled: false` と空配列を返す。 |
 
-来場者IDやリストバンドコードだけで本人を特定するAPIは、強いユーザー認証ではありません。値を知る利用者が別人の情報を参照したり操作したりできる経路があるため、公開クライアントにコードを埋め込んだり、ログやURLで共有したりしないでください。認証なしの書込みエンドポイントは、公開Web画面を成立させる実装上の導線であり、外部システムからの無制限利用を推奨するものではありません。
+来場者IDやリストバンドコードだけで本人を特定するAPIは、強いユーザー認証ではありません。値を知る利用者が別人の情報を参照したり操作したりできる経路があります。特に `GET /wristbands/lookup/:code` は来場者行とバンド行を返し、`POST /wristbands/:id/report-lost` はコードだけで有効なバンドを停止します。これらの値を公開クライアントへ埋め込んだり、ログやURLで共有したりしないでください。認証なしの書込みエンドポイントは、公開Web画面を成立させる実装上の導線であり、外部システムからの無制限利用を推奨するものではありません。
 
 ## リクエスト例
 
@@ -181,7 +188,7 @@ curl -i -A 'OpenAI File Downloader, XaiImageApiFetch/1.0' 'http://localhost:8787
 - メニュー取得や注文作成など、匿名で呼べる主要ルートもあります。匿名注文作成は既存の来場者IDを要求し、在庫・イベント状態等をサーバーが検証します。匿名であることは、外部連携向けの利用許可やSLAを意味しません。
 - 運営連携はBetter AuthのセッションCookieを維持し、所属依存APIへ `X-Active-Membership-Id` を付ける必要があります。パスキー/GoogleログインはブラウザーリダイレクトやWebAuthnを含むため、ヘッドレスサーバー連携向け認証契約とは言えません。
 - ブラウザーから呼ぶ場合はCORS許可Originの制限を受けます。許可Origin外のWebページから直接呼ぶ連携はできません。サーバー間呼び出しではCORSではなくAPI側の認証・認可が適用されます。
-- 来場者フローの一部はQR/リストバンドコードをリクエストに含める方式です。これはユーザーID自体が資格情報として機能するため、共有や漏えいを防ぐ保護境界としては弱く、外部システムが任意コードを生成して使える仕組みでもありません。実際に発行された値を適切に保護してください。
+- 来場者フローの一部はQR/リストバンドコードをリクエストに含める方式です。注文IDによる注文照会も同様にIDを知る者が読み取れます。加えて、リストバンド照会は来場者行とバンド行を返し、紛失報告はコードだけで有効なバンドを停止します。これらの値は資格情報として保護し、アクセスログや解析サービスへの記録を避けてください。外部システムが任意コードを生成して使える仕組みではありません。
 - 注文作成は `Idempotency-Key` による再送保護があります。ほかの書込みAPIに同じ冪等性があるとは限りません。
 
 ブラウザー/運用手順が前提となる、またはHTTP APIで完結すると確認できない作業には、Google/パスキー認証UI、対面でのリストバンド発行や本人確認、システム管理者の再認証/昇格操作、画面上のスペース選択状態、CSVを使った作業手順があります。API経由で類似操作を行える箇所も、その操作自体が認められているとは限らないため、当該ルートのロール・監査・運用条件を満たす必要があります。録画/配信制御用 `apps/stream` は未着手であり、OBS連携APIはこのリファレンスに含めていません。
