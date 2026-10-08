@@ -254,9 +254,58 @@ curl -i -A 'OpenAI File Downloader, XaiImageApiFetch/1.0' 'http://localhost:8787
 - 来場者応募 `POST /api/lottery/:id/enter` は `{userId}` を受け取り、対象イベントへの登録状態と抽選受付状態を検証します。同じ利用者の再応募は冪等です。`GET /api/lottery/:id/result?userId=...` は認証なしで、指定された `userId` の応募/当選結果を返します。ID所有者の確認はないため、他人のIDを指定すればその結果も照会できます。
 - `POST /api/lottery/:id/draw` は結果を永続化する抽選実行です。`POST /api/lottery/:id/winners/:winnerId/claim` は `event:write` を要求し、受取時刻を記録します。外部連携から抽選を再実行したり、結果を上書きしたりしないでください。
 
+### イベント・サークル運営の更新
+
+これらのルートは管理画面が使うCookie認証付きAPIです。外部ソフトから呼ぶ場合も、セッションCookieと `X-Active-Membership-Id` に加えて、対象スコープの権限を満たす必要があります。動的な `settings` / `mods` は拡張可能なJSONであり、全キーが共通の固定スキーマとして保証されているわけではありません。
+
+| メソッド・パス | 入力 | 成功応答・制約 |
+| --- | --- | --- |
+| `PUT /api/festivals/:id/stamp-rally-settings` | `{settings:{enabled,areas:[{id,name,requiredCount,circleIds,rewardTitle?,rewardDescription?}]}}`。最大20エリア、1エリア最大100サークル。 | `{success:true}`。有効化時は対象エリアとサークルが必要で、必要数は対象サークル数以下。サークルの重複、別イベント所属、削除済みIDは拒否。`event:write`。 |
+| `PUT /api/festivals/:id/lifecycle-status` | `{status:"upcoming"|"live"|"ended"|"archived"}` | `{success:true}`。注文可否や画面表示モードに影響。終了後イベントを再開できるよう、このルートでは終了後の読み取り専用ゲートを除外する。`event:write`。 |
+| `PUT /api/festivals/:id/lottery-enabled`, `/advanced-permissions` | `{enabled:boolean}` | `{success:true}`。抽選の公開/権限評価に影響。`event:write`。 |
+| `PUT /api/festivals/:id/payment-methods` | `{paymentMethods:string[]}`。1〜20件、各1〜30文字。 | `{success:true,paymentMethods:string[]}`。空白をtrimし重複を除去。空配列または空白のみは拒否。`event:write`。 |
+| `POST /api/festivals/:id/announce` | `{title:string,message:string}`。タイトル1〜120文字、本文1〜2000文字。 | `{sent:number}`。イベントと配下サークルの有効メンバーに通知を作成する送信操作。`member:write`。 |
+| `GET /api/festivals/:id/announcements`, `DELETE /api/festivals/:id/announcements/:announcementId` | 追加の本文なし。 | GETは新しい順の履歴配列、DELETEは `{success:true}`。履歴削除は受信者に届いた通知を取り消さない。GETは `member:read`、DELETEは `member:write`。 |
+| `POST /api/circles` | `{eventId,name,description?,inviteToken?}` | `{id}`、201。作成者のセッション必須。対象イベントの `event_manager` または有効な `circle_host` 招待が必要。招待は作成時に消費される。停止イベント、サークル数上限、イベント内の重複名は拒否。 |
+| `PUT /api/circles/:id` | 部分更新 `{name?,description?,iconImagePath?:string|null,backgroundImagePath?:string|null}` | `{success:true}`。`circle:write` に加えてサークルオーナーのみ。`null` は画像パスの解除。 |
+| `PATCH /api/circles/:id/settings`, `/mods` | `{settings:object}` または `{mods:object}` | `{success:true}`。`circle:write` を要求。JSONの内部キーはサークル機能に依存するため、同じイベントの画面設定と一緒に扱う。 |
+| `PATCH /api/circles/:id/wait-time` | `{waitMinutes:integer}`。0〜240分、10分単位。 | `{success:true,waitTimeReport:{minutes,reportedAt}}`。最新値と最大500件の履歴を保存。`order:write`。 |
+| `POST /api/circles/:id/transfer-owner` | `{membershipId:string}` | `{success:true}`。指定メンバーを同一サークルから選ぶ。現オーナーが必要で、現オーナーを降格し対象を `circle_manager` にする。権限を変更する操作。 |
+
+### 注文・メンバー運営操作
+
+| メソッド・パス | 入力 | 成功応答・制約 |
+| --- | --- | --- |
+| `GET /api/orders?circleId=...&status=...` | `circleId` 必須、`status` 任意。 | 注文明細とトッピングを含む配列。Cookie + `order:read`。ページングなし。 |
+| `PATCH /api/orders/:id/status` | `{status:"pending"|"preparing"|"ready"|"completed"|"cancelled"}` | `{success:true}`。許可された状態遷移のみ。無効遷移は400、同時更新で状態が変わっていれば409。Cookie + `order:write`。 |
+| `PATCH /api/orders/:id/estimated-time` | `{estimatedTime:number}`。0以上。 | `{success:true}`。Cookie + `order:write`。 |
+| `POST /api/orders/:id/complete` | 本文なし。 | `{success:true}`。完了状態と時刻を記録。Cookie + `order:write`。 |
+| `GET /api/orders/stats/sales?circleId=...&dateFrom=...&dateTo=...` | `circleId` 必須、日付境界は任意。 | `{totalSales,totalOrders,averageOrderValue}`。`completed` 注文だけを対象にする。Cookie + `sales:read`。 |
+| `POST /api/memberships` | `{userEmail,userName,circleId?,eventId?,role}`。roleはシステム定義のロール値。 | `{id}`、201。対象スコープに対するメンバー管理権限が必要。メールは保存時に小文字化される。 |
+| `PATCH /api/memberships/:id/role` | `{role}`。 | `{success:true}`。対象スコープの権限を確認し、最後の有効なサークル管理者は降格不可。 |
+| `PATCH /api/memberships/:id/deactivate`, `PATCH /api/memberships/:id/reactivate`, `DELETE /api/memberships/:id` | 本文なし。 | `{success:true}`。停止・再開・除名。対象スコープの権限が必要で、最後の有効なサークル管理者は停止/除名不可。 |
+
+### システム管理APIの更新本文
+
+前掲の `/api/admin/*` は `super_admin` セッションを要します。下記は本文と返却値を具体化したもので、契約、入金台帳、所属権限を変更するため通常の外部連携に使用しないでください。
+
+| メソッド・パス | 入力 | 成功応答・制約 |
+| --- | --- | --- |
+| `POST /api/admin/announcements` | `{title,body?,level?,published?}`。タイトル1〜120文字、本文最大2000文字、levelは `info` / `warning` / `critical`、publishedはboolean。 | `{success:true,id}`。下書きも作成できる。 |
+| `PATCH /api/admin/announcements/:id` | 同じ項目の部分更新。 | `{success:true}`。 |
+| `PATCH /api/admin/events/:id` | `eventName?` (1〜120)、`plan?` (1〜40)、`maxCircles?` (1〜10000の整数)、`billingStatus?` (`active`/`trial`/`suspended`/`unpaid`)、`billingAmount?` (0〜100000000の整数)、`nextBillingAt?` (ISO日時またはnull)、`contractNotes?` (最大2000文字またはnull)。 | `{success:true}`。契約/課金状態の変更を監査する。 |
+| `POST /api/admin/events/:id/payments` | `{amount,method?,paidAt,note?}`。金額1〜100000000の整数、methodは最大40文字 (既定 `銀行振込`)、paidAtはISO日時、noteは最大500文字。 | `{id}`、201。手入力の入金台帳であり、カード決済や送金を実行しない。 |
+| `DELETE /api/admin/payments/:paymentId` | 本文なし。 | `{success:true}`。入金台帳の削除。 |
+| `PATCH /api/admin/memberships/:id` | `role?` (`super_admin`/`event_manager`/`circle_manager`/`staff`/`viewer`)、`isActive?` (boolean)。 | `{success:true}`。自分自身、または最後の有効な `super_admin` を無効化/降格できない。 |
+
 ## 集計とライブ表示の意味
 
+- `GET /api/festivals/:id/analytics` は `{totals,byHour,circleRanking,menuRanking,ageBuckets,paymentBreakdown}` を返します。`totals` は来場者数/オンボード率、キャンセル以外の注文・売上・客数・客単価・完了率、サークル数、レビュー数/平均評価、回遊訪問数を含みます。`byHour` はJSTの0〜23時、`circleRanking` は売上順、`menuRanking` は販売個数上位20件、`paymentBreakdown` は支払い方法別です。
+- `GET /api/circles/:id/analytics` は `{totals,byHour,menuRanking,paymentBreakdown}` を返し、`totals` はキャンセル以外の注文/売上/客数/客単価/完了率、平均調理時間、レビュー/平均評価、訪問者数、登録メニュー数を含みます。サークル統計も未完了注文を含むため、売上確定額ではありません。
+- `GET /api/festivals/:id/behavior` は `{journey,stayBuckets,circleCountBuckets,byHour,peakHour,funnel,staffing,topTransitions}` を返します。来場者の注文・回遊・滞在から算出した集計、時間帯別活動、購入ファネル、サークル別スタッフ負荷、サークル間移動を含みます。`sales:read` が必要で、小さなイベントでは集計から個人を推測できる可能性があるため慎重に扱ってください。
+- `GET /api/festivals/:id/orders/live` は `{id,orderNumber,circleId,circleName,status,peopleCount,totalPrice,estimatedTime,createdAt}` の配列です。対象は `pending` / `preparing` の注文のみで、作成日時の古い順です。
 - `GET /api/orders/stats/sales?circleId=...&dateFrom=...&dateTo=...` は `circleId` が必須で、任意の `dateFrom` / `dateTo` で注文作成日時を絞り込みます。`completed` 注文だけを集計し、`{totalSales,totalOrders,averageOrderValue}` を返します。
+- `GET /api/festivals/:id/daily-close?date=YYYY-MM-DD` は `{date,totals:{orders,revenue,customers},paymentBreakdown:[{method,orders,revenue}],circleBreakdown:[{circleId,name,orders,revenue}]}` を返します。日付省略時はJSTの当日です。レポートを確定したり注文状態を変えたりしません。
 - イベント/サークル分析、日次締め、精算の集計はキャンセル以外の注文を含みます。未完了注文の金額も表示されるため、`orders/stats/sales` と同じ数字になるとは限りません。日次締めは指定されたJST日付の範囲で集計し、締め状態を確定・ロックする操作ではありません。
 - `GET /api/festivals/:id/orders/live` は通常のJSON GETで、未着手と調理中の注文のスナップショットを返します。SSE/WebSocketではないため、変化を追うクライアントは間隔を空けて再取得してください。
 
@@ -304,9 +353,9 @@ curl -i -A 'OpenAI File Downloader, XaiImageApiFetch/1.0' 'http://localhost:8787
 | --- | --- | --- |
 | `GET` / `PUT` | `/admin/settings` | メンテナンス表示、終了済みイベントのデータ保持期間の取得/更新。更新本文は `maintenance: { enabled, message }` と `cleanup: { retentionDays }` の任意項目。保持期間は設定範囲内で監査記録される。 |
 | `GET` / `POST` | `/admin/announcements` | 全体お知らせの一覧/作成。作成本文は `{ title, body?, level?, published? }`。 |
-| `PATCH` / `DELETE` | `/admin/announcements/:id` | 全体お知らせの部分更新/削除。 |
+| `PATCH` / `DELETE` | `/admin/announcements/:id` | 全体お知らせの部分更新/削除。本文と応答は「システム管理APIの更新本文」を参照。 |
 | `GET` | `/admin/overview`, `/admin/events`, `/admin/users` | システム概要、契約情報付きイベント一覧、所属から集約したアカウント一覧。個人/契約データを含むため外部送信しない。 |
-| `PATCH` / `DELETE` | `/admin/events/:id` | イベント名・プラン・サークル上限・契約状態/金額/メモの更新、または論理削除。契約・テナント状態を直接変える管理操作。 |
+| `PATCH` / `DELETE` | `/admin/events/:id` | イベント名・プラン・サークル上限・契約状態/金額/メモの更新、または論理削除。更新本文は「システム管理APIの更新本文」を参照。契約・テナント状態を直接変える管理操作。 |
 | `GET` / `POST` | `/admin/events/:id/payments` | 手動入金台帳の取得/入金記録。POST本文は `{ amount, method?, paidAt, note? }`。決済処理や資金移動は行わない。 |
 | `DELETE` | `/admin/payments/:paymentId` | 手動入金記録の削除。 |
 | `PATCH` | `/admin/memberships/:id` | システム所属のロール/有効状態変更。本文は `role?` と `isActive?`。自分自身や最後の有効 `super_admin` を無効化・降格できない。 |
