@@ -192,6 +192,10 @@ curl -i -A 'OpenAI File Downloader, XaiImageApiFetch/1.0' -X POST http://localho
 
 `userId` は受付発行等で既に登録された来場者IDである必要があります。イベント停止/開催期間、BAN状態、メニュー・在庫・価格、トッピング等をサーバーが検証します。成功応答は `201` と `{"id":"...","orderNumber":"..."}`。同じキーで同じ内容を再送すると同じ結果を返し、同じキーで内容を変更すると `409 CONFLICT` です。キー長など詳しくは [apps/api/src/services/order-commit.ts](../apps/api/src/services/order-commit.ts) と [packages/config/src/order-contract.ts](../packages/config/src/order-contract.ts) を参照。
 
+`items` は1〜50件、`quantity` は正の整数、`toppingIds` は各明細20件以下で重複不可です。`peopleCount` は正の整数 (省略時1)、`cashierId` と `notes` は任意、`paymentMethod` は任意で最大30文字です。価格はクライアント値を受け取らず、Workerがメニュー価格から再計算します。
+
+`Idempotency-Key` は1〜128文字で、ネットワーク再試行を行うクライアントは必ず同じキーを再利用してください。キーは `circleId` と `userId` の組ごとに分離されます。ヘッダーを省略するとリクエストごとに新しいランダムキーが発行されるため、タイムアウト後の再送は別注文になる可能性があります。同じキーで異なる本文を送ると `409 CONFLICT` になります。
+
 Cookie認証が必要な運営APIのcurl例は、ログインCookieと有効な所属IDを安全に取得済みの場合に限り、次の形です。Cookieや実値をシェル履歴へ置かないでください。
 
 ```sh
@@ -207,14 +211,33 @@ curl -i -A 'OpenAI File Downloader, XaiImageApiFetch/1.0' 'http://localhost:8787
 ### 事前注文
 
 - `POST /api/pre-orders` は来場者 `userId`、`circleId`、`draftId`（1文字以上）、`expectedUpdatedAt`（新規時は `null`、更新時は直前に返された `updatedAt`）、`items` を受け取ります。明細は `menuId`、1以上の `quantity`（省略時1）、任意の `toppingIds` です。任意で最大10件の `{slug, passphrase}` クーポンを渡せます。
-- 更新は `draftId` と `expectedUpdatedAt` の組で競合を検出します。古い更新時刻の書込みは競合エラーになります。クーポンと在庫等はサーバー側で検証し、注文確定時にも再評価します。
-- `POST /api/pre-orders/:id/claim` は匿名ではありません。レジ運営者のセッションと `order:write` 権限を要求し、任意の `cashierId`、`paymentMethod` を受け取ります。
+- 作成/更新の応答は `{id,totalPrice,updatedAt}` で、新規は `201`、更新は `200` です。`updatedAt` は Unix epoch ミリ秒で、次回更新時に `expectedUpdatedAt` としてそのまま返します。`GET /api/pre-orders/user/:code?circleId=...` は未受取ドラフトと明細を返し、`draftVersion` に同じCAS値を含みます。`circleId` を省略すると、その来場者の全サークル分を返します。
+- `draftId` は一つのカートで固定し、保存要求ごとに新しくしないでください。古いCAS値でも、本文と適用クーポンが現在の保存状態に完全一致すれば、レスポンス喪失後の再送として `200` と最新 `updatedAt` を返します。内容が異なる古い書込み、または確定済みドラフトは `409 CONFLICT` になります。
+- `items: []` はドラフトの取消です。応答は `{id,totalPrice:0,updatedAt,deleted:true}` で、適用済みクーポンの予約カウントを戻します。キャンセル済みドラフトIDは遅延した自動保存による復活を防ぐため再利用しないでください。
+- クーポンと在庫等はサーバー側で検証し、受取確定時にも再評価します。`POST /api/pre-orders/:id/claim` は匿名ではなく、レジ運営者のセッションと `order:write` 権限を要求します。本文は任意の `cashierId`、最大30文字の `paymentMethod` です。成功応答は `{success:true,orderId,orderNumber}` です。
 
 ### クーポン
 
-- `GET /api/coupons/circle/:circleId` は `coupon:read`、作成 `POST` と停止 `POST /api/coupons/:id/disable` は `coupon:write` を要求します。
-- 公開の `POST /api/coupons/verify` は `{slug, passphrase, eventUserId}` を受け取り、利用可否をプレビューします。この確認だけでは利用回数を消費しません。
+- `GET /api/coupons/circle/:circleId` は `coupon:read`、`POST /api/coupons/circle/:circleId` と `POST /api/coupons/:id/disable` は `coupon:write` を要求します。
+- 作成本文は `kind` による判別共用体です。金額引きは `{kind:"menu_discount",title,passphrase,discountAmount,menuIds,maxRedemptions?,expiresAt?}`、トッピング無料は `{kind:"free_topping",title,passphrase,toppingIds,freeUnits?,maxRedemptions?,expiresAt?}` です。`title` は1〜100文字、`passphrase` は1〜50文字、割引額と `freeUnits` は正の整数、対象ID配列は1件以上、`maxRedemptions` は1〜100000、`expiresAt` はISO日時です。回数上限を省略すると無制限です。
+- 作成成功は `201` で、クーポン情報に `menuIds` と `toppingIds` を加えたオブジェクトが返ります。応答には配布用の `slug` と `passphrase` が含まれるため、ログや意図しない宛先に残さないでください。
+- 公開の `POST /api/coupons/verify` は `{slug, passphrase, eventUserId}` を受け取り、利用可否をプレビューします。成功時は `{couponId,circleId,title,kind,discountAmount,freeUnits,menuIds,toppingIds}` を返し、この照会だけでは利用回数を消費しません。
 - 利用は事前注文作成時の `coupons` に指定し、サーバーが検証・適用します。プレビュー結果だけを信頼して値引きを確定しないでください。
+
+### レビュー
+
+- `GET /api/reviews/visitor/:code` は有効な来場者コードから、同じイベント内で利用履歴のあるサークルと本人のレビュー状態を配列で返します。各要素は `{circleId,circleName,review:{rating,comment}|null}` です。利用履歴はサークル訪問、またはキャンセル以外で完了済みの注文から判定します。
+- `POST /api/reviews/visitor/:code` は `{circleId,rating,comment?}` を受け取り、`rating` は1〜5の整数、`comment` は最大1000文字です。来場者が有効状態で、対象サークルが同一イベントにあり、訪問または完了注文の履歴が必要です。成功応答は `{success:true}`。同じ来場者・サークルへの再投稿は新規行を増やさず既存レビューを更新します。
+- `GET /api/reviews/circle/:circleId` は `sales:read` が必要で、`rating`, `comment`, `createdAt`, `displayId` の一覧を返します。来場者コードによるGET/POSTは匿名アクセス可能なため、コードを秘密情報として保護してください。
+
+### 外部クライアントの事前注文フロー
+
+1. `GET /api/menus?circleId=...` で公開メニューとトッピングを取得します。
+2. 受付等で発行済みの来場者IDを使います。外部クライアントが任意の `userId` を新規発行することはできません。
+3. `POST /api/pre-orders` に固定の `draftId`、初回は `expectedUpdatedAt:null`、選択明細を送ります。返された `updatedAt` を次回保存のCAS値として保持し、保存するたび同じ `draftId` を使います。
+4. 必要なら `POST /api/coupons/verify` でプレビューし、`slug` と `passphrase` をドラフト保存本文の `coupons` に含めます。ドラフト保存時にサーバーが再検証し、適用します。
+5. 来場者コードを保持するクライアントは `GET /api/pre-orders/user/:code?circleId=...` でドラフトを再取得できます。このコードは本人認証ではなく、漏えいすると他人が注文情報を照会できる値です。
+6. 店頭受取確定の `POST /api/pre-orders/:id/claim` はスタッフCookieと `order:write` 権限が必要です。来場者アプリ単独では注文確定できず、支払方法の記録や厨房への移行は店舗側のセッションで行います。
 
 ### スタンプ
 
@@ -230,7 +253,7 @@ curl -i -A 'OpenAI File Downloader, XaiImageApiFetch/1.0' 'http://localhost:8787
 
 ## 集計とライブ表示の意味
 
-- `GET /api/orders/stats/sales` は完了済み注文だけを売上集計します。
+- `GET /api/orders/stats/sales?circleId=...&dateFrom=...&dateTo=...` は `circleId` が必須で、任意の `dateFrom` / `dateTo` で注文作成日時を絞り込みます。`completed` 注文だけを集計し、`{totalSales,totalOrders,averageOrderValue}` を返します。
 - イベント/サークル分析、日次締め、精算の集計はキャンセル以外の注文を含みます。未完了注文の金額も表示されるため、`orders/stats/sales` と同じ数字になるとは限りません。日次締めは指定されたJST日付の範囲で集計し、締め状態を確定・ロックする操作ではありません。
 - `GET /api/festivals/:id/orders/live` は通常のJSON GETで、未着手と調理中の注文のスナップショットを返します。SSE/WebSocketではないため、変化を追うクライアントは間隔を空けて再取得してください。
 
