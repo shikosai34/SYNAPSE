@@ -111,6 +111,8 @@
 | `POST` | `/wristbands/onboard` | なし。来場者IDがベアラー値として働く | `{ userId, nickname, favoriteDate? }` で既存来場者の初回登録またはプロフィールを更新します。来場者IDを知る者は本人として扱われるため、第三者へ渡さずログにも残さないでください。 |
 | `POST` | `/wristbands/issue-smartphone` | Cookie + 対象イベントの `member:write` | `{ userId }` で既存来場者へ `sp_<userId>` を発行/再有効化します。既存の有効な物理/スマートフォンバンドは `replaced` になります。詳細とバッチAPIは次節を参照してください。 |
 
+`POST /api/wristbands/issue` は `eventId` を受け取り、サーバーが来場者ID (`userId`) と呼出ID (`displayId`) を採番して `{ userId, displayId, wristbandId }` を返します。`wristbandId` を省略する匿名発行が、外部クライアントから来場者枠を作る入口です。任意の `userId` を指定して発行することはできません。物理バンドIDを指定する場合は、Cookieと対象イベントの `member:write` が必要です。
+
 ### リストバンド一括連携
 
 スタッフ管理画面で発行・取込履歴を作り、保存したURLから処理を再開できます。次のイベントAPIはすべてイベント所属権限を検証します。運営Cookieと `X-Active-Membership-Id` が必要です。
@@ -241,6 +243,7 @@ curl -i -A 'OpenAI File Downloader, XaiImageApiFetch/1.0' 'http://localhost:8787
 
 ### スタンプ
 
+- 注文が完了すると、その来場者とサークルの組み合わせにつきスタンプを最大1件記録します。来場者向け進捗は完了済み注文から導出されます。外部クライアントが任意にスタンプを直接付与するAPIはありません。
 - `GET /api/stamps/visitor/:code` は発行済みのスマートフォン用バンドID、または `eventUser.id` でイベントの設定と押印済みサークルを返します。無効コードや未設定時は `{enabled:false,areas:[],stampedCircleIds:[]}` 相当です。
 - `GET /api/stamps/:userId` はそのIDのスタンプ、交換状態、押印数を返します。どちらの値も本人性を証明する秘密情報として保護してください。
 - `POST /api/stamps/redeem` はログインセッションを要求し、未交換かつ3個以上のスタンプがある指定 `userId` に交換記録を作ります。実装上、ログイン利用者のスタッフ権限・イベント/サークル所属・指定来場者との関係は確認しません。外部クライアントはこの実装上の認可不足を前提に呼び出さないでください。
