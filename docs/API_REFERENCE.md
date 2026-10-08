@@ -102,8 +102,11 @@
 | `POST` | `/wristbands/batches/:batchId/process` | 保存済みURLを最大400件ずつ来場者・バンドへ登録し、進捗を返す。完了・競合状態では同じ履歴を返す。 | `member:write` |
 | `GET` | `/wristbands/batches/:batchId/csv` | バッチのURLだけを `url` 列のCSVとして返す。`private, no-store`。 | `member:read` |
 | `POST` | `/wristbands/import` | `{ eventId, urls }`。`urls` は1〜20件で、各値は `/w/ID` 形式のURLまたはID文字列。画面からの大きなCSVは20件単位で分割します。 | `member:write` |
+| `POST` | `/wristbands/issue-smartphone` | `{ userId }`。既存の来場者にスマートフォン用バンドを発行し、現在の有効な物理/スマートフォン用バンドを `replaced` に変更します。バンドIDは `sp_<userId>` で、既存行があれば再有効化します。来場者発行や匿名オンボードではなく、対象イベントの運営権限が必要です。 | `member:write` |
 
 `/wristbands/import` は印刷会社などから戻ったCSVの各IDを既存イベントへ結び付ける一括登録APIです。登録済みIDや入力内重複は `409` になります。バッチCSVはサーバーが直接CSVを返す唯一の確認済みCSV APIです。一般の来場者・注文・分析・精算CSVはAPIレスポンス自体がCSVではなく、SPAがJSON応答から組み立ててダウンロードします。
+
+`POST /wristbands/issue-smartphone` は既存来場者に対する管理操作です。対象ユーザーのイベントに対する `member:write` 権限を要求し、同ユーザーの有効なバンドを置き換えたうえで、決定的なID `sp_<userId>` のスマートフォン用バンドを作成または再有効化します。新規来場者の自己発行に使う `/wristbands/issue` とは権限・副作用が異なります。
 
 ### 画像・フォントの保存と配信
 
