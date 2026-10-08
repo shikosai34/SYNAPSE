@@ -69,6 +69,24 @@ eventRoutes.get("/", async (c) => {
   return c.json(events);
 });
 
+// 2026-10-08: 未入場の来場者が公開イベントを選べるよう、運営一覧とは分けて
+// 公開表示に必要な項目だけ返す。運営用一覧の所属ベース認可は維持する。
+eventRoutes.get("/public", async (c) => {
+  const db = c.get("db");
+  const events = await db
+    .select({
+      id: event.id,
+      eventName: event.eventName,
+      description: event.description,
+      logoUrl: event.logoUrl,
+    })
+    .from(event)
+    .where(isNull(event.deletedAt))
+    .orderBy(desc(event.startDate));
+
+  return c.json(events);
+});
+
 // イベント取得
 eventRoutes.get("/:id", async (c) => {
   const db = c.get("db");

@@ -32,6 +32,7 @@
 | --- | --- | --- |
 | `GET` | `/system/public`, `/system/announcements` | メンテナンス表示情報、公開お知らせ。公開。 |
 | `GET` | `/festivals` | ログイン必須。所属しているイベントだけを一覧し、`super_admin` は全件を参照できる。 |
+| `GET` | `/festivals/public` | 未入場の来場者がイベントを選ぶための公開一覧。削除済みを除き、ID・名称・説明・ロゴURLだけを返す。 |
 | `GET` | `/festivals/:id` | 認証・所属権限なしでイベント詳細を参照できる公開ルート。 |
 | `POST` | `/festivals` | イベント作成。ログインセッション必須。作成者が `event_manager` になり、無料枠のイベントが作成される。 |
 | `DELETE` | `/festivals/:id` | イベントの論理削除。`super_admin` セッション必須。 |

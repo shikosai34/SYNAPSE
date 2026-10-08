@@ -66,6 +66,39 @@ describe("認証・認可境界", () => {
 		await expectErrorJson(res, "UNAUTHORIZED");
 	});
 
+	it("未認証の GET /api/festivals/public は公開表示項目だけを返す", async () => {
+		const eventId = uid("public-event");
+		const deletedEventId = uid("deleted-public-event");
+		await testDb().insert(event).values({
+			id: eventId,
+			eventName: "公開イベント",
+			description: "来場者向け説明",
+			logoUrl: "/uploads/event-logo.png",
+			ownerEmail: "private-owner@example.invalid",
+			contractNotes: "非公開の運営メモ",
+			paymentMethods: '["現金","PayPay"]',
+		});
+		await testDb().insert(event).values({
+			id: deletedEventId,
+			eventName: "削除済みイベント",
+			deletedAt: new Date(),
+		});
+
+		const res = await request("/api/festivals/public");
+		expect(res.status).toBe(200);
+		const rows = (await res.json()) as Array<Record<string, unknown>>;
+		expect(rows).toContainEqual({
+			id: eventId,
+			eventName: "公開イベント",
+			description: "来場者向け説明",
+			logoUrl: "/uploads/event-logo.png",
+		});
+		expect(JSON.stringify(rows)).not.toContain("private-owner@example.invalid");
+		expect(JSON.stringify(rows)).not.toContain("非公開の運営メモ");
+		expect(JSON.stringify(rows)).not.toContain("paymentMethods");
+		expect(rows.some((row) => row.id === deletedEventId)).toBe(false);
+	});
+
 	// 2026-07-07 (Phase 3a): hasPermission の「X-Active-Membership-Id が無ければ
 	// 全 membership を評価する」互換フォールバックを撤去した。このテストは、
 	// サークルの circle_manager 権限を持つユーザーであっても、そのサークルを
