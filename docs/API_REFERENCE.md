@@ -35,7 +35,7 @@
 | `GET` | `/festivals/:id` | 認証・所属権限なしでイベント詳細を参照できる公開ルート。 |
 | `POST` | `/festivals` | イベント作成。ログインセッション必須。作成者が `event_manager` になり、無料枠のイベントが作成される。 |
 | `DELETE` | `/festivals/:id` | イベントの論理削除。`super_admin` セッション必須。 |
-| `GET` | `/festivals/:id/analytics`, `/behavior`, `/contract`, `/daily-close`, `/inventory`, `/visitors`, `/orders/live` | 分析、行動、契約、日次集計、在庫、来場者一覧、注文状況。対象イベントの権限を確認。`daily-close` は集計取得であり締め確定APIではない。 |
+| `GET` | `/festivals/:id/analytics`, `/behavior`, `/contract`, `/daily-close`, `/inventory`, `/visitors`, `/orders/live` | 分析、行動、契約、日次集計、在庫、来場者一覧、注文状況。対象イベントの権限を確認。`daily-close` は集計取得であり締め確定APIではない。分析・日次締めはキャンセル以外の注文を集計し、未完了注文も含む。 |
 | `PUT` | `/festivals/:id/advanced-permissions`, `/lifecycle-status`, `/lottery-enabled`, `/payment-methods` | イベント設定。対象イベントの権限と入力条件を確認。 |
 | `PUT` | `/festivals/:id/stamp-rally-settings` | スタンプラリー設定。対象イベントの `event:write` 権限を確認。 |
 | `PUT` | `/festivals/:id/theme` | テーマ・基本設定の更新または作成。`super_admin` セッション必須。 |
@@ -55,7 +55,7 @@
 | `PATCH` / `POST` | `/orders/:id/status`, `/orders/:id/estimated-time`, `/orders/:id/complete` | 注文状態・見込み時間の更新/完了。スタッフ権限と許可された状態遷移を確認。 |
 | `GET` / `POST` / `PATCH` / `DELETE` | `/memberships/*` | `/roles`, `/my`, `/circle/:circleId`, `/event/:eventId`, メンバー作成/更新/停止/再開/削除、招待と通知。ルート全体でログイン必須、個々の変更は対象スコープとメンバー管理権限を追加確認。 |
 | `GET` / `PATCH` / `DELETE` | `/account/*` | `GET /me`、`PATCH /profile`・`/email`、`DELETE /membership/:id`、`DELETE /`（アカウント削除）。本人のCookieセッション必須。 |
-| `GET` / `POST` / `PATCH` | `/wristbands/*` | 来場者・リストバンドの検索/照会/発行/編集、スマートフォン発行、バッチ・CSV等。受付・管理用途。ルートと発行方式ごとに認証条件が異なる。`/lookup/:code` は認証なしで来場者行とバンド行を返すため、コードと応答を特に慎重に扱う。 |
+| `GET` / `POST` / `PATCH` | `/wristbands/*` | 来場者・リストバンドの検索/照会/発行/編集、スマートフォン発行、バッチ・CSV等。受付・管理用途。ルートと発行方式ごとに認証条件が異なる。一括発行・CSV取込のHTTP形式と上限は「リストバンド一括連携」を参照。`/lookup/:code` は認証なしで来場者行とバンド行を返すため、コードと応答を特に慎重に扱う。 |
 | `GET` | `/pre-orders/user/:code` | 来場者コードによる未受取の事前注文一覧。 |
 | `POST` | `/pre-orders` | ドラフト保存。発行済み来場者コード、同一イベント、受付状態等をサーバーで再検証。 |
 | `POST` | `/pre-orders/:id/claim` | POSでのclaim。運営セッションと `order:write` 権限、注文条件を検証。 |
@@ -67,6 +67,32 @@
 | `POST` | `/upload` | ログインと有効な所属を要求するmultipartアップロード。10 MiB上限、許可拡張子のみ。 |
 | `GET` | `/uploads/*` | 保存済み画像/フォント配信。公開キャッシュ付きバイナリで、JSON APIエラー包絡ではない。 |
 | `GET` / `POST` 等 | `/auth/*` | Better Auth が提供する認証フロー。個別の認証プロトコルに従う。 |
+
+### 集計値の意味
+
+- `GET /festivals/:id/analytics` と `GET /festivals/:id/daily-close?date=YYYY-MM-DD` は、`cancelled` 以外の注文を売上・注文数に含めます。`pending` など未完了注文も含む受注額で、入金済み金額を示すものではありません。`completedRate` は完了件数を別に算出します。
+- サークルの売上管理画面は注文一覧から `completed` の注文だけを売上として集計します。イベント側の精算・日次集計とサークル売上画面では集計対象が異なるため、数値を直接同一視しないでください。
+- `daily-close` は指定日の集計を返す読み取りAPIです。締め状態の保存、会計確定、入金処理は行いません。
+
+### リストバンド一括連携
+
+スタッフ管理画面で発行・取込履歴を作り、保存したURLから処理を再開できます。次のイベントAPIはすべてイベント所属権限を検証します。運営Cookieと `X-Active-Membership-Id` が必要です。
+
+| メソッド | パス | 本文・動作 | 必要権限 |
+| --- | --- | --- | --- |
+| `GET` | `/wristbands/batches?eventId=...&offset=0&limit=20` | 履歴をページング取得 (`limit` は最大100)。 | `member:read` |
+| `POST` | `/wristbands/batches` | `{ eventId, source: "generated" | "csv", urls, prefix?, suffixLength? }`。`urls` は `/w/ID` 形式のURL、またはID文字列の配列。生成元は最大50,000件。重複IDは `409`。 | `member:write` |
+| `POST` | `/wristbands/batches/:batchId/process` | 保存済みURLを最大400件ずつ来場者・バンドへ登録し、進捗を返す。完了・競合状態では同じ履歴を返す。 | `member:write` |
+| `GET` | `/wristbands/batches/:batchId/csv` | バッチのURLだけを `url` 列のCSVとして返す。`private, no-store`。 | `member:read` |
+| `POST` | `/wristbands/import` | `{ eventId, urls }`。`urls` は1〜20件で、各値は `/w/ID` 形式のURLまたはID文字列。画面からの大きなCSVは20件単位で分割します。 | `member:write` |
+
+`/wristbands/import` は印刷会社などから戻ったCSVの各IDを既存イベントへ結び付ける一括登録APIです。登録済みIDや入力内重複は `409` になります。バッチCSVはサーバーが直接CSVを返す唯一の確認済みCSV APIです。一般の来場者・注文・分析・精算CSVはAPIレスポンス自体がCSVではなく、SPAがJSON応答から組み立ててダウンロードします。
+
+### 画像・フォントの保存と配信
+
+- `POST /upload` はmultipartの `file` を受け取り、画像 (`jpg`, `jpeg`, `png`, `gif`, `webp`) またはフォント (`ttf`, `otf`, `woff`, `woff2`) のみ保存します。上限は10 MiBです。Cookieログインと有効な所属が必要で、応答は `{ path, key, ext }` です。
+- `GET /uploads/*` は保存物をバイナリで配信し、公開のimmutable cacheを付けます。JSON APIエラー包絡の対象外です。書込み後の画像・フォントURLは公開される前提で扱ってください。
+- 保存先は本番でWorkerのR2 binding、ローカル開発でS3互換のMinIOを使います。外部ソフトがR2/MinIOバケットへ直接接続する契約はなく、ファイル操作は上記HTTPルートを通します。
 
 網羅的なHTTP動詞・バリデーション・権限条件は [apps/api/src/routes](../apps/api/src/routes/) が正本です。特に上表で「主体別」とした公開/来場者ルートは、アプリ画面から利用できるという理由だけで外部公開APIとみなさないでください。
 
@@ -194,6 +220,8 @@ curl -i -A 'OpenAI File Downloader, XaiImageApiFetch/1.0' 'http://localhost:8787
 - 運営連携はBetter AuthのセッションCookieを維持し、所属依存APIへ `X-Active-Membership-Id` を付ける必要があります。パスキー/GoogleログインはブラウザーリダイレクトやWebAuthnを含むため、ヘッドレスサーバー連携向け認証契約とは言えません。
 - ブラウザーから呼ぶ場合はCORS許可Originの制限を受けます。許可Origin外のWebページから直接呼ぶ連携はできません。サーバー間呼び出しではCORSではなくAPI側の認証・認可が適用されます。
 - 来場者フローの一部はQR/リストバンドコードをリクエストに含める方式です。注文IDによる注文照会も同様にIDを知る者が読み取れます。加えて、リストバンド照会は来場者行とバンド行を返し、紛失報告はコードだけで有効なバンドを停止します。これらの値は資格情報として保護し、アクセスログや解析サービスへの記録を避けてください。外部システムが任意コードを生成して使える仕組みではありません。
+- リストバンドCSVのバッチ一括発行・取込はイベント権限付きHTTP APIがあります。来場者や注文などの画面CSVはSPAがJSON APIから生成し、外部ソフト用の独立CSV APIではありません。
+- 画像・フォントは認証付きmultipart APIで登録できますが、取得URLは公開配信です。R2/MinIO直接接続や任意ファイル保存を外部ソフトへ提供するものではありません。
 - 注文作成は `Idempotency-Key` による再送保護があります。ほかの書込みAPIに同じ冪等性があるとは限りません。
 
 ブラウザー/運用手順が前提となる、またはHTTP APIで完結すると確認できない作業には、Google/パスキー認証UI、対面でのリストバンド発行や本人確認、システム管理者の再認証/昇格操作、画面上のスペース選択状態、CSVを使った作業手順があります。API経由で類似操作を行える箇所も、その操作自体が認められているとは限らないため、当該ルートのロール・監査・運用条件を満たす必要があります。録画/配信制御用 `apps/stream` は未着手であり、OBS連携APIはこのリファレンスに含めていません。
