@@ -34,7 +34,7 @@
 | `GET` | `/system/public`, `/system/announcements` | メンテナンス表示情報、公開お知らせ。公開。 |
 | `GET` | `/festivals` | ログイン必須。所属しているイベントだけを一覧し、`super_admin` は全件を参照できる。 |
 | `GET` | `/festivals/public` | 未入場の来場者がイベントを選ぶための公開一覧。削除済みを除き、ID・名称・説明・ロゴURLだけを返す。 |
-| `GET` | `/festivals/:id` | 認証・所属権限なしでイベント詳細を参照できる公開ルート。 |
+| `GET` | `/festivals/:id` | 認証・所属権限なしの公開ルート。イベント名/説明/開催日/状態、画面テーマ、支払方法、スタンプラリー・抽選・リストバンド設定を返す。所有者メール、Stripe識別子、契約金額/更新日、契約メモは返さない。 |
 | `POST` | `/festivals` | イベント作成。ログインセッション必須。作成者が `event_manager` になり、無料枠のイベントが作成される。 |
 | `DELETE` | `/festivals/:id` | イベントの論理削除。`super_admin` セッション必須。 |
 | `GET` | `/festivals/:id/analytics`, `/behavior`, `/contract`, `/daily-close`, `/inventory`, `/visitors`, `/orders/live` | 分析、行動、契約、日次集計、在庫、来場者一覧、注文状況。対象イベントの権限を確認。`daily-close` は集計取得であり締め確定APIではない。分析・日次締めはキャンセル以外の注文を集計し、未完了注文も含む。 |
@@ -44,7 +44,7 @@
 | `GET` / `POST` / `DELETE` | `/festivals/:id/announcements`, `/festivals/:id/announce`, `/festivals/:id/announcements/:announcementId` | 告知履歴取得 (`member:read`)、告知送信 (`member:write`)、履歴削除 (`member:write`)。削除しても配信済みの受信者通知は取り消されない。 |
 | `PATCH` | `/circles/:id/settings`, `/mods`, `/wait-time` | サークル設定、モデレーション、待ち時間報告。対象サークルの権限を確認。 |
 | `POST` | `/circles/:id/transfer-owner` | オーナー移譲。サークル権限に加えオーナー条件を確認。 |
-| `GET` | `/circles`, `/circles/:id`, `/circles/:id/analytics` | サークル一覧/詳細/分析。公開一覧/詳細では代表者メールを権限なしに返さない。分析は所属権限を確認。 |
+| `GET` | `/circles`, `/circles/:id`, `/circles/:id/analytics` | サークル一覧/詳細/分析。公開一覧/詳細は代表者名・説明・画像・運用拡張 (`mods`)・運用設定 (`settings`) を含み、代表者メールとTOTPシークレットは返さない。分析は所属権限を確認。 |
 | `POST` / `PUT` / `DELETE` | `/circles`, `/circles/:id` | サークル作成・更新・論理削除。対象の所属権限を確認。 |
 | `GET` / `POST` / `PUT` / `PATCH` / `DELETE` | `/menus`, `/menus/:id`, `/menus/:id/stock`, `/menus/:id/inventory` | メニュー参照 (`GET`) は公開。作成/編集/削除と在庫変更ではサークル権限を判定。 |
 | `GET` / `POST` / `PUT` / `DELETE` | `/toppings`, `/toppings/:id`, `/toppings/:id/stock` | トッピング管理。サークルのメニュー/在庫権限等を確認。 |
@@ -343,6 +343,7 @@ curl -i -A 'OpenAI File Downloader, XaiImageApiFetch/1.0' 'http://localhost:8787
 - 来場者フローの一部はQR/リストバンドコードをリクエストに含める方式です。注文IDによる注文照会も同様にIDを知る者が読み取れます。加えて、リストバンド照会は来場者行とバンド行を返し、紛失報告はコードだけで有効なバンドを停止します。これらの値は資格情報として保護し、アクセスログや解析サービスへの記録を避けてください。外部システムが任意コードを生成して使える仕組みではありません。
 - リストバンドCSVのバッチ一括発行・取込はイベント権限付きHTTP APIがあります。来場者や注文などの画面CSVはSPAがJSON APIから生成し、外部ソフト用の独立CSV APIではありません。
 - 画像・フォントは認証付きmultipart APIで登録できますが、取得URLは公開配信です。R2/MinIO直接接続や任意ファイル保存を外部ソフトへ提供するものではありません。
+- 通知は受信者ごとにD1へ保存するアプリ内通知です。ログイン後の通知一覧APIで取得し、メール・SMS・プッシュ通知など外部配信は確認できません。スキーマにあるStripe識別子は将来用の予約カラムで、決済連携は実装されていません。
 - 注文作成は `Idempotency-Key` による再送保護があります。ほかの書込みAPIに同じ冪等性があるとは限りません。
 
 ブラウザー/運用手順が前提となる、またはHTTP APIで完結すると確認できない作業には、Google/パスキー認証UI、対面でのリストバンド発行や本人確認、システム管理者の再認証/昇格操作、画面上のスペース選択状態、CSVを使った作業手順があります。API経由で類似操作を行える箇所も、その操作自体が認められているとは限らないため、当該ルートのロール・監査・運用条件を満たす必要があります。録画/配信制御用 `apps/stream` は未着手であり、OBS連携APIはこのリファレンスに含めていません。

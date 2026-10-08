@@ -99,6 +99,33 @@ describe("認証・認可境界", () => {
 		expect(rows.some((row) => row.id === deletedEventId)).toBe(false);
 	});
 
+	it("未認証の GET /api/festivals/:id はイベント画面項目だけを返す", async () => {
+		const eventId = uid("public-event-detail");
+		await testDb().insert(event).values({
+			id: eventId,
+			eventName: "公開イベント詳細",
+			description: "来場者向け説明",
+			ownerEmail: "private-owner@example.invalid",
+			stripeCustomerId: "cus_private_test",
+			stripeSubscriptionId: "sub_private_test",
+			billingAmount: 12345,
+			contractNotes: "非公開の運営メモ",
+		});
+
+		// 2026-10-08: 公開詳細APIから契約用カラムが再び漏れないことを固定する。
+		const res = await request(`/api/festivals/${eventId}`);
+		expect(res.status).toBe(200);
+		const body = (await res.json()) as Record<string, unknown>;
+		expect(body.id).toBe(eventId);
+		expect(body.eventName).toBe("公開イベント詳細");
+		expect(body.logoUrl).toBeNull();
+		expect(body).not.toHaveProperty("ownerEmail");
+		expect(body).not.toHaveProperty("stripeCustomerId");
+		expect(body).not.toHaveProperty("stripeSubscriptionId");
+		expect(body).not.toHaveProperty("billingAmount");
+		expect(body).not.toHaveProperty("contractNotes");
+	});
+
 	// 2026-07-07 (Phase 3a): hasPermission の「X-Active-Membership-Id が無ければ
 	// 全 membership を評価する」互換フォールバックを撤去した。このテストは、
 	// サークルの circle_manager 権限を持つユーザーであっても、そのサークルを
