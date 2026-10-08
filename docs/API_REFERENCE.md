@@ -119,14 +119,16 @@
 
 | メソッド | パス | 本文・動作 | 必要権限 |
 | --- | --- | --- | --- |
-| `GET` | `/wristbands/batches?eventId=...&offset=0&limit=20` | 履歴をページング取得 (`limit` は最大100)。 | `member:read` |
-| `POST` | `/wristbands/batches` | `{ eventId, source: "generated" | "csv", urls, prefix?, suffixLength? }`。`urls` は `/w/ID` 形式のURL、またはID文字列の配列。生成元は最大50,000件。重複IDは `409`。 | `member:write` |
-| `POST` | `/wristbands/batches/:batchId/process` | 保存済みURLを最大400件ずつ来場者・バンドへ登録し、進捗を返す。完了・競合状態では同じ履歴を返す。 | `member:write` |
+| `GET` | `/wristbands/batches?eventId=...&offset=0&limit=20` | `offset` は0以上、`limit` は1〜100 (省略時20)。`{items,total,offset,limit}`。 | `member:read` |
+| `POST` | `/wristbands/batches` | `{ eventId, source: "generated" | "csv", urls, prefix?, suffixLength? }`。`urls` は1件以上の `/w/ID` 形式URLまたはID文字列。`generated` は `prefix` (1〜32文字) と `suffixLength` (4〜32) が必要で最大50,000件。入力内重複は `409`。成功は201と初期状態のバッチ行 (`pending`, 各進捗数0)。 | `member:write` |
+| `POST` | `/wristbands/batches/:batchId/process` | 本文なし。保存済みURLを最大400件ずつ来場者・バンドへ登録し、HTTP 200で更新後のバッチ行を返す。既存IDとの衝突もHTTP 200で `status:"conflict"` とエラー詳細を返し、その回の進捗数は増えません。完了・競合状態では同じ履歴を返します。 | `member:write` |
 | `GET` | `/wristbands/batches/:batchId/csv` | バッチのURLだけを `url` 列のCSVとして返す。`private, no-store`。 | `member:read` |
 | `POST` | `/wristbands/import` | `{ eventId, urls }`。`urls` は1〜20件で、各値は `/w/ID` 形式のURLまたはID文字列。画面からの大きなCSVは20件単位で分割します。 | `member:write` |
 | `POST` | `/wristbands/issue-smartphone` | `{ userId }`。既存の来場者にスマートフォン用バンドを発行し、現在の有効な物理/スマートフォン用バンドを `replaced` に変更します。バンドIDは `sp_<userId>` で、既存行があれば再有効化します。来場者発行や匿名オンボードではなく、対象イベントの運営権限が必要です。 | `member:write` |
 
 `/wristbands/import` は印刷会社などから戻ったCSVの各IDを既存イベントへ結び付ける一括登録APIです。登録済みIDや入力内重複は `409` になります。バッチCSVはサーバーが直接CSVを返す唯一の確認済みCSV APIです。一般の来場者・注文・分析・精算CSVはAPIレスポンス自体がCSVではなく、SPAがJSON応答から組み立ててダウンロードします。
+
+バッチ行は `{id,eventId,source,prefix,suffixLength,totalCount,processedCount,importedCount,conflictCount,status,errorMessage,createdAt,completedAt}` を含みます。作成直後は `pending`、各進捗数は0、`completedAt` はnullです。`status` は `pending` → `processing` → `completed`、または登録済みIDとの衝突で `conflict` です。競合時はそのチャンクを登録せず、`conflictCount` と `errorMessage` を更新します。`processedCount` / `importedCount` は増えず、process APIはHTTP 200でバッチ行を返します。処理APIは1回で進捗の次の最大400件を登録するため、`completed` になるまで呼び出しを繰り返します。完了済み/競合済みの履歴に処理を再要求しても新しい来場者やバンドは作らず、その履歴を返します。
 
 `POST /wristbands/issue-smartphone` は既存来場者に対する管理操作です。対象ユーザーのイベントに対する `member:write` 権限を要求し、同ユーザーの有効なバンドを置き換えたうえで、決定的なID `sp_<userId>` のスマートフォン用バンドを作成または再有効化します。新規来場者の自己発行に使う `/wristbands/issue` とは権限・副作用が異なります。
 
