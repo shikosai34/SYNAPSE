@@ -32,7 +32,6 @@ import {
   getAuthInfo,
 } from "@/hooks/useCircleAuth";
 import { roleLabel, roleBadge } from "@/lib/roles";
-import { PERMISSION_NAMES } from "@fesflow/config";
 import { authClient } from "@/lib/auth-client";
 
 // 2026-07-07 単一ドメイン化: register の circle/event/sys はすべて同一オリジンの同一SPA。
@@ -45,36 +44,28 @@ import { authClient } from "@/lib/auth-client";
 // そのまま実装すると開けなくなる。本質的な要望は「アイコンだけでは操作が分からない」ことなので、
 // 以下の方針で作り直す:
 //   - すべてのトリガーに常時ラベルを付ける (アイコンのみのボタンを廃止)
-//   - デスクトップ (hover: hover な環境) はホバーで開き、タッチ環境はタップで開閉する
-//   - 2026-09-27: スペース切替だけは意図しない展開を避けるため、全環境でクリック/タップに統一する
+//   - 2026-10-07 (#70): 通知/アカウントも全環境でクリック/タップに統一し、意図しないホバー展開をなくす
 //   - 開閉状態は単一の activeMenu state に統一し、常に1つしか開かないようにする
 //   - 外側クリックは document 全体の mousedown 監視で判定する (フルスクリーンの透明backdrop
-//     を使うと、hover 判定(mouseleave)がbackdropに邪魔されて機能しなくなるため廃止した)
+//     を使うと、以前のhover判定にも干渉したため廃止した)
 //
 // 2026-07-16 (追記) モバイルは「3本線 → 通知/組織切り替え/アカウント → 中身」の2段階層に変更。
 // スマホでは通知/スペース切替/アカウントの3トリガーが横並びだと窮屈な上、それぞれ独立して
 // 開閉する作りは「今どれが開いているか」を見失いやすい。トップレベルのトリガーを3本線1つに
 // 集約し、その中を「通知/組織切り替え/アカウント」を並べた1段目 → タップした項目の中身を
-// 表示する2段目、という構造にする。デスクトップは今までどおり個別トリガー+ホバー/タップを
-// 維持する (lg:hidden / hidden lg:block で出し分け)。
+// 表示する2段目、という構造にする。デスクトップは今までどおり個別トリガーを維持する
+// (lg:hidden / hidden lg:block で出し分け)。メニュー展開はクリック/タップに統一する (#70, 2026-10-07)。
 // 開閉の最上位は引き続き activeMenu (nav = 3本線) で1つだけ開く制御を継続し、3本線の中の
 // 「今どの項目を掘り下げているか」だけを別 state (mobileSection) で管理する。
 type MenuKey = "notif" | "space" | "account" | "nav" | null;
 // 3本線メニュー内の2段目 (null = 1段目の一覧表示)
 type MobileSection = "notif" | "space" | "account" | null;
 
-// ポインタがマウス相当(ホバー可能)かどうかを都度判定する。
-// useState化してしまうとリサイズ/デバイス切替を追随できないため、必要な瞬間に判定する軽量関数にしている。
-function supportsHover(): boolean {
-  if (typeof window === "undefined" || !window.matchMedia) return false;
-  return window.matchMedia("(hover: hover) and (pointer: fine)").matches;
-}
-
 export default function Header() {
   const navigate = useNavigate();
   const pathname = useLocation().pathname;
   const queryClient = useQueryClient();
-  const { role, eventId, userName, circleName, isLoading, isAuthenticated, isEventAdmin, userEmail, permissions, membershipAuthorityError, retryAuthorization } =
+  const { role, eventId, userName, circleName, isLoading, isAuthenticated, isEventAdmin, userEmail, membershipAuthorityError, retryAuthorization } =
     useAuth();
   const { data: spaces } = useMySpaces();
 
@@ -113,44 +104,12 @@ export default function Header() {
     setActiveMenu((prev) => (prev === key ? null : key));
   };
 
-  // ホバー閉じの猶予タイマー (2026-07-16)。
-  // パネルはトリガーの DOM 子要素なので、トリガー→パネルへ「連続した領域を通って」移動する分には
-  // mouseleave は発火しない。ただしトリガーとパネルの間に隙間があったり、カーソルが枠の外を
-  // かすめて斜めに移動したりすると一瞬どちらの上でもなくなり mouseleave が発火して閉じてしまう。
-  // (実際「開いたパネルにカーソルを持っていくと閉じる」不具合になっていた)
-  // 隙間自体はパネル側を top-full + 透明パディングで埋めて解消しているが、それでも取りこぼす
-  // 微小な移動を吸収するため、閉じるのは短い猶予後にし、その間に再入したらキャンセルする。
-  const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const cancelPendingClose = () => {
-    if (closeTimerRef.current) {
-      clearTimeout(closeTimerRef.current);
-      closeTimerRef.current = null;
-    }
-  };
-
-  // ホバーで開く(デスクトップのみ)。タッチ環境では supportsHover() が false になるため無視される。
-  const handleHoverOpen = (key: Exclude<MenuKey, null>) => {
-    if (!supportsHover()) return;
-    cancelPendingClose();
-    setActiveMenu(key);
-  };
-  // ホバーで閉じる(デスクトップのみ)。即座に閉じず猶予を置く (上記コメント参照)。
-  const handleHoverClose = (key: Exclude<MenuKey, null>) => {
-    if (!supportsHover()) return;
-    cancelPendingClose();
-    closeTimerRef.current = setTimeout(() => {
-      setActiveMenu((prev) => (prev === key ? null : prev));
-      closeTimerRef.current = null;
-    }, 200);
-  };
-
-  // アンマウント時にタイマーを掃除する
-  useEffect(() => () => cancelPendingClose(), []);
+  // 2026-10-07: ヘッダーメニューは誤展開を防ぎ、マウスとタッチで同じ操作にするためクリックでのみ開閉する。
 
   // Escape キー / 外側クリックでメニューを閉じる。
   // 以前はメニューごとに fixed inset-0 の透明backdropを敷いて外側クリックを検知していたが、
-  // 画面全体を覆うbackdropはDOM上「トリガーの子要素」になり、hoverによるmouseleave判定を
-  // 阻害してしまうため、document監視方式に統一した (2026-07-16)。
+  // 画面全体を覆うbackdropはDOM上トリガーの子要素になり、メニュー判定を複雑にするため
+  // document監視方式に統一した (2026-07-16)。
   useEffect(() => {
     if (!activeMenu) return;
     const refByKey: Record<Exclude<MenuKey, null>, React.RefObject<HTMLDivElement | null>> = {
@@ -470,7 +429,7 @@ export default function Header() {
         : notifications.length
       : "!";
 
-  // 通知パネルの中身 (デスクトップのホバーパネル / モバイル3本線の2段目で共用) (2026-07-16)
+  // 通知パネルの中身 (デスクトップのクリックパネル / モバイル3本線の2段目で共用) (2026-10-07 #70)
   const notifPanelBody = (
     <div className="max-h-72 overflow-y-auto space-y-3">
       {/* システムお知らせ (公開分) */}
@@ -556,7 +515,7 @@ export default function Header() {
     </div>
   );
 
-  // スペース切り替えパネルの中身 (デスクトップのホバーパネル / モバイル3本線の2段目で共用) (2026-07-16)
+  // スペース切り替えパネルの中身。ここは所属の選択だけにし、権限の説明はアカウント設定に置く (2026-10-07, #70)。
   const spacePanelBody = (
     <>
       {membershipAuthorityError && (
@@ -565,26 +524,6 @@ export default function Header() {
           <button className="mt-1 underline" onClick={retryAuthorization}>再試行</button>
         </div>
       )}
-      <div className="mb-3 border-b-thin border-border pb-3">
-        <div className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">現在の権限</div>
-        <div className="mt-1 text-xs font-bold">{currentSpaceName}</div>
-        <div className="text-[10px] text-muted-foreground">{role ? roleLabel(role) : "スペース未選択"}</div>
-        {permissions.length > 0 && (
-          <details className="mt-2">
-            <summary className="cursor-pointer text-[10px] font-bold underline underline-offset-2">
-              このスペースでできること ({permissions.length})
-            </summary>
-            <ul className="mt-2 grid grid-cols-1 gap-1 text-[10px] sm:grid-cols-2">
-              {permissions.map((permission: string) => (
-                <li key={permission} className="flex items-start gap-1.5">
-                  <span aria-hidden="true">✓</span>
-                  <span>{PERMISSION_NAMES[permission] ?? permission}</span>
-                </li>
-              ))}
-            </ul>
-          </details>
-        )}
-      </div>
       <div className="max-h-72 overflow-y-auto space-y-3">
         {availableSpaces.length > 0 ? (
           ([
@@ -642,7 +581,7 @@ export default function Header() {
     </>
   );
 
-  // アカウントパネルの中身 (デスクトップのホバーパネル / モバイル3本線の2段目で共用) (2026-07-16)
+  // アカウントパネルの中身 (デスクトップのクリックパネル / モバイル3本線の2段目で共用) (2026-10-07 #70)
   const accountPanelBody = (
     <>
       <div className="flex items-center gap-2 mb-3 pb-3 border-b border-border/20">
@@ -725,8 +664,6 @@ export default function Header() {
               <div
                 ref={notifRef}
                 className="relative hidden lg:block"
-                onMouseEnter={() => handleHoverOpen("notif")}
-                onMouseLeave={() => handleHoverClose("notif")}
               >
                 <button
                   onClick={() => toggleMenu("notif")}
@@ -835,8 +772,6 @@ export default function Header() {
               <div
                 ref={accountRef}
                 className="relative hidden lg:block"
-                onMouseEnter={() => handleHoverOpen("account")}
-                onMouseLeave={() => handleHoverClose("account")}
               >
                 <button
                   onClick={() => toggleMenu("account")}
@@ -858,7 +793,7 @@ export default function Header() {
                 </button>
 
                 {/* アカウントメニューパネル */}
-                {/* 2026-07-16: 同上 (隙間でホバーが切れないよう top-full + 透明パディング)。 */}
+                {/* 2026-10-07 (#70): クリックで開いたパネルに余白を設け、ポインターを操作しやすくする。 */}
                 {accountOpen && (
                   <div className="absolute right-0 top-full pt-2 z-50">
                   <div className="w-64 border-thick border-border bg-background p-4 shadow-none rounded-none text-left">
@@ -885,7 +820,7 @@ export default function Header() {
                   1段目に「通知/組織切り替え/アカウント/ナビゲーションリンク」を縦に並べ、
                   1段目の項目をタップすると2段目 (中身) を表示する構成にした。
                   2段目の中身は notifPanelBody/spacePanelBody/accountPanelBody を再利用し、
-                  デスクトップのホバーパネルと実装・挙動 (既読化・招待応答・スペース切替・
+                  デスクトップのクリックパネルと実装・挙動 (既読化・招待応答・スペース切替・
                   ログアウト等) を完全に共有する。開閉の最上位は既存の activeMenu ("nav") を
                   そのまま使うため、外側クリック/Esc/1つしか開かない制御はそのまま効く。
                   「一度に開く2段目は1つだけ」は mobileSection (単一 state) で保証し、

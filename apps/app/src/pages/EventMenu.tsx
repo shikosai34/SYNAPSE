@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { eventApi, circleApi } from "@/lib/api";
+import { eventApi, circleApi, activeWaitTimeReport } from "@/lib/api";
 import { useVisitor } from "@/hooks/useVisitor";
 import { EventTheme } from "@/components/EventTheme";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -9,6 +9,7 @@ import { ErrorState } from "@/components/ui/ErrorState";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Store, ArrowRight, QrCode, Calendar, ChevronRight } from "lucide-react";
 import { resolveAssetUrl } from "@/lib/asset-url";
+import { findVisitorRouteItem } from "@/lib/visitor-route";
 
 /**
  * イベント メニュー横断閲覧 (2026-07-06)。
@@ -21,27 +22,52 @@ import { resolveAssetUrl } from "@/lib/asset-url";
  * - /visitor/events/:eventId   … 指定イベントのサークル一覧
  */
 export default function EventMenu() {
-  const { eventId: eventIdParam } = useParams();
+  const { eventId: eventIdParam, eventName: eventNameParam } = useParams();
   const navigate = useNavigate();
   const { session, isLoaded } = useVisitor();
+  const { data: events } = useQuery({
+    queryKey: ["events"],
+    queryFn: () => eventApi.list(),
+    enabled: !!eventNameParam && !eventIdParam,
+  });
+  const namedEvent = eventNameParam
+    ? findVisitorRouteItem(events ?? [], eventNameParam, (event) => event.id, (event) => event.eventName)
+    : null;
 
   // ルート優先。無ければ入場中リストバンドのイベントを使う。
-  const eventId = eventIdParam || session?.eventId || null;
+  const routeEventId = eventIdParam || namedEvent?.id || null;
+  const eventId = routeEventId || (eventNameParam ? null : session?.eventId || null);
   const isEntered = !!session?.userId;
 
   if (!isLoaded) {
     return <div className="mx-auto max-w-4xl p-6 font-mono" role="status" aria-busy="true">読み込み中…</div>;
   }
 
+  if (eventNameParam && !events) {
+    return <div className="mx-auto max-w-4xl p-6 font-mono" role="status" aria-busy="true">読み込み中…</div>;
+  }
+
   // 入場済み来場者は自身のイベント内で注文先を探す。未入場者の公開下見と、
   // リストバンド発行前のイベント選択は従来どおりイベント横断で利用できる (2026-09-27)。
-  if (session?.userId && session.eventId && eventIdParam && eventIdParam !== session.eventId) {
+  if (session?.userId && session.eventId && routeEventId && routeEventId !== session.eventId) {
     return (
       <main className="mx-auto max-w-xl p-6 font-mono" role="alert">
         <h1 className="text-xl font-bold">別のイベントは表示できません</h1>
         <p className="my-4">入場中のイベントの出店一覧へ戻ってください。</p>
         <button className="underline" onClick={() => navigate(`/visitor/events/${session.eventId}`)}>
           入場中のイベントへ戻る
+        </button>
+      </main>
+    );
+  }
+
+  if (eventNameParam && events && !namedEvent) {
+    return (
+      <main className="mx-auto max-w-xl p-6 font-mono" role="alert">
+        <h1 className="text-xl font-bold">イベントが見つかりません</h1>
+        <p className="my-4">URLが変更されたか、イベントが存在しない可能性があります。</p>
+        <button className="underline" onClick={() => navigate("/visitor/events")}>
+          イベント一覧へ戻る
         </button>
       </main>
     );
@@ -90,6 +116,8 @@ function EventMenuContent({
   } = useQuery({
     queryKey: ["circles", eventId],
     queryFn: () => circleApi.list(eventId),
+    // 2026-10-07 (#9): 表示したまま30分経過した報告も未報告へ更新する。
+    refetchInterval: 60_000,
   });
 
   const theme = useMemo(() => event ?? null, [event]);
@@ -197,6 +225,10 @@ function EventMenuContent({
                       {circle.description}
                     </div>
                   )}
+                  {(() => {
+                    const report = activeWaitTimeReport(circle.settings);
+                    return <div className="mt-1 text-[10px] font-bold">待ち時間: {report ? `約${report.minutes}分（${report.minutesAgo}分前）` : "未報告"}</div>;
+                  })()}
                   <div className="mt-1 inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-wider">
                     メニューを見る
                     <ArrowRight className="h-3 w-3 transition-transform group-hover:translate-x-1" />

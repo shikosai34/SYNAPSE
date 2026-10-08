@@ -688,6 +688,6 @@ export async function resolveActiveSpaceAfterAuth(
     return { path: "/circle/dashboard", kind: "circle", membership: circleMembership };
   }
 
-  // 所属スペースが無いアカウント (来場者相当) は来場者マイページへ (2026-07-11 /visitor 集約)
-  return { path: "/visitor/mypage", kind: "none", membership: null };
+  // 2026-10-07 Issue #49: 所属のない利用者は認証方式によらずオンボーディングへ揃え、入場案内を先に行う。
+  return { path: "/onboarding", kind: "none", membership: null };
 }

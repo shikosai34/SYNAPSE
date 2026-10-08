@@ -45,6 +45,10 @@ export const event = sqliteTable("event", {
   // 例: '["現金","PayPay","金券"]'。各サークルはこの中から対応する方法を選ぶ。
   // 2026-07-12: レジで支払い方法を選択して注文するフローの基盤。
   paymentMethods: text("payment_methods").default('["現金"]').notNull(),
+  // 文化祭エリアを横断するスタンプラリー設定をイベント単位で持つ。
+  // 設定は低頻度で更新される小さなJSONなので、circle.mods/settings と同じく
+  // 拡張しやすい形で保存し、読み込み時はアプリ側で既定値へ補完する (2026-10-07)。
+  stampRallySettings: text("stamp_rally_settings").default('{}').notNull(),
   // lotteryEnabled: 抽選機能(イベント単位)の有効化フラグ。拡張機能=ONにしないと使えない。
   // 2026-07-12。実際の抽選設定・景品・応募・当選は lottery テーブル群。
   lotteryEnabled: integer("lottery_enabled", { mode: "boolean" }).default(false).notNull(),

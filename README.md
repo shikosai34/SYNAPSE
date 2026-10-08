@@ -3,6 +3,7 @@
 文化祭の模擬店・来場者・校内配信を統合管理するシステム **FesFlow** のモノレポ開発リポジトリです。
 
 > 📖 **詳しいドキュメント**
+> - API リファレンス: [docs/API_REFERENCE.md](./docs/API_REFERENCE.md)
 > - ローカル開発の手引き: [docs/DEVELOPMENT.md](./docs/DEVELOPMENT.md)
 > - 本番デプロイ手順: [docs/DEPLOY.md](./docs/DEPLOY.md)
 > - デザインシステム: [docs/DESIGN.md](./docs/DESIGN.md)

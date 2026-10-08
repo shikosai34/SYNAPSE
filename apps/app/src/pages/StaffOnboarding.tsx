@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -61,27 +61,56 @@ export default function StaffOnboarding() {
 	});
 
 	// ── 招待経由 ───────────────────────────────────────────────────
-	const [codeInput, setCodeInput] = useState("");
+	const [codeInput, setCodeInput] = useState(presetCode || "");
 	const [lookup, setLookup] = useState<InviteLookupResult | null>(null);
 	const [circleName, setCircleName] = useState("");
+	const autoLookupStartedFor = useRef<string | null>(null);
+	const lookupRequestId = useRef(0);
+	const [lookupPending, setLookupPending] = useState(false);
 
-	const doLookup = useMutation({
-		mutationFn: (params: { token?: string; code?: string }) => membershipApi.inviteLookup(params),
-		onSuccess: (res) => {
+	const runLookup = async (params: { token?: string; code?: string }) => {
+		const requestId = ++lookupRequestId.current;
+		setLookupPending(true);
+		try {
+			const res = await membershipApi.inviteLookup(params);
+			if (requestId !== lookupRequestId.current) return;
 			if (!res.valid) {
 				toast.error(res.reason || "この招待は使用できません");
 				return;
 			}
 			setLookup(res);
-		},
-		onError: (e: any) => toast.error(e?.message || "招待の照会に失敗しました"),
-	});
+		} catch (e: any) {
+			if (requestId !== lookupRequestId.current) return;
+			toast.error(e?.message || "招待の照会に失敗しました");
+		} finally {
+			// 2026-10-08: URL自動照会も失敗後に入力と再試行を操作できる状態へ戻す。
+			if (requestId === lookupRequestId.current) setLookupPending(false);
+		}
+	};
 
 	// URL に inviteToken / code があれば自動照会 (token 優先)
 	useEffect(() => {
-		if (lookup || doLookup.isPending) return;
-		if (presetToken) doLookup.mutate({ token: presetToken });
-		else if (presetCode) doLookup.mutate({ code: presetCode });
+		const lookupKey = `${presetToken || ""}:${presetCode || ""}`;
+		if (!presetToken && !presetCode) {
+			autoLookupStartedFor.current = null;
+			lookupRequestId.current += 1;
+			setLookupPending(false);
+			setLookup(null);
+			setCircleName("");
+			setCodeInput("");
+			return;
+		}
+		if (autoLookupStartedFor.current === lookupKey) return;
+		// 2026-10-08: StrictMode の重複実行を抑えつつ、URL変更時は新しい招待を照会する。
+		autoLookupStartedFor.current = lookupKey;
+		setLookup(null);
+		setCircleName("");
+		setCodeInput(presetCode || "");
+		if (presetToken) {
+			runLookup({ token: presetToken });
+		} else if (presetCode) {
+			runLookup({ code: presetCode });
+		}
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [presetToken, presetCode]);
 
@@ -233,12 +262,12 @@ export default function StaffOnboarding() {
 										戻る
 									</Button>
 									<Button
-										className="flex-1"
-										disabled={!codeInput.trim() || doLookup.isPending}
-										onClick={() => doLookup.mutate({ code: codeInput.trim() })}
-									>
-										{doLookup.isPending ? "確認中..." : "招待を確認する"}
-									</Button>
+									className="flex-1"
+									disabled={!codeInput.trim() || lookupPending}
+									onClick={() => runLookup({ code: codeInput.trim() })}
+								>
+									{lookupPending ? "確認中..." : "招待を確認する"}
+								</Button>
 								</div>
 							</>
 						) : lookup.kind === "circle_host" ? (

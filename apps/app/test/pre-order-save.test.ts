@@ -1,0 +1,55 @@
+import { describe, expect, it } from "bun:test";
+import { ApiError } from "../src/lib/api-error";
+import { getPreOrderSaveRetryAfterMs, getPreOrderSaveRetryDelay, isRetryablePreOrderSaveError, shouldRetryPreOrderSave } from "../src/features/orders/pre-order-save";
+
+describe("pre-order draft save retry", () => {
+  it("retries network, timeout, rate-limit, and server failures up to the limit", () => {
+    const retryable = [
+      new ApiError("network", { status: 0, code: "NETWORK" }),
+      new ApiError("timeout", { status: 408, code: "INTERNAL" }),
+      new ApiError("rate limit", { status: 429, code: "RATE_LIMITED" }),
+      new ApiError("server", { status: 503, code: "INTERNAL" }),
+    ];
+
+    for (const error of retryable) {
+      expect(isRetryablePreOrderSaveError(error)).toBe(true);
+      expect(shouldRetryPreOrderSave(0, error)).toBe(true);
+      expect(shouldRetryPreOrderSave(1, error)).toBe(true);
+      expect(shouldRetryPreOrderSave(2, error)).toBe(false);
+    }
+  });
+
+  it("does not retry invalid requests, stale drafts, or ordinary errors", () => {
+    const nonRetryable = [
+      new ApiError("invalid", { status: 400, code: "BAD_REQUEST" }),
+      new ApiError("stale", { status: 409, code: "CONFLICT" }),
+      new ApiError("forbidden", { status: 403, code: "FORBIDDEN" }),
+      new Error("missing draft identity"),
+    ];
+
+    for (const error of nonRetryable) {
+      expect(isRetryablePreOrderSaveError(error)).toBe(false);
+      expect(shouldRetryPreOrderSave(0, error)).toBe(false);
+    }
+  });
+
+  it("honors a 429 Retry-After value for automatic and manual retries", () => {
+    const limited = new ApiError("rate limit", {
+      status: 429,
+      code: "RATE_LIMITED",
+      retryAfterSec: 7,
+    });
+
+    expect(getPreOrderSaveRetryAfterMs(limited)).toBe(7000);
+    expect(getPreOrderSaveRetryDelay(0, limited)).toBe(7000);
+  });
+
+  it("uses exponential backoff when Retry-After is absent or irrelevant", () => {
+    const limited = new ApiError("rate limit", { status: 429, code: "RATE_LIMITED" });
+    const serverFailure = new ApiError("server", { status: 503, code: "INTERNAL", retryAfterSec: 9 });
+
+    expect(getPreOrderSaveRetryAfterMs(limited)).toBeNull();
+    expect(getPreOrderSaveRetryDelay(0, limited)).toBe(1000);
+    expect(getPreOrderSaveRetryDelay(1, serverFailure)).toBe(2000);
+  });
+});

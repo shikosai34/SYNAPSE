@@ -10,12 +10,17 @@ type Line = {
   inventoryEnabled: boolean;
   toppings: { toppingId: string; toppingName: string; toppingPrice: number }[];
 };
-export type CommitOrderInput = {
+type CommitOrderInputBase = {
   id: string; circleId: string; userId: string; cashierId?: string;
   peopleCount: number; totalPrice: number; paymentMethod?: string;
   status: "pending" | "preparing" | "completed";
-  items: Line[]; preOrderId?: string;
+  items: Line[];
 };
+// 2026-10-08 (#49): claimのCAS tokenをpreOrderIdと必ず対にし、D1へundefinedをbindできないよう型で制約する。
+export type CommitOrderInput = CommitOrderInputBase & (
+  | { preOrderId: string; expectedPreOrderUpdatedAt: number }
+  | { preOrderId?: undefined; expectedPreOrderUpdatedAt?: undefined }
+);
 
 async function digest(value: string): Promise<string> {
   const hash = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
@@ -88,9 +93,11 @@ export async function commitOrder(db: D1, command: OrderCommand, input: CommitOr
       AND NOT EXISTS (SELECT 1 FROM json_each(?) j LEFT JOIN topping t ON t.id=json_extract(j.value,'$.id')
         WHERE t.id IS NULL OR t.circle_id!=? OR t.sold_out=1
         OR (t.stock_quantity>0 AND t.stock_quantity<json_extract(j.value,'$.quantity')))
-      AND (? IS NULL OR EXISTS (SELECT 1 FROM pre_order WHERE id=? AND circle_id=? AND user_id=? AND status='pending'))
+      AND (? IS NULL OR EXISTS (SELECT 1 FROM pre_order WHERE id=? AND circle_id=? AND user_id=?
+        AND status='pending' AND updated_at=?))
       THEN 1 ELSE 0 END`).bind(input.id, input.circleId, input.userId, now, menus, input.circleId,
-        toppings, input.circleId, input.preOrderId ?? null, input.preOrderId ?? null, input.circleId, input.userId),
+        toppings, input.circleId, input.preOrderId ?? null, input.preOrderId ?? null, input.circleId, input.userId,
+        input.expectedPreOrderUpdatedAt ?? null),
     // 2026-10-03 (#81): 表示番号は店舗内の連番で十分なため、共有グローバル連番の競合書込みをなくす。
     // 年を表示に含めて店舗内の番号検索を一意に保ち、初回実行時は同じJST営業日の旧形式番号から続ける。
     db.prepare(`INSERT INTO order_sequence (scope,value)
@@ -130,7 +137,11 @@ export async function commitOrder(db: D1, command: OrderCommand, input: CommitOr
       stock_quantity=stock_quantity-(SELECT json_extract(value,'$.quantity') FROM json_each(?) WHERE json_extract(value,'$.id')=topping.id),updated_at=?
       WHERE stock_quantity>0 AND id IN (SELECT json_extract(value,'$.id') FROM json_each(?))`).bind(toppings, toppings, now, toppings));
   }
-  if (input.preOrderId) statements.push(db.prepare("UPDATE pre_order SET status='completed',updated_at=? WHERE id=? AND status='pending'").bind(now, input.preOrderId));
+  if (input.preOrderId) {
+    // 2026-10-07 Issue #49: cashier は読取時の draft updated_at をCASし、後着autosaveとの順序を確定する。
+    statements.push(db.prepare(`UPDATE pre_order SET status='completed',updated_at=MAX(updated_at+1,?)
+      WHERE id=? AND status='pending' AND updated_at=?`).bind(now, input.preOrderId, input.expectedPreOrderUpdatedAt));
+  }
   if (input.status !== "pending") statements.push(db.prepare(`INSERT INTO user_stamp (id,user_id,circle_id)
     SELECT ?,?,? WHERE NOT EXISTS (SELECT 1 FROM user_stamp WHERE user_id=? AND circle_id=?)`)
     .bind(ulid(), input.userId, input.circleId, input.userId, input.circleId));

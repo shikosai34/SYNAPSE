@@ -45,6 +45,19 @@ async function signUpAndGetCookie(): Promise<{ cookie: string; email: string }> 
 	return { cookie, email };
 }
 
+// 2026-10-08 (#49): 作成テストも本番のautosave契約に合わせ、初回draftのCAS情報を必ず送る。
+function createPreOrderDraft(body: {
+	userId: string;
+	circleId: string;
+	items: Array<{ menuId: string; quantity?: number; toppingIds?: string[] }>;
+}) {
+	return postJson("/api/pre-orders", {
+		...body,
+		draftId: uid("draft"),
+		expectedUpdatedAt: null,
+	});
+}
+
 async function seedTestData() {
 	const db = testDb();
 	const eventId = uid("ev");
@@ -104,7 +117,7 @@ describe("事前オーダー機能", () => {
 		});
 
 		// 1. 事前オーダーの作成 (POST /api/pre-orders)
-		const createRes = await postJson("/api/pre-orders", {
+		const createRes = await createPreOrderDraft({
 			userId,
 			circleId,
 			items: [
@@ -178,7 +191,7 @@ describe("事前オーダー機能", () => {
 		});
 
 		// 1. トッピング付きで作成 -> 合計は (500 + 100) * 2 = 1200
-		const createRes = await postJson("/api/pre-orders", {
+		const createRes = await createPreOrderDraft({
 			userId,
 			circleId,
 			items: [{ menuId, quantity: 2, toppingIds: [toppingId] }],
@@ -281,7 +294,7 @@ describe("事前オーダー機能", () => {
 			isActive: true,
 		});
 
-		const createRes = await postJson("/api/pre-orders", {
+		const createRes = await createPreOrderDraft({
 			userId,
 			circleId,
 			items: [
@@ -360,7 +373,7 @@ describe("事前オーダー機能", () => {
 			isActive: true,
 		});
 
-		const createRes = await postJson("/api/pre-orders", {
+		const createRes = await createPreOrderDraft({
 			userId,
 			circleId,
 			items: [{ menuId, quantity: 1 }, { menuId: laterMenuId, quantity: 1 }],
@@ -426,11 +439,12 @@ describe("事前オーダー機能", () => {
 		});
 
 		// 事前オーダー作成
-		await postJson("/api/pre-orders", {
+		const createRes = await createPreOrderDraft({
 			userId,
 			circleId,
 			items: [{ menuId, quantity: 1 }]
 		});
+		expect(createRes.status).toBe(201);
 
 		// 1. active なリストバンドIDでの取得 -> 取得できるはず
 		const resActive = await request(`/api/pre-orders/user/${activeWbId}?circleId=${circleId}`);

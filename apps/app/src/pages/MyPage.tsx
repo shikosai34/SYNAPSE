@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { ArrowLeft, QrCode, Receipt, ChevronRight, UserCog, Pencil } from "lucide-react";
+import { ArrowLeft, QrCode, Receipt, ChevronRight, UserCog, Pencil, Ticket } from "lucide-react";
 import { toast } from "sonner";
 import { QRCodeSVG } from "qrcode.react";
 import { resolveAssetUrl } from "@/lib/asset-url";
@@ -222,6 +222,23 @@ export default function MyPage() {
           </div>
         </dl>
       </div>
+
+      {/* 2026-10-07: 店舗利用実績と景品条件をマイQR画面からすぐ確認できるようにする。 */}
+      <button
+        onClick={() => navigate("/visitor/stamps")}
+        className="group w-full flex items-center justify-between gap-2 border-thick border-border bg-background hover:bg-muted transition-all p-4 text-left"
+      >
+        <span className="flex items-center gap-3">
+          <span className="flex h-10 w-10 items-center justify-center border-thick border-border bg-primary text-primary-foreground shrink-0">
+            <Ticket className="h-5 w-5" />
+          </span>
+          <span>
+            <span className="block text-sm font-black uppercase tracking-tight">店舗利用実績を見る</span>
+            <span className="block text-[11px] text-muted-foreground">利用した店舗と景品交換条件を確認</span>
+          </span>
+        </span>
+        <ChevronRight className="h-5 w-5 shrink-0 transition-transform group-hover:translate-x-1" />
+      </button>
 
       {/* 注文履歴への導線 (履歴は /orders に分離) */}
       <button

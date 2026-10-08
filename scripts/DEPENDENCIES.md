@@ -4,7 +4,7 @@
 
 `bun install --frozen-lockfile` で lockfile を再現し、`bun run audit:dependencies` で開発・optional・間接依存を含む全 npm package/version を npm advisory API と OSV に照合する。どちらかの API が失敗した場合や、期限切れの例外がある場合も失敗として扱う。監査結果を保存する場合は `bun run audit:dependencies --output /tmp/dependency-audit.json` を使う。パッケージ名とバージョンのみを監査サービスへ送る。
 
-セキュリティ修正では Hono、React Router、DOMPurify、Vitest を修正版に更新した。`package.json` の override は修正版未満を含む間接依存を固定するために導入した。PostCSS の更新により nanoid 3 系も修正版へ進む。Next.js と sharp は better-auth の optional peer 由来で、この製品は Next.js サーバーを起動しないが、開発環境にも既知脆弱性を残さないため更新する。undici は Wrangler/Miniflare 由来の開発用依存で 7 系を維持する。
+セキュリティ修正では Hono、React Router、DOMPurify、Vitest を修正版に更新した。`package.json` の override は修正版未満を含む間接依存を固定するために導入した。PostCSS の更新により nanoid 3 系も修正版へ進む。Next.js は better-auth の optional peer 由来で、この製品は Next.js サーバーを起動しない。sharp は Miniflare 由来の開発・テスト依存である。2026-10-08: GHSA-wq5f-xc86-pv6w の修正版 librsvg を含めるため sharp を 0.35.5 に固定した。undici は Wrangler/Miniflare 由来の開発用依存で 7 系を維持する。
 
 Vitest は Workers pool の互換範囲にある 4.1 系を維持した。Vite/TypeScript/認証基盤の major 更新や、最新 Workers pool が要求する Miniflare 5 alpha への移行は今回のセキュリティ修正と分ける。未使用であることを確認した bcryptjs、その型定義、React Form、Vite basic-ssl を除去した。
 

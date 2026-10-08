@@ -56,6 +56,8 @@ export default function EventDashboard() {
     queryFn: () => circleApi.list(eventId!),
     // 2026-10-03: 表示していない管理タブの問い合わせを実行しない。
     enabled: !!eventId && (activeTab === "circles" || activeTab === "sales"),
+    // 2026-10-07 (#9): 報告から30分を超えた混雑度を本部画面でも未報告へ切り替える。
+    refetchInterval: activeTab === "circles" ? 60_000 : false,
   });
 
   // 2026-10-03: 注文全件は売上タブの表示時のみ取得し、失敗をゼロ売上として隠さない。

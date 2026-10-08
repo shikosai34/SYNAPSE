@@ -69,12 +69,53 @@ eventRoutes.get("/", async (c) => {
   return c.json(events);
 });
 
+// 2026-10-08: 未入場の来場者が公開イベントを選べるよう、運営一覧とは分けて
+// 公開表示に必要な項目だけ返す。運営用一覧の所属ベース認可は維持する。
+eventRoutes.get("/public", async (c) => {
+  const db = c.get("db");
+  const events = await db
+    .select({
+      id: event.id,
+      eventName: event.eventName,
+      description: event.description,
+      logoUrl: event.logoUrl,
+    })
+    .from(event)
+    .where(isNull(event.deletedAt))
+    .orderBy(desc(event.startDate));
+
+  return c.json(events);
+});
+
 // イベント取得
 eventRoutes.get("/:id", async (c) => {
   const db = c.get("db");
   const id = c.req.param("id");
   const events = await db
-    .select()
+    // 2026-10-08: このルートは来場者画面からも認証なしで呼ばれるため、
+    // 契約情報・所有者メール・運営メモなどを含むイベント行全体を返さず、画面用項目に限定する。
+    .select({
+      id: event.id,
+      eventName: event.eventName,
+      description: event.description,
+      startDate: event.startDate,
+      endDate: event.endDate,
+      lifecycleStatus: event.lifecycleStatus,
+      paymentMethods: event.paymentMethods,
+      stampRallySettings: event.stampRallySettings,
+      lotteryEnabled: event.lotteryEnabled,
+      advancedPermissions: event.advancedPermissions,
+      logoUrl: event.logoUrl,
+      fontFamily: event.fontFamily,
+      customFontUrl: event.customFontUrl,
+      primaryColor: event.primaryColor,
+      primaryTextColor: event.primaryTextColor,
+      accentColor: event.accentColor,
+      accentTextColor: event.accentTextColor,
+      backgroundColor: event.backgroundColor,
+      textColor: event.textColor,
+      hasPhysicalWristband: event.hasPhysicalWristband,
+    })
     .from(event)
     .where(and(eq(event.id, id), isNull(event.deletedAt)));
 
@@ -84,6 +125,61 @@ eventRoutes.get("/:id", async (c) => {
 
   return c.json(events[0]);
 });
+
+// 2026-10-07: エリアをまたぐスタンプラリーはイベント管理者が明示設定する。
+// 各サークルは一つのエリアにだけ割り当て、複数の実エリアをまとめる場合は
+// 同じ論理エリアへ登録することで、同じ購入が景品条件へ重複加算されるのを防ぐ。
+eventRoutes.put(
+  "/:id/stamp-rally-settings",
+  zBody(z.object({
+    settings: z.object({
+      enabled: z.boolean(),
+      areas: z.array(z.object({
+        id: z.string().min(1).max(64),
+        name: z.string().trim().min(1).max(60),
+        requiredCount: z.number().int().min(1).max(100),
+        circleIds: z.array(z.string().min(1).max(64)).max(100),
+        rewardTitle: z.string().trim().max(100).default("景品交換"),
+        rewardDescription: z.string().trim().max(500).default(""),
+      })).max(20),
+    }),
+  })),
+  async (c) => {
+    const db = c.get("db");
+    const eventId = c.req.param("id");
+    if (!(await hasPermission(c, null, "event:write", eventId))) {
+      apiError("FORBIDDEN", "このイベントの設定を変更する権限がありません");
+    }
+
+    const { settings } = c.req.valid("json");
+    if (settings.enabled && (
+      settings.areas.length === 0 || settings.areas.some((area) =>
+        area.circleIds.length === 0 || area.requiredCount > area.circleIds.length
+      )
+    )) {
+      apiError("BAD_REQUEST", "有効な各エリアに必要数以上の対象店舗を登録してください");
+    }
+    const assignedIds = settings.areas.flatMap((area) => area.circleIds);
+    if (new Set(assignedIds).size !== assignedIds.length) {
+      apiError("BAD_REQUEST", "サークルは複数のエリアへ重複登録できません");
+    }
+    if (assignedIds.length > 0) {
+      const assignedCircles = await db.select({ id: circle.id }).from(circle).where(and(
+        eq(circle.eventId, eventId),
+        isNull(circle.deletedAt),
+        inArray(circle.id, assignedIds),
+      ));
+      if (assignedCircles.length !== assignedIds.length) {
+        apiError("BAD_REQUEST", "対象外または削除済みのサークルが含まれています");
+      }
+    }
+
+    await db.update(event)
+      .set({ stampRallySettings: JSON.stringify(settings) })
+      .where(and(eq(event.id, eventId), isNull(event.deletedAt)));
+    return c.json({ success: true });
+  },
+);
 
 // イベント横断の進行中注文モニタ (2026-07-12)
 // 全サークルの未完了注文 (pending/preparing) を古い順で返す。フロントが経過時間から

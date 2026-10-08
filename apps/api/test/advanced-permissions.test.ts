@@ -90,6 +90,27 @@ describe("高度な権限管理", () => {
 		expect((await invite(owner)).status).toBeLessThan(400);
 	});
 
+	it("直接メンバー追加はメール形式が不正な入力を拒否する (2026-10-08)", async () => {
+		const owner = await seedStaff(false, "circle_manager");
+		const res = await postJson(
+			"/api/memberships",
+			{
+				userEmail: "invalid-email",
+				userName: "不正メールテスト",
+				circleId: owner.circleId,
+				role: "circle_staff",
+			},
+			headers(owner),
+		);
+
+		expect(res.status).toBe(400);
+		const rows = await testDb()
+			.select()
+			.from(membership)
+			.where(eq(membership.userEmail, "invalid-email"));
+		expect(rows).toHaveLength(0);
+	});
+
 	it("サークル基本情報の変更とオーナー譲渡はオーナーのみ (OFF でも一般スタッフは 403)", async () => {
 		const staff = await seedStaff(false);
 		const owner = await seedStaff(false, "circle_manager");

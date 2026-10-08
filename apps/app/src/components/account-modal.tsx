@@ -22,6 +22,8 @@ import {
   clearAuthInfo,
 } from "@/hooks/useCircleAuth";
 import { authClient } from "@/lib/auth-client";
+import { PERMISSION_NAMES } from "@fesflow/config";
+import { roleLabel } from "@/lib/roles";
 
 export type Space = {
   id: string;
@@ -46,7 +48,7 @@ export default function AccountModal({
 }) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { userName, userEmail } = useAuth();
+  const { userName, userEmail, role, permissions } = useAuth();
 
   // 正本のアカウント情報 (localStorage は image を持たないため API から取得)
   const { data: me } = useQuery({
@@ -206,6 +208,25 @@ export default function AccountModal({
           >
             {profileMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "プロフィールを保存"}
           </Button>
+        </section>
+
+        {/* 2026-10-07 (#70): 権限の説明はスペース切替の操作中ではなく、ユーザー設定で確認できるようにする。 */}
+        <section className="space-y-2 mb-6 border-b-thin border-border pb-5">
+          <h3 className="text-xs font-black uppercase tracking-wider text-muted-foreground">[現在のスペース権限]</h3>
+          <p className="text-xs font-bold">{role ? roleLabel(role) : "スペース未選択"}</p>
+          <p className="text-[10px] text-muted-foreground">このスペースで利用できる操作です。権限の変更はスペース管理者に依頼してください。</p>
+          {permissions.length > 0 ? (
+            <ul className="grid grid-cols-1 gap-1 text-[10px] sm:grid-cols-2">
+              {permissions.map((permission: string) => (
+                <li key={permission} className="flex items-start gap-1.5">
+                  <span aria-hidden="true">✓</span>
+                  <span>{PERMISSION_NAMES[permission] ?? permission}</span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-[10px] text-muted-foreground">このスペースで利用できる権限はありません。</p>
+          )}
         </section>
 
         {/* メールアドレス変更 */}

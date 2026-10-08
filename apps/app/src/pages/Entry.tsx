@@ -15,12 +15,14 @@ export default function Entry() {
   const { id = "" } = useParams();
   const navigate = useNavigate();
   const [error, setError] = useState<string | null>(null);
-  // StrictMode の二重実行/連打で lookup が重複しないようにガード
-  const started = useRef(false);
+  const [retryCount, setRetryCount] = useState(0);
+  // StrictMode と再試行で同じパスが重複実行されず、ID変更時は新しい照会を許可する。
+  const startedFor = useRef<string | null>(null);
 
   useEffect(() => {
-    if (started.current) return;
-    started.current = true;
+    const attemptKey = `${id}:${retryCount}`;
+    if (startedFor.current === attemptKey) return;
+    startedFor.current = attemptKey;
 
     (async () => {
       if (!id) {
@@ -44,7 +46,7 @@ export default function Entry() {
         setError(e?.message || "入場に失敗しました。もう一度お試しください。");
       }
     })();
-  }, [id, navigate]);
+  }, [id, navigate, retryCount]);
 
   if (error) {
     return (
@@ -53,9 +55,9 @@ export default function Entry() {
         <p className="text-sm text-muted-foreground">{error}</p>
         <button
           onClick={() => {
-            started.current = false;
             setError(null);
-            navigate(`/w/${id}`, { replace: true });
+            // 2026-10-08: 同一URLへのnavigateはeffectを再実行しないため、試行番号で再取得する。
+            setRetryCount((count) => count + 1);
           }}
           className="border-[2px] border-border px-4 py-2 text-sm font-bold uppercase hover:bg-primary hover:text-primary-foreground"
         >

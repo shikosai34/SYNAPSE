@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { addCartLine, updateCartQuantity, toggleCartTopping, cartTotal, cartCount, lineKey } from "../src/features/orders/cart";
+import { addCartLine, updateCartQuantity, toggleCartTopping, cartTotal, checkoutTotal, cartCount, lineKey } from "../src/features/orders/cart";
 
 const menu = { id: "menu-a", name: "焼きそば", price: 300 };
 const egg = { toppingId: "egg", toppingName: "卵", toppingPrice: 50 };
@@ -29,5 +29,12 @@ describe("shared POS and visitor cart", () => {
 
   it("does not collide on separator characters in identifiers", () => {
     expect(lineKey("a", ["b,c"])).not.toBe(lineKey("a", ["b", "c"]));
+  });
+
+  it("uses the saved preorder total so coupon discounts match the cashier amount", () => {
+    const cart = addCartLine([], { id: "menu-a", name: "焼きそば", price: 150 }, []);
+    expect(cartTotal(cart)).toBe(150);
+    expect(checkoutTotal(cart, 50)).toBe(50);
+    expect(checkoutTotal(cart, null)).toBe(150);
   });
 });

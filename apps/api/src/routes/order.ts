@@ -21,6 +21,7 @@ import { ulid } from "ulidx";
 import { hasPermission } from "../utils/auth";
 import { commitOrder, committedOrder, orderCommand } from "../services/order-commit";
 import { updateOrderStatus } from "../services/order-status";
+import { missingToppingCategoryMinimum } from "../utils/topping-wizard";
 import type { AppEnv } from "../types";
 
 const orderRoutes = new Hono<AppEnv>();
@@ -73,15 +74,15 @@ orderRoutes.get("/", async (c) => {
   const items = await db
     .select()
     .from(orderItem)
-    // 2026-10-03: D1のbound parameter上限を超えないよう、可変IDをJSON 1 bindにする。
-    .where(inArray(orderItem.orderId, sql`SELECT value FROM json_each(${JSON.stringify(orderIds)})`));
+    // 2026-10-08: 副問い合わせをINの括弧内に置く。DrizzleのinArrayへSQL断片を渡すと括弧が補われず構文エラーになる。
+    .where(sql`${orderItem.orderId} IN (SELECT value FROM json_each(${JSON.stringify(orderIds)}))`);
 
   const itemIds = items.map((i) => i.id);
   const allItemToppings = itemIds.length > 0
     ? await db
         .select()
         .from(orderItemTopping)
-        .where(inArray(orderItemTopping.orderItemId, sql`SELECT value FROM json_each(${JSON.stringify(itemIds)})`))
+        .where(sql`${orderItemTopping.orderItemId} IN (SELECT value FROM json_each(${JSON.stringify(itemIds)}))`)
     : [];
 
   // 注文にアイテムを追加
@@ -501,6 +502,15 @@ orderRoutes.post(
               apiError("BAD_REQUEST", `${t.name}の在庫が不足しています`);
             }
           }
+        }
+
+        const availableMenuToppings = toppings.filter((topping) =>
+          menuToppingLinks.some((link) => link.menuId === menuItem.id && link.toppingId === topping.id)
+        );
+        const missingCategory = missingToppingCategoryMinimum(menuItem, itemToppings, availableMenuToppings);
+        if (missingCategory) {
+          const label = missingCategory.category || "未分類";
+          apiError("BAD_REQUEST", `${menuItem.name}: 「${label}」から最低${missingCategory.required}個選んでください`);
         }
 
         // 2026-09-27: 在庫を商品単位の opt-in にする。ONなら数量0も在庫切れなので

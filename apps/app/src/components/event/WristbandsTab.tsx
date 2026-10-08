@@ -29,6 +29,7 @@ import { QrScannerModal } from "@/components/pos/qr-scanner-modal";
 import { Modal } from "@/components/ui/Modal";
 import { QRCodeSVG } from "qrcode.react";
 import { digitalQrIssueUrl } from "@/lib/digital-qr-url";
+import { visitorUrl } from "@/lib/visitor-url";
 import { generateWristbandIds } from "@/lib/wristband-id-generator";
 import { WristbandBatchHistory } from "@/components/event/WristbandBatchHistory";
 
@@ -443,8 +444,7 @@ export function WristbandsTab({ eventId }: WristbandsTabProps) {
   };
 
   const getVisitorLink = (userId: string) => {
-    const visitorBase = import.meta.env.VITE_VISITOR_URL || window.location.origin.replace("3000", "3001");
-    return `${visitorBase}/w/${userId}`;
+    return visitorUrl(`/w/${userId}`);
   };
   // 2026-09-27 Issue #56: QRの内容を表示中の発行URLと同じ MyPage 発行アクションに揃える。
   const selfIssueUrl = digitalQrIssueUrl(window.location.origin, eventId);
@@ -1300,8 +1300,9 @@ export function WristbandsTab({ eventId }: WristbandsTabProps) {
                           <Copy className="h-3 w-3" />
                         </Button>
                       </p>
-                      <p className="flex items-center gap-2">
-                        ステータス:
+                      {/* 2026-10-08: Badge renders a div; a div wrapper avoids invalid paragraph nesting and React hydration warnings. */}
+                      <div className="flex items-center gap-2">
+                        <span>ステータス:</span>
                         <Badge
                           variant="default"
                           className={`rounded-none text-[8px] font-mono border-thick border-border uppercase ${
@@ -1322,7 +1323,7 @@ export function WristbandsTab({ eventId }: WristbandsTabProps) {
                             ? "再発行済 (Replaced)"
                             : "無効化 (Revoked)"}
                         </Badge>
-                      </p>
+                      </div>
                       <p className="text-[10px] text-muted-foreground">
                         割当日時: {new Date(selectedUser.wristband.assignedAt).toLocaleString("ja-JP")}
                       </p>
