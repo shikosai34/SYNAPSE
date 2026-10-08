@@ -31,7 +31,8 @@
 | メソッド | パス | 用途・認可の概要 |
 | --- | --- | --- |
 | `GET` | `/system/public`, `/system/announcements` | メンテナンス表示情報、公開お知らせ。公開。 |
-| `GET` | `/festivals`, `/festivals/:id` | イベント一覧・詳細。詳細と一覧で公開範囲が異なる場合がある。 |
+| `GET` | `/festivals` | ログイン必須。所属しているイベントだけを一覧し、`super_admin` は全件を参照できる。 |
+| `GET` | `/festivals/:id` | 認証・所属権限なしでイベント詳細を参照できる公開ルート。 |
 | `POST` | `/festivals` | イベント作成。ログインセッション必須。作成者が `event_manager` になり、無料枠のイベントが作成される。 |
 | `DELETE` | `/festivals/:id` | イベントの論理削除。`super_admin` セッション必須。 |
 | `GET` | `/festivals/:id/analytics`, `/behavior`, `/contract`, `/daily-close`, `/inventory`, `/visitors`, `/orders/live` | 分析、行動、契約、日次集計、在庫、来場者一覧、注文状況。対象イベントの権限を確認。`daily-close` は集計取得であり締め確定APIではない。 |
@@ -58,10 +59,10 @@
 | `GET` | `/pre-orders/user/:code` | 来場者コードによる未受取の事前注文一覧。 |
 | `POST` | `/pre-orders` | ドラフト保存。発行済み来場者コード、同一イベント、受付状態等をサーバーで再検証。 |
 | `POST` | `/pre-orders/:id/claim` | POSでのclaim。運営セッションと `order:write` 権限、注文条件を検証。 |
-| `GET` / `POST` | `/stamps/*` | `GET /:userId` はID指定のスタンプ参照、`GET /visitor/:code` は来場者コードで設定と押印状態を参照。いずれも認証なし。景品交換 (`POST /redeem`) はログインセッションを要求し、対象者の交換済み状態と必要スタンプ数を検証する。 |
-| `GET` / `POST` / `DELETE` | `/lottery/*` | 抽選設定・景品・抽選・応募・結果・当選受取。来場者応募と運営操作で認可方法が異なる。 |
+| `GET` / `POST` | `/stamps/*` | `GET /:userId` と `GET /visitor/:code` は認証なしでスタンプ情報を参照する。`POST /redeem` はログイン必須だが、ログイン利用者の権限・所属スコープ・対象 `userId` の所有確認はない。 |
+| `GET` / `POST` / `DELETE` | `/lottery/*` | 抽選設定・景品・抽選・応募・結果・当選受取。運営操作はイベント権限を確認する一方、`GET /:id/result?userId=...` は認証やID所有確認なしで指定IDの結果を返す。 |
 | `GET` / `POST` | `/coupons/*` | サークルのクーポン管理、`/verify` で利用可否を確認。クーポン検証だけでは消費せず、注文確定側で再検証・適用する。 |
-| `GET` / `POST` | `/reviews/*` | 来場者コードを使う投稿と、サークル/イベント側の一覧。投稿者コードと対象スコープを検証。 |
+| `GET` / `POST` | `/reviews/*` | `/visitor/:code` の取得・投稿は認証なしでコードを受け取り、サークル/イベント側の一覧GETは `sales:read` を確認。コード照会の詳細は下記を参照。 |
 | `GET` / `PUT` / `POST` / `PATCH` / `DELETE` | `/admin/*` | システム設定・告知・ユーザー/イベント/支払・監査・セッション整理・ロックアウト、権限昇格・なりすまし。全ルートで `super_admin` セッション必須。一部操作は再認証・昇格セッション必須。 |
 | `POST` | `/upload` | ログインと有効な所属を要求するmultipartアップロード。10 MiB上限、許可拡張子のみ。 |
 | `GET` | `/uploads/*` | 保存済み画像/フォント配信。公開キャッシュ付きバイナリで、JSON APIエラー包絡ではない。 |
@@ -83,11 +84,13 @@
 | `POST` | `/wristbands/onboard`, `/wristbands/issue`, `/wristbands/register` | オンボード、デジタルバンド発行、初回登録。`issue` は `wristbandId` を省略すると匿名で来場者とスマートフォンバンドを発行し、物理IDを指定するとログインセッションを要求する（このルート自身はスタッフ権限を確認しない）。 |
 | `POST` | `/wristbands/:id/report-lost` | セッションなしで紛失報告し、active/smartphone のバンドを lost に変更する。コードを知る第三者が状態を変えられるため、外部連携から呼ばない。 |
 | `GET` | `/wristbands/lookup/:code` | セッションなしでコード照会し、該当する来場者行とリストバンド行を返す。個人情報を含み得るため、URL・ログ・第三者サービスへ送らない。 |
-| `POST` | `/lottery/:id/enter`, `/coupons/verify`, `/reviews/visitor/:code` | 来場者応募、クーポン検証、来場者レビュー投稿。各ハンドラーの状態・回数・対象条件を満たす必要がある。 |
+| `GET` / `POST` | `/reviews/visitor/:code` | 認証なし。GETはコードに対応する来場者の訪問/購入済みサークルと本人レビューを返し、POSTは同じコードを使って対象サークルへ投稿・更新する。コードはベアラー値として秘密にする。 |
+| `POST` | `/lottery/:id/enter`, `/coupons/verify` | 来場者応募、クーポン検証。各ハンドラーの状態・回数・対象条件を満たす必要がある。 |
 | `GET` | `/stamps/:userId` | ID指定でスタンプと交換状態を参照。来場者ID自体を秘密として扱う必要がある。 |
 | `GET` | `/stamps/visitor/:code` | 来場者コードでスタンプラリー設定と押印済みサークルを参照。コードは秘密として扱う。未設定または無効コードでは `enabled: false` と空配列を返す。 |
+| `GET` | `/lottery/:id/result?userId=...` | 認証なし。指定した `userId` の応募/当選結果を返し、呼出者との同一性やイベント参加は確認しない。 |
 
-来場者IDやリストバンドコードだけで本人を特定するAPIは、強いユーザー認証ではありません。値を知る利用者が別人の情報を参照したり操作したりできる経路があります。特に `GET /wristbands/lookup/:code` は来場者行とバンド行を返し、`POST /wristbands/:id/report-lost` はコードだけで有効なバンドを停止します。これらの値を公開クライアントへ埋め込んだり、ログやURLで共有したりしないでください。認証なしの書込みエンドポイントは、公開Web画面を成立させる実装上の導線であり、外部システムからの無制限利用を推奨するものではありません。
+来場者IDやリストバンドコードだけで本人を特定するAPIは、強いユーザー認証ではありません。値を知る利用者が別人の情報を参照したり操作したりできる経路があります。特に `GET /wristbands/lookup/:code` は来場者行とバンド行を返し、`POST /wristbands/:id/report-lost` はコードだけで有効なバンドを停止します。`GET /lottery/:id/result?userId=...` も指定IDの結果を認証なしで返します。`POST /stamps/redeem` はログインこそ必要ですが、対象来場者との関係やスタッフ権限を確認しません。`GET` / `POST /reviews/visitor/:code` はコードだけで来場者の訪問先・本人レビューを照会したり、レビューを投稿/更新したりできます。これらの値を公開クライアントへ埋め込んだり、ログやURLで共有したりしないでください。認証なしの書込みエンドポイントは、公開Web画面を成立させる実装上の導線であり、外部システムからの無制限利用を推奨するものではありません。
 
 ## リクエスト例
 
@@ -151,11 +154,12 @@ curl -i -A 'OpenAI File Downloader, XaiImageApiFetch/1.0' 'http://localhost:8787
 
 - `GET /api/stamps/visitor/:code` は発行済みのスマートフォン用バンドID、または `eventUser.id` でイベントの設定と押印済みサークルを返します。無効コードや未設定時は `{enabled:false,areas:[],stampedCircleIds:[]}` 相当です。
 - `GET /api/stamps/:userId` はそのIDのスタンプ、交換状態、押印数を返します。どちらの値も本人性を証明する秘密情報として保護してください。
+- `POST /api/stamps/redeem` はログインセッションを要求し、未交換かつ3個以上のスタンプがある指定 `userId` に交換記録を作ります。実装上、ログイン利用者のスタッフ権限・イベント/サークル所属・指定来場者との関係は確認しません。外部クライアントはこの実装上の認可不足を前提に呼び出さないでください。
 
 ### 抽選
 
 - `GET /api/lottery?eventId=...` は `event:read` を要求します。運営用の抽選取得、作成 `POST /api/lottery`（`event:write`、`{eventId,name,drawAt?,entryConfig?}`）、景品追加 `POST /api/lottery/:id/prizes`（`{name,quantity}`）、景品削除 `DELETE /api/lottery/:id/prizes/:prizeId` はイベント権限が必要です。
-- 来場者応募 `POST /api/lottery/:id/enter` は `{userId}` を受け取り、イベント参加状態と受付期間を検証します。同じ利用者の再応募は冪等です。`GET /api/lottery/:id/result?userId=...` はその利用者自身の結果を返します。
+- 来場者応募 `POST /api/lottery/:id/enter` は `{userId}` を受け取り、対象イベントへの登録状態と抽選受付状態を検証します。同じ利用者の再応募は冪等です。`GET /api/lottery/:id/result?userId=...` は認証なしで、指定された `userId` の応募/当選結果を返します。ID所有者の確認はないため、他人のIDを指定すればその結果も照会できます。
 - `POST /api/lottery/:id/draw` は結果を永続化する抽選実行です。`POST /api/lottery/:id/winners/:winnerId/claim` は `event:write` を要求し、受取時刻を記録します。外部連携から抽選を再実行したり、結果を上書きしたりしないでください。
 
 ## 集計とライブ表示の意味
