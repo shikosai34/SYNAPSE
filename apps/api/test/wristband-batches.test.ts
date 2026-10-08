@@ -44,6 +44,98 @@ async function createEventManager() {
 }
 
 describe("リストバンド発行履歴", () => {
+  it("物理バンドの単発発行は対象イベントの member:write を要求する", async () => {
+    const target = await createEventManager();
+    const unrelated = await createEventManager();
+    const wristbandId = uid("physical-band");
+
+    const denied = await request("/api/wristbands/issue", {
+      method: "POST",
+      headers: unrelated.headers,
+      body: JSON.stringify({ eventId: target.eventId, wristbandId }),
+    });
+    expect(denied.status).toBe(403);
+    expect(await target.db.select().from(eventUser).where(eq(eventUser.eventId, target.eventId))).toHaveLength(0);
+
+    const allowed = await request("/api/wristbands/issue", {
+      method: "POST",
+      headers: target.headers,
+      body: JSON.stringify({ eventId: target.eventId, wristbandId }),
+    });
+    expect(allowed.status).toBe(200);
+    const { userId: issuedUserId } = (await allowed.json()) as { userId: string };
+    expect(await target.db.select().from(wristband).where(eq(wristband.id, wristbandId))).toHaveLength(1);
+
+    const unrelatedProfileEdit = await request(`/api/wristbands/user/${issuedUserId}`, {
+      method: "PATCH",
+      headers: unrelated.headers,
+      body: JSON.stringify({ status: "banned" }),
+    });
+    expect(unrelatedProfileEdit.status).toBe(403);
+    expect((await target.db.select().from(eventUser).where(eq(eventUser.id, issuedUserId)))[0]?.status).toBe("available");
+
+    const unrelatedBandEdit = await request(`/api/wristbands/${wristbandId}`, {
+      method: "PATCH",
+      headers: unrelated.headers,
+      body: JSON.stringify({ status: "lost" }),
+    });
+    expect(unrelatedBandEdit.status).toBe(403);
+    expect((await target.db.select().from(wristband).where(eq(wristband.id, wristbandId)))[0]?.status).toBe("active");
+
+    const allowedProfileEdit = await request(`/api/wristbands/user/${issuedUserId}`, {
+      method: "PATCH",
+      headers: target.headers,
+      body: JSON.stringify({ nickname: "same-event-edit" }),
+    });
+    expect(allowedProfileEdit.status).toBe(200);
+
+    const selfIssued = await request("/api/wristbands/issue", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ eventId: target.eventId }),
+    });
+    expect(selfIssued.status).toBe(200);
+    const { userId } = (await selfIssued.json()) as { userId: string };
+    expect(await target.db.select().from(eventUser).where(eq(eventUser.id, userId))).toHaveLength(1);
+    expect(await target.db.select().from(wristband).where(eq(wristband.id, `sp_${userId}`))).toHaveLength(1);
+  });
+
+  it("別イベントの既存バンドを来場者へ付け替えない", async () => {
+    const target = await createEventManager();
+    const other = await createEventManager();
+    const targetBandId = uid("target-event-band");
+    const otherBandId = uid("other-event-band");
+
+    const targetIssue = await request("/api/wristbands/issue", {
+      method: "POST",
+      headers: target.headers,
+      body: JSON.stringify({ eventId: target.eventId, wristbandId: targetBandId }),
+    });
+    const otherIssue = await request("/api/wristbands/issue", {
+      method: "POST",
+      headers: other.headers,
+      body: JSON.stringify({ eventId: other.eventId, wristbandId: otherBandId }),
+    });
+    expect(targetIssue.status).toBe(200);
+    expect(otherIssue.status).toBe(200);
+    const { userId: targetUserId } = (await targetIssue.json()) as { userId: string };
+    const { userId: otherUserId } = (await otherIssue.json()) as { userId: string };
+
+    // 2026-10-08: イベントAの管理者でもイベントBのバンドをAの来場者へ移管できないことを確認する。
+    const denied = await request("/api/wristbands/register", {
+      method: "POST",
+      headers: target.headers,
+      body: JSON.stringify({ userId: targetUserId, wristbandId: otherBandId }),
+    });
+
+    expect(denied.status).toBe(403);
+    expect((await target.db.select().from(wristband).where(eq(wristband.id, otherBandId)))[0]).toMatchObject({
+      userId: otherUserId,
+      status: "active",
+    });
+    expect((await target.db.select().from(wristband).where(eq(wristband.id, targetBandId)))[0]?.status).toBe("active");
+  });
+
   it("登録前にURLを保存し、完了後も一覧とURLのみCSVから再取得できる", async () => {
     const { db, eventId, headers } = await createEventManager();
     const urls = ["https://fesflow.shikosai.net/w/test-a1", "https://fesflow.shikosai.net/w/test-a2"];

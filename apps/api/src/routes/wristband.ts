@@ -283,6 +283,17 @@ wristbandRoutes.post(
       .from(wristband)
       .where(eq(wristband.id, wristbandId));
     const bandExists = bandNow.length > 0;
+    const bandOwner = bandExists
+      ? await db.select().from(eventUser).where(eq(eventUser.id, bandNow[0]!.userId))
+      : [];
+
+    // 2026-10-08: 来場登録QRは同一イベント内で既発行バンドを紐付ける導線。
+    // 既存バンドの所属イベントと対象ユーザーのイベントが異なる場合は、管理者権限があっても移管させない。
+    const targetEventId = users[0]?.eventId;
+    const bandEventId = bandOwner[0]?.eventId;
+    if (targetEventId && bandEventId && targetEventId !== bandEventId) {
+      apiError("FORBIDDEN", "別のイベントで登録されたリストバンドは使用できません");
+    }
 
     // 2026-07-11: 権限ゲート。以下はいずれも本部(スタッフ member:write)権限を要求する:
     //  (a) 未登録=本部未発行のバンドIDの紐付け → 実質「スマホ単体でバンドを新規発行」なので禁止。
@@ -297,14 +308,7 @@ wristbandRoutes.post(
       bandNow[0]!.userId !== userId;
     const creatingNewBand = !bandExists;
     if (replacingUsersActiveBand || bandOwnedByOther || creatingNewBand) {
-      let evId: string | undefined = users[0]?.eventId;
-      if (!evId && bandExists) {
-        const otherUser = await db
-          .select()
-          .from(eventUser)
-          .where(eq(eventUser.id, bandNow[0]!.userId));
-        evId = otherUser[0]?.eventId;
-      }
+      let evId: string | undefined = targetEventId ?? bandEventId;
       if (!evId && creatingNewBand) {
         // 2026-07-11: 新規バンド発行時は eventId 未解決のまま権限判定しない。
         // event_manager の曖昧一致を防ぐため、DB から具体的なイベントIDを解決して渡す。
@@ -324,9 +328,10 @@ wristbandRoutes.post(
 
     // 権限クリア。ユーザーが未登録なら作成する (本部発行フロー由来のみ到達する)。
     if (users.length === 0) {
-      // D1 の外部キー制約エラーを避けるため、DB内の最初のイベントIDをデフォルトに使う。
+      // 初回チェックインでは、読み取った既発行バンドのイベントに来場者を作成する。
+      // 新規バンド発行のスタッフ導線では従来どおり先頭イベントを使う。
       const eventsList = await db.select().from(event).limit(1);
-      const defaultEventId = eventsList[0]?.id || "evt_default";
+      const defaultEventId = bandEventId ?? eventsList[0]?.id ?? "evt_default";
       const newDisplayId = Math.floor(100 + Math.random() * 900);
       await db.insert(eventUser).values({
         id: userId,
@@ -406,15 +411,19 @@ wristbandRoutes.patch(
     const id = c.req.param("id");
     const { status, userId } = c.req.valid("json");
 
-    // 権限チェック (スタッフ member:write 権限が必要)
-    const allowed = await hasPermission(c, null, "member:write", undefined);
-    if (!allowed) {
-      apiError("FORBIDDEN", "この操作にはスタッフ権限が必要です");
-    }
-
     const wbs = await db.select().from(wristband).where(eq(wristband.id, id));
     if (wbs.length === 0) {
       apiError("NOT_FOUND", "リストバンドが見つかりません");
+    }
+    const currentUsers = await db.select().from(eventUser).where(eq(eventUser.id, wbs[0]!.userId));
+    if (currentUsers.length === 0) {
+      apiError("NOT_FOUND", "リストバンドの来場者が見つかりません");
+    }
+
+    // 2026-10-08: リソースのイベントを権限評価へ渡し、別イベントのスタッフによる更新を防ぐ。
+    const allowed = await hasPermission(c, null, "member:write", currentUsers[0]!.eventId);
+    if (!allowed) {
+      apiError("FORBIDDEN", "この操作には対象イベントのスタッフ権限が必要です");
     }
 
     const patch: Record<string, any> = { status };
@@ -425,6 +434,13 @@ wristbandRoutes.patch(
     }
 
     if (userId !== undefined) {
+      const targetUsers = await db.select().from(eventUser).where(eq(eventUser.id, userId));
+      if (targetUsers.length === 0) {
+        apiError("NOT_FOUND", "紐付け先の来場者が見つかりません");
+      }
+      if (targetUsers[0]!.eventId !== currentUsers[0]!.eventId) {
+        apiError("FORBIDDEN", "イベントをまたぐリストバンドの付け替えはできません");
+      }
       patch.userId = userId;
     }
 
@@ -461,15 +477,16 @@ wristbandRoutes.patch(
     const userId = c.req.param("userId");
     const body = c.req.valid("json");
 
-    // 権限チェック (スタッフ member:write 権限が必要)
-    const allowed = await hasPermission(c, null, "member:write", undefined);
-    if (!allowed) {
-      apiError("FORBIDDEN", "この操作にはスタッフ権限が必要です");
-    }
-
     const users = await db.select().from(eventUser).where(eq(eventUser.id, userId));
     if (users.length === 0) {
       apiError("NOT_FOUND", "ユーザーが見つかりません");
+    }
+
+    // 2026-10-08: 来場者行から対象イベントを解決してから権限を確認し、
+    // 別イベントのスタッフがIDを知っていてもプロフィールを変更できないようにする。
+    const allowed = await hasPermission(c, null, "member:write", users[0]!.eventId);
+    if (!allowed) {
+      apiError("FORBIDDEN", "この操作には対象イベントのスタッフ権限が必要です");
     }
 
     const patch: Record<string, any> = {};
@@ -647,10 +664,18 @@ wristbandRoutes.post(
 
     const auth = c.get("auth");
     const session = await auth.api.getSession({ headers: c.req.raw.headers });
-    // 物理リストバンドの紐付け(wristbandId指定)がある場合のみスタッフ権限(セッション)を必須とする。
+    // 物理リストバンドの紐付け(wristbandId指定)がある場合のみログインと対象イベントのスタッフ権限を必須とする。
     // wristbandIdがない場合はデジタルQRコードのセルフ発行であるため、セッションなしでも許可する。
     if (wristbandId && (!session || !session.user)) {
       apiError("UNAUTHORIZED", "認証されていません");
+    }
+    if (wristbandId) {
+      // 2026-10-08: ログインしているだけでは別イベントの物理バンドを発行できないよう、
+      // 来場者・バンド管理と同じ対象イベントの member:write を確認する。
+      const allowed = await hasPermission(c, null, "member:write", eventId);
+      if (!allowed) {
+        apiError("FORBIDDEN", "このイベントでリストバンドを発行する権限がありません");
+      }
     }
 
     const userId = `usr_${nanoid(12)}`;

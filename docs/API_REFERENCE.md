@@ -8,7 +8,7 @@
 - Worker のRESTルートは `/api/*`。ルート本体は [apps/api/src/index.ts](../apps/api/src/index.ts)、ドメイン別定義は [apps/api/src/routes](../apps/api/src/routes/) にあります。
 - JSON本文は `Content-Type: application/json`。CORSの許可メソッドは `GET`, `POST`, `PUT`, `PATCH`, `DELETE`, `OPTIONS`。許可ヘッダーは `Content-Type`, `Authorization`, `Cookie`, `Accept`, `X-Active-Membership-Id`, `Idempotency-Key`、公開ヘッダーは `X-Request-ID` です。資格情報を使う場合はブラウザーから `credentials: "include"` を指定します。
 - ブラウザーのCORS許可OriginはFesFlowドメイン、localhost/127.0.0.1、プライベートIP、および `CORS_ORIGIN` 設定値です。サーバー間HTTP通信にはブラウザーCORSは適用されません。
-- 認証方式は Better Auth のセッションCookieです。ログインは `/api/auth/*` の Better Auth エンドポイントを使い、現在の構成は Google とパスキーです。汎用APIキーや外部サービス用Bearerトークン発行APIは確認できません。
+- 認証方式は Better Auth のセッションCookieです。ログインは `/api/auth/*` の Better Auth エンドポイントを使います。Google OAuth は `GOOGLE_CLIENT_ID` と `GOOGLE_CLIENT_SECRET` の設定が必要で、パスキーも利用できます。メール/パスワードは既定で無効で、`ENABLE_EMAIL_PASSWORD=true` の場合だけ有効になります（認可テスト用。通常の開発・本番ログイン方式ではありません）。汎用APIキーや外部サービス用Bearerトークン発行APIは確認できません。
 - `/api/auth/*` は Better Auth 管理の個別仕様です。以下のJSONエラー包絡とは形が異なる場合があります。
 
 ## 認証・認可
@@ -64,7 +64,7 @@
 | `GET` | `/memberships/notifications/list` | ログイン本人に届いた未読通知の一覧。 |
 | `POST` | `/memberships/notifications/:id/read`, `/memberships/notifications/:id/respond` | 本人の通知を既読化し、招待通知を承認/拒否。 |
 | `GET` / `PATCH` / `DELETE` | `/account/*` | `GET /me`、`PATCH /profile`・`/email`、`DELETE /membership/:id`、`DELETE /`（アカウント削除）。本人のCookieセッション必須。 |
-| `GET` / `POST` / `PATCH` | `/wristbands/*` | 来場者・リストバンドの検索/照会/発行/編集、スマートフォン発行、バッチ・CSV等。受付・管理用途。ルートと発行方式ごとに認証条件が異なる。一括発行・CSV取込のHTTP形式と上限は「リストバンド一括連携」を参照。`/lookup/:code` は認証なしで来場者行とバンド行を返すため、コードと応答を特に慎重に扱う。 |
+| `GET` / `POST` / `PATCH` | `/wristbands/*` | 来場者・リストバンドの検索/照会/発行/編集、スマートフォン発行、バッチ・CSV等。受付・管理用途。認証条件、検索項目、変更可能な値は「来場者・リストバンドAPI」を参照。`/lookup/:code` は認証なしで来場者行とバンド行を返すため、コードと応答を特に慎重に扱う。 |
 | `GET` | `/pre-orders/user/:code` | 来場者コードによる未受取の事前注文一覧。 |
 | `POST` | `/pre-orders` | ドラフト保存。発行済み来場者コード、同一イベント、受付状態等をサーバーで再検証。 |
 | `POST` | `/pre-orders/:id/claim` | POSでのclaim。運営セッションと `order:write` 権限、注文条件を検証。 |
@@ -92,6 +92,22 @@
 - `GET /festivals/:id/analytics` と `GET /festivals/:id/daily-close?date=YYYY-MM-DD` は、`cancelled` 以外の注文を売上・注文数に含めます。`pending` など未完了注文も含む受注額で、入金済み金額を示すものではありません。`completedRate` は完了件数を別に算出します。
 - サークルの売上管理画面は注文一覧から `completed` の注文だけを売上として集計します。イベント側の精算・日次集計とサークル売上画面では集計対象が異なるため、数値を直接同一視しないでください。
 - `daily-close` は指定日の集計を返す読み取りAPIです。締め状態の保存、会計確定、入金処理は行いません。
+
+### 来場者・リストバンドAPI
+
+`/wristbands/*` は一つの認証方式ではありません。来場者IDやバンドコードを本人資格情報として扱う公開ルートと、Cookieセッションおよびイベント所属権限を要求する運営ルートが混在します。
+
+| メソッド | パス | 資格情報・権限 | 用途と注意 |
+| --- | --- | --- | --- |
+| `GET` | `/wristbands/search?eventId=...&query=...` | Cookie + 対象イベントの `member:read` | 来場者をニックネーム、呼出ID、好きな日付、バンドIDで検索。`bandType`, `accountStatus`, `profileStatus`, `offset`, `limit` (最大500), `sortBy`, `sortDirection` で絞り込み・ページング・整列。応答には来場者行と有効なバンド情報が含まれます。 |
+| `GET` | `/wristbands/lookup/:code` | なし。コードを知っていることが資格情報として働く | 既存のバンドIDまたは来場者IDを照会し、来場者行とバンド行を返します。未知のコードは `404`。スマートフォンのみのイベントでバンドが未作成の場合、照会時に `sp_<userId>` を作成/再有効化する場合があります。URL中の `/w/ID` とチェックインURLの `wb` 値も受け付けます。 |
+| `POST` | `/wristbands/issue` | `wristbandId` 省略時はなし。指定時はCookie + 対象イベントの `member:write` | `{ eventId, wristbandId? }` で来場者枠とスマートフォンID、または物理バンドを作成します。物理バンド指定時は対象イベントの所属と発行権限を確認します。 |
+| `POST` | `/wristbands/register` | 既発行・未紐付けバンドの初回リンクはなし。新規バンド作成、別人に紐付いたバンドの再割当、既存有効バンドからの付替えは対象イベントの `member:write` | `{ userId, wristbandId }` でバンドを来場者へ紐付けます。発行済みのバンドを初めて自分のIDへ紐付ける操作と、スタッフによる再発行操作では条件が異なります。 |
+| `POST` | `/wristbands/:id/report-lost` | なし。バンドIDを知っていることが資格情報として働く | 有効な物理/スマートフォンバンドを `lost` にします。既に無効なバンドは拒否します。再発行や利用制限を伴うため、コードを秘密として扱ってください。 |
+| `PATCH` | `/wristbands/:id` | Cookie + バンドの所属イベントで `member:write` | `{ status, userId? }` でバンド状態を変更し、必要なら同じイベント内の来場者へ紐付けます。状態は `active`, `lost`, `replaced`, `revoked`, `smartphone`。イベントをまたぐ付け替えは拒否されます。 |
+| `PATCH` | `/wristbands/user/:userId` | Cookie + 来場者の所属イベントで `member:write` | `{ nickname?, favoriteDate?, displayId?, status? }` でプロフィール、呼出ID、アカウント状態 (`available` / `banned`) を変更します。呼出IDの重複は `409` になります。 |
+| `POST` | `/wristbands/onboard` | なし。来場者IDがベアラー値として働く | `{ userId, nickname, favoriteDate? }` で既存来場者の初回登録またはプロフィールを更新します。来場者IDを知る者は本人として扱われるため、第三者へ渡さずログにも残さないでください。 |
+| `POST` | `/wristbands/issue-smartphone` | Cookie + 対象イベントの `member:write` | `{ userId }` で既存来場者へ `sp_<userId>` を発行/再有効化します。既存の有効な物理/スマートフォンバンドは `replaced` になります。詳細とバッチAPIは次節を参照してください。 |
 
 ### リストバンド一括連携
 
