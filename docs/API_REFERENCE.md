@@ -39,7 +39,7 @@
 | `PUT` | `/festivals/:id/advanced-permissions`, `/lifecycle-status`, `/lottery-enabled`, `/payment-methods` | イベント設定。対象イベントの権限と入力条件を確認。 |
 | `PUT` | `/festivals/:id/stamp-rally-settings` | スタンプラリー設定。対象イベントの `event:write` 権限を確認。 |
 | `PUT` | `/festivals/:id/theme` | テーマ・基本設定の更新または作成。`super_admin` セッション必須。 |
-| `POST` / `DELETE` | `/festivals/:id/announce`, `/festivals/:id/announcements/:announcementId` | 告知送信・履歴削除。対象イベントのメンバー管理権限を確認。 |
+| `GET` / `POST` / `DELETE` | `/festivals/:id/announcements`, `/festivals/:id/announce`, `/festivals/:id/announcements/:announcementId` | 告知履歴取得 (`member:read`)、告知送信 (`member:write`)、履歴削除 (`member:write`)。削除しても配信済みの受信者通知は取り消されない。 |
 | `PATCH` | `/circles/:id/settings`, `/mods`, `/wait-time` | サークル設定、モデレーション、待ち時間報告。対象サークルの権限を確認。 |
 | `POST` | `/circles/:id/transfer-owner` | オーナー移譲。サークル権限に加えオーナー条件を確認。 |
 | `GET` | `/circles`, `/circles/:id`, `/circles/:id/analytics` | サークル一覧/詳細/分析。公開一覧/詳細では代表者メールを権限なしに返さない。分析は所属権限を確認。 |
@@ -53,7 +53,15 @@
 | `GET` | `/orders/user/:code` | 来場者本人の注文履歴。来場者コードで対象を絞り、応答項目を限定する。コードを秘密として扱う。 |
 | `POST` | `/orders` | POS注文作成。JSON注文データと発行済み来場者IDが必要。再送には `Idempotency-Key` を推奨。 |
 | `PATCH` / `POST` | `/orders/:id/status`, `/orders/:id/estimated-time`, `/orders/:id/complete` | 注文状態・見込み時間の更新/完了。スタッフ権限と許可された状態遷移を確認。 |
-| `GET` / `POST` / `PATCH` / `DELETE` | `/memberships/*` | `/roles`, `/my`, `/circle/:circleId`, `/event/:eventId`, メンバー作成/更新/停止/再開/削除、招待と通知。ルート全体でログイン必須、個々の変更は対象スコープとメンバー管理権限を追加確認。 |
+| `GET` | `/memberships/roles`, `/memberships/my`, `/memberships/circle/:circleId`, `/memberships/event/:eventId` | ロール定義、自分の所属、サークル/イベントのメンバー一覧。ログイン必須。所属一覧は本人に限定し、対象スコープのメンバー閲覧権限を確認。 |
+| `POST` | `/memberships/check-permission` | ログイン中本人の権限を指定スコープで照会。`userEmail` はセッション本人と一致する必要がある。 |
+| `POST` | `/memberships` | メンバーを追加。対象スコープのメンバー管理権限が必要。 |
+| `PATCH` / `DELETE` | `/memberships/:id/role`, `/memberships/:id/deactivate`, `/memberships/:id/reactivate`, `/memberships/:id` | ロール変更、停止/再開、削除。対象スコープのメンバー管理権限が必要で、最後のサークル管理者は停止・降格・削除できない。 |
+| `POST` | `/memberships/invite`, `/memberships/invite/accept`, `/memberships/invite/:id/regenerate` | 招待作成、招待受諾、新しいtoken/codeで再発行。作成・再発行は対象スコープのメンバー管理権限が必要。 |
+| `GET` | `/memberships/invite/lookup`, `/memberships/invite/list` | token/codeによる招待照会、管理者向け招待一覧。照会にはログインが必要で、一覧は対象スコープのメンバー管理権限が必要。 |
+| `PATCH` / `DELETE` | `/memberships/invite/:id/extend`, `/memberships/invite/:id` | 招待期限の延長、招待削除。対象スコープのメンバー管理権限が必要。 |
+| `GET` | `/memberships/notifications/list` | ログイン本人に届いた未読通知の一覧。 |
+| `POST` | `/memberships/notifications/:id/read`, `/memberships/notifications/:id/respond` | 本人の通知を既読化し、招待通知を承認/拒否。 |
 | `GET` / `PATCH` / `DELETE` | `/account/*` | `GET /me`、`PATCH /profile`・`/email`、`DELETE /membership/:id`、`DELETE /`（アカウント削除）。本人のCookieセッション必須。 |
 | `GET` / `POST` / `PATCH` | `/wristbands/*` | 来場者・リストバンドの検索/照会/発行/編集、スマートフォン発行、バッチ・CSV等。受付・管理用途。ルートと発行方式ごとに認証条件が異なる。一括発行・CSV取込のHTTP形式と上限は「リストバンド一括連携」を参照。`/lookup/:code` は認証なしで来場者行とバンド行を返すため、コードと応答を特に慎重に扱う。 |
 | `GET` | `/pre-orders/user/:code` | 来場者コードによる未受取の事前注文一覧。 |
@@ -67,6 +75,15 @@
 | `POST` | `/upload` | ログインと有効な所属を要求するmultipartアップロード。10 MiB上限、許可拡張子のみ。 |
 | `GET` | `/uploads/*` | 保存済み画像/フォント配信。公開キャッシュ付きバイナリで、JSON APIエラー包絡ではない。 |
 | `GET` / `POST` 等 | `/auth/*` | Better Auth が提供する認証フロー。個別の認証プロトコルに従う。 |
+
+### メンバーシップ・招待・通知の連携条件
+
+- `/memberships/*` はログイン必須です。所属や招待を管理するルートは、対象イベント/サークルのメンバー管理権限も検証します。
+- `GET /memberships/invite/lookup?token=...` または `?code=...` は招待の種別、ロール、対象イベント/サークル、期限・使用上限を返します。`POST /memberships/invite/accept` は `{ token?, code?, userName }` を受け取り、ログイン中のメールアドレスで受諾します。招待が `targetEmail` に結び付いている場合、そのメールでログインする必要があります。
+- `GET /memberships/invite/list?circleId=...` または `?eventId=...` は対象を一つ指定します。管理権限のある呼び出し元には共有用の `token` と `code` が返るため、応答を公開ログや無関係な外部サービスへ送らないでください。作成時の有効期限は1〜168時間 (省略時24時間)、最大使用回数は1〜100です。
+- `PATCH /memberships/invite/:id/extend` は `{ expiresInHours }` (1〜168、既定168) で期限を延ばします。`POST /memberships/invite/:id/regenerate` は新しいtoken/codeを作り、旧招待は履歴のため残します。`DELETE /memberships/invite/:id` は招待を削除します。
+- `GET /memberships/notifications/list` はログイン本人の未読分だけを返します。既読化は `POST /memberships/notifications/:id/read`、招待への回答は `POST /memberships/notifications/:id/respond` に `{ action: "accept" | "decline", userName? }` を送ります。
+- `GET /festivals/:id/announcements` は `member:read` 権限を要求し、イベントの告知履歴を新しい順に返します。履歴削除は `DELETE /festivals/:id/announcements/:announcementId` で行いますが、受信者ごとに既に作成された通知は削除されません。
 
 ### 集計値の意味
 
