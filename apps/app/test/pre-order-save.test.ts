@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { ApiError } from "../src/lib/api-error";
-import { isRetryablePreOrderSaveError, shouldRetryPreOrderSave } from "../src/features/orders/pre-order-save";
+import { getPreOrderSaveRetryAfterMs, getPreOrderSaveRetryDelay, isRetryablePreOrderSaveError, shouldRetryPreOrderSave } from "../src/features/orders/pre-order-save";
 
 describe("pre-order draft save retry", () => {
   it("retries network, timeout, rate-limit, and server failures up to the limit", () => {
@@ -31,5 +31,25 @@ describe("pre-order draft save retry", () => {
       expect(isRetryablePreOrderSaveError(error)).toBe(false);
       expect(shouldRetryPreOrderSave(0, error)).toBe(false);
     }
+  });
+
+  it("honors a 429 Retry-After value for automatic and manual retries", () => {
+    const limited = new ApiError("rate limit", {
+      status: 429,
+      code: "RATE_LIMITED",
+      retryAfterSec: 7,
+    });
+
+    expect(getPreOrderSaveRetryAfterMs(limited)).toBe(7000);
+    expect(getPreOrderSaveRetryDelay(0, limited)).toBe(7000);
+  });
+
+  it("uses exponential backoff when Retry-After is absent or irrelevant", () => {
+    const limited = new ApiError("rate limit", { status: 429, code: "RATE_LIMITED" });
+    const serverFailure = new ApiError("server", { status: 503, code: "INTERNAL", retryAfterSec: 9 });
+
+    expect(getPreOrderSaveRetryAfterMs(limited)).toBeNull();
+    expect(getPreOrderSaveRetryDelay(0, limited)).toBe(1000);
+    expect(getPreOrderSaveRetryDelay(1, serverFailure)).toBe(2000);
   });
 });

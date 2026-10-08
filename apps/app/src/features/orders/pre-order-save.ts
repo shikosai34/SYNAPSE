@@ -9,3 +9,14 @@ export function isRetryablePreOrderSaveError(error: unknown): boolean {
 export function shouldRetryPreOrderSave(failureCount: number, error: unknown): boolean {
   return failureCount < 2 && isRetryablePreOrderSaveError(error);
 }
+
+export function getPreOrderSaveRetryAfterMs(error: unknown): number | null {
+  if (!(error instanceof ApiError) || error.status !== 429) return null;
+  if (error.retryAfterSec === undefined || error.retryAfterSec < 0) return null;
+  return error.retryAfterSec * 1000;
+}
+
+// 2026-10-08 Issue #49: サーバー指定の待ち時間があれば指数バックオフより優先する。
+export function getPreOrderSaveRetryDelay(attempt: number, error: unknown): number {
+  return getPreOrderSaveRetryAfterMs(error) ?? Math.min(1000 * 2 ** attempt, 5000);
+}

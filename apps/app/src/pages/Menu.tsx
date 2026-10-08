@@ -29,7 +29,7 @@ import { QRCodeSVG } from "qrcode.react";
 // 2026-10-03: 画面をまたぐカート規則と再送制御を機能モジュールに集約する。
 import { addCartLine, updateCartQuantity, toggleCartTopping, lineSubtotal, cartTotal, cartCount, type CartLine, type CartTopping } from "@/features/orders/cart";
 import { useOrderSubmission } from "@/features/orders/use-order-submission";
-import { isRetryablePreOrderSaveError, shouldRetryPreOrderSave } from "@/features/orders/pre-order-save";
+import { getPreOrderSaveRetryAfterMs, getPreOrderSaveRetryDelay, isRetryablePreOrderSaveError, shouldRetryPreOrderSave } from "@/features/orders/pre-order-save";
 import type { CreateOrderInput } from "@fesflow/config/order-contract";
 import { ToppingSelection, parseToppingCategoryMinimums } from "@/components/menu/ToppingSelection";
 import { MenuCategoryFilter, menuCategoryKey } from "@/components/menu/MenuCategoryFilter";
@@ -249,6 +249,7 @@ function MenuPageContent() {
   const [isQrOpen, setIsQrOpen] = useState(false);
   const [appOrigin, setAppOrigin] = useState("");
   const [draftSaveRetry, setDraftSaveRetry] = useState(0);
+  const [draftRetryWaitElapsed, setDraftRetryWaitElapsed] = useState(true);
   const draftIdentityRef = useRef<{ key: string; id: string; updatedAt: number | null } | null>(null);
   const lastDraftPayloadRef = useRef<{ key: string; payload: string } | null>(null);
   const suppressNextDraftSaveRef = useRef(false);
@@ -427,12 +428,27 @@ function MenuPageContent() {
     },
     // 2026-10-08 Issue #49: 通信障害は限定回数再試行し、競合などの修正不能な要求は自動再送しない。
     retry: shouldRetryPreOrderSave,
-    retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 5000),
+    retryDelay: getPreOrderSaveRetryDelay,
     onError: (error: any) => {
       toast.error(error.message || "カートの自動保存に失敗しました");
     },
   });
   const { mutate: saveDraft } = preOrderMutation;
+
+  useEffect(() => {
+    const waitMs = preOrderMutation.isError
+      ? getPreOrderSaveRetryAfterMs(preOrderMutation.error)
+      : null;
+    if (waitMs === null || waitMs === 0) {
+      setDraftRetryWaitElapsed(true);
+      return;
+    }
+
+    // 2026-10-08 Issue #49: Retry-After がある場合、手動再試行もサーバー指定時刻まで待つ。
+    setDraftRetryWaitElapsed(false);
+    const timeout = window.setTimeout(() => setDraftRetryWaitElapsed(true), waitMs);
+    return () => window.clearTimeout(timeout);
+  }, [preOrderMutation.error, preOrderMutation.isError]);
 
   const orderInput: CreateOrderInput | null = selectedCircleId && userId && cart.length > 0 ? {
     circleId: selectedCircleId, userId, peopleCount: 1,
@@ -885,7 +901,7 @@ function MenuPageContent() {
                       <Button
                         type="button"
                         variant="secondary"
-                        disabled={preOrderMutation.isPending}
+                        disabled={preOrderMutation.isPending || !draftRetryWaitElapsed}
                         onClick={() => {
                           // 2026-10-08 Issue #49: 同一内容の自動保存失敗後も、利用者が保存を再開できるよう重複抑止を解除する。
                           lastDraftPayloadRef.current = null;
@@ -893,7 +909,7 @@ function MenuPageContent() {
                         }}
                         className="h-7 rounded-none px-2 text-[10px] font-bold"
                       >
-                        再試行
+                        {draftRetryWaitElapsed ? "再試行" : "再試行待ち…"}
                       </Button>
                     )}
                   </>
