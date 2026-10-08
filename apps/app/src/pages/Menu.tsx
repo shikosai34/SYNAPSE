@@ -29,6 +29,7 @@ import { QRCodeSVG } from "qrcode.react";
 // 2026-10-03: 画面をまたぐカート規則と再送制御を機能モジュールに集約する。
 import { addCartLine, updateCartQuantity, toggleCartTopping, lineSubtotal, cartTotal, cartCount, type CartLine, type CartTopping } from "@/features/orders/cart";
 import { useOrderSubmission } from "@/features/orders/use-order-submission";
+import { isRetryablePreOrderSaveError, shouldRetryPreOrderSave } from "@/features/orders/pre-order-save";
 import type { CreateOrderInput } from "@fesflow/config/order-contract";
 import { ToppingSelection, parseToppingCategoryMinimums } from "@/components/menu/ToppingSelection";
 import { MenuCategoryFilter, menuCategoryKey } from "@/components/menu/MenuCategoryFilter";
@@ -247,6 +248,7 @@ function MenuPageContent() {
   const [hydratedDraftKey, setHydratedDraftKey] = useState<string | null>(null);
   const [isQrOpen, setIsQrOpen] = useState(false);
   const [appOrigin, setAppOrigin] = useState("");
+  const [draftSaveRetry, setDraftSaveRetry] = useState(0);
   const draftIdentityRef = useRef<{ key: string; id: string; updatedAt: number | null } | null>(null);
   const lastDraftPayloadRef = useRef<{ key: string; payload: string } | null>(null);
   const suppressNextDraftSaveRef = useRef(false);
@@ -423,8 +425,8 @@ function MenuPageContent() {
       draftSaveQueueRef.current = queued;
       return queued;
     },
-    // 2026-10-07 Issue #49: 一時的な通信失敗で同じカート内容が未保存のまま残らないよう、保存要求を限定回数再試行する。
-    retry: 2,
+    // 2026-10-08 Issue #49: 通信障害は限定回数再試行し、競合などの修正不能な要求は自動再送しない。
+    retry: shouldRetryPreOrderSave,
     retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 5000),
     onError: (error: any) => {
       toast.error(error.message || "カートの自動保存に失敗しました");
@@ -617,7 +619,7 @@ function MenuPageContent() {
     return () => window.clearTimeout(timeout);
   }, [
     draftKey, hydratedDraftKey, userId, visitorLoaded, couponsLoadedCircleId,
-    selectedCircleId, draftPayload, saveDraft,
+    selectedCircleId, draftPayload, saveDraft, draftSaveRetry,
   ]);
 
   // 外部モッド用グローバルAPIの公開
@@ -870,10 +872,33 @@ function MenuPageContent() {
                 事前に注文を予約し、レジでスムーズに会計できます。
               </p>
             </div>}
-            {cart.length > 0 && !isPreOrderEnabled() && (
-              <p className="text-[10px] font-mono text-primary-foreground/80" role="status">
-                {preOrderMutation.isPending ? "カートを保存しています…" : hydratedDraftKey === draftKey ? "カートは自動保存されます" : "カートを読み込んでいます…"}
-              </p>
+            {!isPreOrderEnabled() && (cart.length > 0 || preOrderMutation.isError) && (
+              <div className="flex flex-wrap items-center gap-2 text-[10px] font-mono text-primary-foreground/80" role="status">
+                {preOrderMutation.isError ? (
+                  <>
+                    <span>
+                      {isRetryablePreOrderSaveError(preOrderMutation.error)
+                        ? "カートを保存できませんでした。通信を確認して再試行してください。"
+                        : "カートの保存状態を確認できません。画面を再読み込みしてください。"}
+                    </span>
+                    {isRetryablePreOrderSaveError(preOrderMutation.error) && (
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        disabled={preOrderMutation.isPending}
+                        onClick={() => {
+                          // 2026-10-08 Issue #49: 同一内容の自動保存失敗後も、利用者が保存を再開できるよう重複抑止を解除する。
+                          lastDraftPayloadRef.current = null;
+                          setDraftSaveRetry((attempt) => attempt + 1);
+                        }}
+                        className="h-7 rounded-none px-2 text-[10px] font-bold"
+                      >
+                        再試行
+                      </Button>
+                    )}
+                  </>
+                ) : preOrderMutation.isPending ? "カートを保存しています…" : hydratedDraftKey === draftKey ? "カートは自動保存されます" : "カートを読み込んでいます…"}
+              </div>
             )}
             {applicableCoupons.length > 0 && (
               <div className="flex items-center gap-1.5 bg-background text-foreground px-2 py-1 text-[11px] font-bold w-fit flex-wrap">
