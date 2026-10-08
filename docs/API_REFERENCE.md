@@ -80,7 +80,7 @@
 ### メンバーシップ・招待・通知の連携条件
 
 - `/memberships/*` はログイン必須です。所属や招待を管理するルートは、対象イベント/サークルのメンバー管理権限も検証します。
-- `POST /memberships` の本文は `{ userEmail, userName, circleId または eventId, role }` です。`userEmail` と `userName` は文字列、`role` は認可設定にあるロール値で、所属先は `circleId` または `eventId` のどちらかを指定します。イベント所属の追加は対象イベントの `event_manager`、サークル所属の追加は対象サークルの実ロール `circle_manager` またはイベント管理者が行えます。`super_admin` の付与/変更にはシステム管理者が必要です。
+- `POST /memberships` の本文は `{ userEmail, userName, circleId または eventId, role }` です。`userEmail` はメール形式、`userName` は文字列、`role` は認可設定にあるロール値で、所属先は `circleId` または `eventId` のどちらかを指定します。イベント所属の追加は対象イベントの `event_manager`、サークル所属の追加は対象サークルの実ロール `circle_manager` またはイベント管理者が行えます。`super_admin` の付与/変更にはシステム管理者が必要です。
 - `GET /memberships/invite/lookup?token=...` または `?code=...` は招待の種別、ロール、対象イベント/サークル、期限・使用上限を返します。`POST /memberships/invite/accept` は `{ token?, code?, userName }` を受け取り、ログイン中のメールアドレスで受諾します。招待が `targetEmail` に結び付いている場合、そのメールでログインする必要があります。
 - `GET /memberships/invite/list?circleId=...` または `?eventId=...` は対象を一つ指定します。管理権限のある呼び出し元には共有用の `token` と `code` が返るため、応答を公開ログや無関係な外部サービスへ送らないでください。作成時の有効期限は1〜168時間 (省略時24時間)、最大使用回数は1〜100です。
 - `PATCH /memberships/invite/:id/extend` は `{ expiresInHours }` (1〜168、既定168) で期限を延ばします。`POST /memberships/invite/:id/regenerate` は新しいtoken/codeを作り、旧招待は履歴のため残します。`DELETE /memberships/invite/:id` は招待を削除します。
