@@ -3,7 +3,7 @@ import { useEffect, useRef, useState, Suspense } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ModSandbox } from "@/components/ModSandbox";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { eventApi, circleApi, menuApi, preOrderApi, orderApi, type CreatePreOrderInput, type MenuWithToppings, type Topping } from "@/lib/api";
+import { eventApi, circleApi, menuApi, preOrderApi, orderApi, wristbandApi, type CreatePreOrderInput, type MenuWithToppings, type Topping } from "@/lib/api";
 import { useVisitor } from "@/hooks/useVisitor";
 import { getCouponsForCircle, type StoredCoupon } from "@/lib/coupon-storage";
 import { cn } from "@/lib/utils";
@@ -238,6 +238,21 @@ function MenuPageContent() {
   // 未入場 (リストバンド未発行) は空文字。閲覧は許可し注文送信側でゲートする
   const { userId: visitorUserId, session, isLoaded: visitorLoaded } = useVisitor();
   const userId = visitorUserId ?? "";
+  // 2026-10-08: localStorage に利用者IDだけ残っている状態では、入場登録済みのQRと判断しない。
+  const { data: wristbandStatus, isLoading: isWristbandStatusLoading, isError: isWristbandStatusError } = useQuery({
+    queryKey: ["userWristbandStatus", userId],
+    queryFn: () => wristbandApi.lookup(userId),
+    enabled: visitorLoaded && !!userId,
+  });
+  const activeWristband = wristbandStatus?.wristband;
+  const canDisplayMyQr = !!activeWristband && ["active", "smartphone"].includes(activeWristband.status);
+  const myQrButtonLabel = isWristbandStatusLoading
+    ? "入場情報を確認中…"
+    : isWristbandStatusError
+      ? "入場情報を確認できません"
+      : canDisplayMyQr
+        ? "マイQRを表示"
+        : "入場登録をおこなってください";
 
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
   const [selectedCircleId, setSelectedCircleId] = useState<string | null>(
@@ -923,15 +938,14 @@ function MenuPageContent() {
               </div>
             )}
             <div className="flex flex-col sm:flex-row gap-2">
-              {userId && (
-                <Button
-                  type="button"
-                  onClick={() => setIsQrOpen(true)}
-                  className="w-full sm:flex-1 h-12 border-thick border-border bg-background px-3 font-mono text-sm font-black uppercase text-foreground rounded-none hover:bg-primary hover:text-primary-foreground"
-                >
-                  <QrCode className="mr-2 h-5 w-5 shrink-0" />マイQRを表示
-                </Button>
-              )}
+              <Button
+                type="button"
+                onClick={() => setIsQrOpen(true)}
+                disabled={!canDisplayMyQr || isWristbandStatusLoading}
+                className="w-full sm:flex-1 h-12 border-thick border-border bg-background px-3 font-mono text-sm font-black uppercase text-foreground rounded-none hover:bg-primary hover:text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-background disabled:hover:text-foreground"
+              >
+                <QrCode className="mr-2 h-5 w-5 shrink-0" />{myQrButtonLabel}
+              </Button>
               {cart.length > 0 && (
                 <Button
                   onClick={() => setIsCartOpen(true)}
@@ -941,6 +955,13 @@ function MenuPageContent() {
                 </Button>
               )}
             </div>
+            {!canDisplayMyQr && !isWristbandStatusLoading && (
+              <p className="text-[10px] text-primary-foreground/80 font-mono" role="status">
+                {isWristbandStatusError
+                  ? "入場情報を確認できません。通信を確認して画面を再読み込みしてください。"
+                  : "受付・本部で入場登録すると、注文の受取や店頭会計で使うQRを表示できます。"}
+              </p>
+            )}
           </div>
         </div>
       )}
@@ -1092,23 +1113,24 @@ function MenuPageContent() {
         </div>
       </Modal>
 
+      {/* 2026-10-08: 登録済みバンドがない場合は userId を代用したQRを生成しない。 */}
       <Modal isOpen={isQrOpen} onClose={() => setIsQrOpen(false)} title="[マイQR]" maxWidth="md">
-        {userId ? (
+        {canDisplayMyQr && activeWristband ? (
           <div className="space-y-3 text-center">
-            <p className="text-xs text-muted-foreground">店頭でこのQRを提示してください。</p>
+            <p className="text-xs text-muted-foreground">このQRは、入場登録したあなたを注文の受取や店頭会計で確認するためのものです。</p>
             <div className="inline-block border-thick border-border bg-background p-3">
               <QRCodeSVG
-                value={`${appOrigin}/w/${session?.wristbandId || userId}`}
+                value={`${appOrigin}/w/${activeWristband.id}`}
                 size={200}
                 level="M"
                 title="マイQR"
                 className="mx-auto block"
               />
             </div>
-            <p className="break-all text-xs font-bold">{userId}</p>
+            <p className="break-all text-xs font-bold">{wristbandStatus.user.id}</p>
           </div>
         ) : (
-          <p className="text-sm">QRを表示するには入場が必要です。</p>
+          <p className="text-sm">マイQRを表示するには、受付・本部で入場登録を行ってください。</p>
         )}
       </Modal>
 
