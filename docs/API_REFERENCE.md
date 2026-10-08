@@ -9,7 +9,7 @@
 - `GET /` はヘルスチェック用で、本文 `OK` のプレーンテキストを返します。JSON REST APIの `/api/*` には含まれません。
 - JSON本文は `Content-Type: application/json`。CORSの許可メソッドは `GET`, `POST`, `PUT`, `PATCH`, `DELETE`, `OPTIONS`。許可ヘッダーは `Content-Type`, `Authorization`, `Cookie`, `Accept`, `X-Active-Membership-Id`, `Idempotency-Key`、公開ヘッダーは `X-Request-ID` です。資格情報を使う場合はブラウザーから `credentials: "include"` を指定します。
 - ブラウザーのCORS許可OriginはFesFlowドメイン、localhost/127.0.0.1、プライベートIP、および `CORS_ORIGIN` 設定値です。サーバー間HTTP通信にはブラウザーCORSは適用されません。
-- 認証方式は Better Auth のセッションCookieです。ログインは `/api/auth/*` の Better Auth エンドポイントを使います。Google OAuth は `GOOGLE_CLIENT_ID` と `GOOGLE_CLIENT_SECRET` の設定が必要で、パスキーも利用できます。メール/パスワードは既定で無効で、`ENABLE_EMAIL_PASSWORD=true` の場合だけ有効になります（認可テスト用。通常の開発・本番ログイン方式ではありません）。汎用APIキーや外部サービス用Bearerトークン発行APIは確認できません。
+- 認証方式は Better Auth のセッションCookieです。ログインは `/api/auth/*` の Better Auth エンドポイントを使います。Google OAuth は `GOOGLE_CLIENT_ID` と `GOOGLE_CLIENT_SECRET` の設定が必要で、パスキーも利用できます。メール/パスワードは `ENABLE_EMAIL_PASSWORD=true` の場合だけ有効です。デプロイ環境では既定で無効ですが、`setup:local` はローカル開発用にこのフラグを有効化します。汎用APIキーや外部サービス用Bearerトークン発行APIは確認できません。
 - `/api/auth/*` は Better Auth 管理の個別仕様です。以下のJSONエラー包絡とは形が異なる場合があります。
 
 ## 認証・認可
