@@ -6,6 +6,7 @@
 
 - ローカル API: `http://localhost:8787`。起動手順は [DEVELOPMENT.md](./DEVELOPMENT.md) を参照。
 - Worker のRESTルートは `/api/*`。ルート本体は [apps/api/src/index.ts](../apps/api/src/index.ts)、ドメイン別定義は [apps/api/src/routes](../apps/api/src/routes/) にあります。
+- `GET /` はヘルスチェック用で、本文 `OK` のプレーンテキストを返します。JSON REST APIの `/api/*` には含まれません。
 - JSON本文は `Content-Type: application/json`。CORSの許可メソッドは `GET`, `POST`, `PUT`, `PATCH`, `DELETE`, `OPTIONS`。許可ヘッダーは `Content-Type`, `Authorization`, `Cookie`, `Accept`, `X-Active-Membership-Id`, `Idempotency-Key`、公開ヘッダーは `X-Request-ID` です。資格情報を使う場合はブラウザーから `credentials: "include"` を指定します。
 - ブラウザーのCORS許可OriginはFesFlowドメイン、localhost/127.0.0.1、プライベートIP、および `CORS_ORIGIN` 設定値です。サーバー間HTTP通信にはブラウザーCORSは適用されません。
 - 認証方式は Better Auth のセッションCookieです。ログインは `/api/auth/*` の Better Auth エンドポイントを使います。Google OAuth は `GOOGLE_CLIENT_ID` と `GOOGLE_CLIENT_SECRET` の設定が必要で、パスキーも利用できます。メール/パスワードは既定で無効で、`ENABLE_EMAIL_PASSWORD=true` の場合だけ有効になります（認可テスト用。通常の開発・本番ログイン方式ではありません）。汎用APIキーや外部サービス用Bearerトークン発行APIは確認できません。
@@ -56,8 +57,9 @@
 | `PATCH` / `POST` | `/orders/:id/status`, `/orders/:id/estimated-time`, `/orders/:id/complete` | 注文状態・見込み時間の更新/完了。スタッフ権限と許可された状態遷移を確認。 |
 | `GET` | `/memberships/roles`, `/memberships/my`, `/memberships/circle/:circleId`, `/memberships/event/:eventId` | ロール定義、自分の所属、サークル/イベントのメンバー一覧。ログイン必須。所属一覧は本人に限定し、対象スコープのメンバー閲覧権限を確認。 |
 | `POST` | `/memberships/check-permission` | ログイン中本人の権限を指定スコープで照会。`userEmail` はセッション本人と一致する必要がある。 |
-| `POST` | `/memberships` | `{ userEmail, userName, circleId または eventId, role }` で所属を追加。対象スコープのメンバー管理権限が必要。イベント所属はイベント管理者のみ、サークル所属はサークルオーナーまたはイベント管理者が追加できる。システム管理者ロールの付与は `super_admin` のみ。 |
-| `PATCH` / `DELETE` | `/memberships/:id/role`, `/memberships/:id/deactivate`, `/memberships/:id/reactivate`, `/memberships/:id` | ロール変更、停止/再開、削除。対象スコープのメンバー管理権限が必要で、最後のサークル管理者は停止・降格・削除できない。 |
+| `POST` | `/memberships` | `{ userEmail, userName, circleId?, eventId?, role }` で所属を追加。対象スコープのメンバー管理権限が必要。イベント所属はイベント管理者のみ、サークル所属はサークルオーナーまたはイベント管理者が追加できる。システム管理者ロールの付与は `super_admin` のみ。 |
+| `PATCH` | `/memberships/:id/role`, `/memberships/:id/deactivate`, `/memberships/:id/reactivate` | ロール変更、停止/再開。対象スコープのメンバー管理権限が必要で、最後のサークル管理者は停止・降格できない。 |
+| `DELETE` | `/memberships/:id` | 所属削除。対象スコープのメンバー管理権限が必要で、最後のサークル管理者は削除できない。 |
 | `POST` | `/memberships/invite`, `/memberships/invite/accept`, `/memberships/invite/:id/regenerate` | 招待作成、招待受諾、新しいtoken/codeで再発行。作成・再発行は対象スコープのメンバー管理権限が必要。 |
 | `GET` | `/memberships/invite/lookup`, `/memberships/invite/list` | token/codeによる招待照会、管理者向け招待一覧。照会にはログインが必要で、一覧は対象スコープのメンバー管理権限が必要。 |
 | `PATCH` / `DELETE` | `/memberships/invite/:id/extend`, `/memberships/invite/:id` | 招待期限の延長、招待削除。対象スコープのメンバー管理権限が必要。 |
@@ -80,7 +82,7 @@
 ### メンバーシップ・招待・通知の連携条件
 
 - `/memberships/*` はログイン必須です。所属や招待を管理するルートは、対象イベント/サークルのメンバー管理権限も検証します。
-- `POST /memberships` の本文は `{ userEmail, userName, circleId または eventId, role }` です。`userEmail` はメール形式、`userName` は文字列、`role` は認可設定にあるロール値で、所属先は `circleId` または `eventId` のどちらかを指定します。イベント所属の追加は対象イベントの `event_manager`、サークル所属の追加は対象サークルの実ロール `circle_manager` またはイベント管理者が行えます。`super_admin` の付与/変更にはシステム管理者が必要です。
+- `POST /memberships` の本文は `{ userEmail, userName, circleId?, eventId?, role }` です。`userEmail` はメール形式、`userName` は文字列、`role` は認可設定にあるロール値です。`circleId` と `eventId` は独立した任意項目で、両方を指定した場合は両方保存されます。どちらも省略した場合は `super_admin` 以外の呼び出し元は権限検査で拒否されます。イベント所属の追加は対象イベントの `event_manager`、サークル所属の追加は対象サークルの実ロール `circle_manager` またはイベント管理者が行えます。`super_admin` の付与/変更にはシステム管理者が必要です。
 - `GET /memberships/invite/lookup?token=...` または `?code=...` は招待の種別、ロール、対象イベント/サークル、期限・使用上限を返します。`POST /memberships/invite/accept` は `{ token?, code?, userName }` を受け取り、ログイン中のメールアドレスで受諾します。招待が `targetEmail` に結び付いている場合、そのメールでログインする必要があります。
 - `GET /memberships/invite/list?circleId=...` または `?eventId=...` は対象を一つ指定します。管理権限のある呼び出し元には共有用の `token` と `code` が返るため、応答を公開ログや無関係な外部サービスへ送らないでください。作成時の有効期限は1〜168時間 (省略時24時間)、最大使用回数は1〜100です。
 - `PATCH /memberships/invite/:id/extend` は `{ expiresInHours }` (1〜168、既定168) で期限を延ばします。`POST /memberships/invite/:id/regenerate` は新しいtoken/codeを作り、旧招待は履歴のため残します。`DELETE /memberships/invite/:id` は招待を削除します。
@@ -256,7 +258,7 @@ curl -i -A 'OpenAI File Downloader, XaiImageApiFetch/1.0' 'http://localhost:8787
 - 公開情報GETや公開導線の一部はCookieなしでHTTP呼び出しできます（個別ハンドラーごとに確認してください）。
 - メニュー取得や注文作成など、匿名で呼べる主要ルートもあります。匿名注文作成は既存の来場者IDを要求し、在庫・イベント状態等をサーバーが検証します。匿名であることは、外部連携向けの利用許可やSLAを意味しません。
 - 運営連携はBetter AuthのセッションCookieを維持し、所属依存APIへ `X-Active-Membership-Id` を付ける必要があります。パスキー/GoogleログインはブラウザーリダイレクトやWebAuthnを含むため、ヘッドレスサーバー連携向け認証契約とは言えません。
-- ブラウザーから呼ぶ場合はCORS許可Originの制限を受けます。許可Origin外のWebページから直接呼ぶ連携はできません。サーバー間呼び出しではCORSではなくAPI側の認証・認可が適用されます。
+- ブラウザーから呼ぶ場合、CORSは応答をJavaScriptから読めるかを制御します。許可Origin外からの単純リクエストはWorkerに届くことがありますが、ブラウザーは応答を呼び出し元JavaScriptへ公開しません。プリフライトを要する要求は、許可Originを確認できないため実リクエスト前に止まります。CORSはサーバー間呼び出しには適用されず、API側の認証・認可が適用されます。
 - 来場者フローの一部はQR/リストバンドコードをリクエストに含める方式です。注文IDによる注文照会も同様にIDを知る者が読み取れます。加えて、リストバンド照会は来場者行とバンド行を返し、紛失報告はコードだけで有効なバンドを停止します。これらの値は資格情報として保護し、アクセスログや解析サービスへの記録を避けてください。外部システムが任意コードを生成して使える仕組みではありません。
 - リストバンドCSVのバッチ一括発行・取込はイベント権限付きHTTP APIがあります。来場者や注文などの画面CSVはSPAがJSON APIから生成し、外部ソフト用の独立CSV APIではありません。
 - 画像・フォントは認証付きmultipart APIで登録できますが、取得URLは公開配信です。R2/MinIO直接接続や任意ファイル保存を外部ソフトへ提供するものではありません。
