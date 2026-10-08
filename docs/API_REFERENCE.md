@@ -102,7 +102,7 @@
 | `GET` | `/wristbands/search?eventId=...&query=...` | Cookie + 対象イベントの `member:read` | 来場者をニックネーム、呼出ID、好きな日付、バンドIDで検索。`bandType`, `accountStatus`, `profileStatus`, `offset`, `limit` (最大500), `sortBy`, `sortDirection` で絞り込み・ページング・整列。応答には来場者行と有効なバンド情報が含まれます。 |
 | `GET` | `/wristbands/lookup/:code` | なし。コードを知っていることが資格情報として働く | 既存のバンドIDまたは来場者IDを照会し、来場者行とバンド行を返します。未知のコードは `404`。スマートフォンのみのイベントでバンドが未作成の場合、照会時に `sp_<userId>` を作成/再有効化する場合があります。URL中の `/w/ID` とチェックインURLの `wb` 値も受け付けます。 |
 | `POST` | `/wristbands/issue` | `wristbandId` 省略時はなし。指定時はCookie + 対象イベントの `member:write` | `{ eventId, wristbandId? }` で来場者枠とスマートフォンID、または物理バンドを作成します。物理バンド指定時は対象イベントの所属と発行権限を確認します。 |
-| `POST` | `/wristbands/register` | 既発行・未紐付けバンドの初回リンクはなし。新規バンド作成、別人に紐付いたバンドの再割当、既存有効バンドからの付替えは対象イベントの `member:write` | `{ userId, wristbandId }` でバンドを来場者へ紐付けます。発行済みのバンドを初めて自分のIDへ紐付ける操作と、スタッフによる再発行操作では条件が異なります。 |
+| `POST` | `/wristbands/register` | 既発行・未紐付けバンドの初回リンクはなし。新規バンド作成、状態を問わず別人に紐付いたバンドの再割当、既存有効バンドからの付替えは対象イベントの `member:write` | `{ userId, wristbandId }` でバンドを来場者へ紐付けます。`lost` / `replaced` / `revoked` のバンドも以前の所有者に紐付いているため、本人リンクとして再有効化することはできません。 |
 | `POST` | `/wristbands/:id/report-lost` | なし。バンドIDを知っていることが資格情報として働く | 有効な物理/スマートフォンバンドを `lost` にします。既に無効なバンドは拒否します。再発行や利用制限を伴うため、コードを秘密として扱ってください。 |
 | `PATCH` | `/wristbands/:id` | Cookie + バンドの所属イベントで `member:write` | `{ status, userId? }` でバンド状態を変更し、必要なら同じイベント内の来場者へ紐付けます。状態は `active`, `lost`, `replaced`, `revoked`, `smartphone`。イベントをまたぐ付け替えは拒否されます。 |
 | `PATCH` | `/wristbands/user/:userId` | Cookie + 来場者の所属イベントで `member:write` | `{ nickname?, favoriteDate?, displayId?, status? }` でプロフィール、呼出ID、アカウント状態 (`available` / `banned`) を変更します。呼出IDの重複は `409` になります。 |

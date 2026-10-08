@@ -297,14 +297,14 @@ wristbandRoutes.post(
 
     // 2026-07-11: 権限ゲート。以下はいずれも本部(スタッフ member:write)権限を要求する:
     //  (a) 未登録=本部未発行のバンドIDの紐付け → 実質「スマホ単体でバンドを新規発行」なので禁止。
-    //  (b) 他ユーザーでアクティブなバンドの再割当 (乗っ取り対策, 2026-07-05)。
+    //  (b) 他ユーザーに紐付いたバンドの再割当。lost/replaced/revoked もIDを知る者が
+    //      再有効化できないよう対象にする (2026-10-08)。
     //  (c) 既にアクティブなバンドを持つユーザーへの付替え (再発行, 2026-07-05)。
     // 本部発行済み(既存)バンドを、まだバンドを持たない本人が紐付ける初回リンクのみ認証不要。
     // これにより「発行は本部・登録は来場登録QR/本部発行済みID」というフローに揃える。
     const replacingUsersActiveBand = targetActive.some((w) => w.id !== wristbandId);
     const bandOwnedByOther =
       bandExists &&
-      bandNow[0]!.status === "active" &&
       bandNow[0]!.userId !== userId;
     const creatingNewBand = !bandExists;
     if (replacingUsersActiveBand || bandOwnedByOther || creatingNewBand) {

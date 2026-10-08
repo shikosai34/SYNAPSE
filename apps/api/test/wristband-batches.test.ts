@@ -136,6 +136,40 @@ describe("リストバンド発行履歴", () => {
     expect((await target.db.select().from(wristband).where(eq(wristband.id, targetBandId)))[0]?.status).toBe("active");
   });
 
+  it("他人に紐付いた無効バンドは匿名で再割当・再有効化できない", async () => {
+    const { db, eventId, headers } = await createEventManager();
+    const wristbandId = uid("inactive-owned-band");
+    const issued = await request("/api/wristbands/issue", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ eventId, wristbandId }),
+    });
+    expect(issued.status).toBe(200);
+    const { userId: previousOwnerId } = (await issued.json()) as { userId: string };
+
+    // 2026-10-08: 無効化済みIDも以前の所有者に結び付くため、公開の初回リンク経路から奪えないことを確認する。
+    for (const status of ["lost", "replaced", "revoked"] as const) {
+      await db
+        .update(wristband)
+        .set({ status, deactivatedAt: new Date() })
+        .where(eq(wristband.id, wristbandId));
+
+      const newUserId = uid(`anonymous-${status}`);
+      const denied = await request("/api/wristbands/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: newUserId, wristbandId }),
+      });
+
+      expect(denied.status).toBe(403);
+      expect((await db.select().from(wristband).where(eq(wristband.id, wristbandId)))[0]).toMatchObject({
+        userId: previousOwnerId,
+        status,
+      });
+      expect(await db.select().from(eventUser).where(eq(eventUser.id, newUserId))).toHaveLength(0);
+    }
+  });
+
   it("登録前にURLを保存し、完了後も一覧とURLのみCSVから再取得できる", async () => {
     const { db, eventId, headers } = await createEventManager();
     const urls = ["https://fesflow.shikosai.net/w/test-a1", "https://fesflow.shikosai.net/w/test-a2"];
