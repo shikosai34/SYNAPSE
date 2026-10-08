@@ -1300,8 +1300,9 @@ export function WristbandsTab({ eventId }: WristbandsTabProps) {
                           <Copy className="h-3 w-3" />
                         </Button>
                       </p>
-                      <p className="flex items-center gap-2">
-                        ステータス:
+                      {/* 2026-10-08: Badge renders a div; a div wrapper avoids invalid paragraph nesting and React hydration warnings. */}
+                      <div className="flex items-center gap-2">
+                        <span>ステータス:</span>
                         <Badge
                           variant="default"
                           className={`rounded-none text-[8px] font-mono border-thick border-border uppercase ${
@@ -1322,7 +1323,7 @@ export function WristbandsTab({ eventId }: WristbandsTabProps) {
                             ? "再発行済 (Replaced)"
                             : "無効化 (Revoked)"}
                         </Badge>
-                      </p>
+                      </div>
                       <p className="text-[10px] text-muted-foreground">
                         割当日時: {new Date(selectedUser.wristband.assignedAt).toLocaleString("ja-JP")}
                       </p>
