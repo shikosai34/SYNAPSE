@@ -6,7 +6,7 @@
 
 - ローカル API: `http://localhost:8787`。起動手順は [DEVELOPMENT.md](./DEVELOPMENT.md) を参照。
 - Worker のRESTルートは `/api/*`。ルート本体は [apps/api/src/index.ts](../apps/api/src/index.ts)、ドメイン別定義は [apps/api/src/routes](../apps/api/src/routes/) にあります。
-- JSON本文は `Content-Type: application/json`。許可メソッドは `GET`, `POST`, `PUT`, `PATCH`, `DELETE`。CORSで資格情報を使う場合はブラウザーから `credentials: "include"` を指定します。
+- JSON本文は `Content-Type: application/json`。CORSの許可メソッドは `GET`, `POST`, `PUT`, `PATCH`, `DELETE`, `OPTIONS`。許可ヘッダーは `Content-Type`, `Authorization`, `Cookie`, `Accept`, `X-Active-Membership-Id`, `Idempotency-Key`、公開ヘッダーは `X-Request-ID` です。資格情報を使う場合はブラウザーから `credentials: "include"` を指定します。
 - ブラウザーのCORS許可OriginはFesFlowドメイン、localhost/127.0.0.1、プライベートIP、および `CORS_ORIGIN` 設定値です。サーバー間HTTP通信にはブラウザーCORSは適用されません。
 - 認証方式は Better Auth のセッションCookieです。ログインは `/api/auth/*` の Better Auth エンドポイントを使い、現在の構成は Google とパスキーです。汎用APIキーや外部サービス用Bearerトークン発行APIは確認できません。
 - `/api/auth/*` は Better Auth 管理の個別仕様です。以下のJSONエラー包絡とは形が異なる場合があります。
@@ -51,8 +51,9 @@
 | `GET` / `POST` / `PATCH` / `DELETE` | `/account/*` | `/me`, `/profile`, `/email`, `/membership/:id`、アカウント削除。本人のCookieセッション必須。 |
 | `GET` / `POST` / `PATCH` | `/wristbands/*` | 来場者・リストバンドの検索/照会/発行/編集、スマートフォン発行、バッチ・CSV等。受付・管理用途。ルートと発行方式ごとに認証条件が異なる。`/lookup/:code` はコードを使う照会。 |
 | `GET` | `/pre-orders/user/:code` | 来場者コードによる未受取の事前注文一覧。 |
-| `POST` | `/pre-orders`, `/pre-orders/:id/claim` | ドラフト保存、POSでのclaim。発行済み来場者コード、同一イベント、受付状態等をサーバーで再検証。 |
-| `GET` / `POST` | `/stamps/*` | `GET /:userId` はID指定のスタンプ参照で認証なし。景品交換 (`POST /redeem`) はスタッフログインが必要。付与ルートはイベント/サークル権限を判定。 |
+| `POST` | `/pre-orders` | ドラフト保存。発行済み来場者コード、同一イベント、受付状態等をサーバーで再検証。 |
+| `POST` | `/pre-orders/:id/claim` | POSでのclaim。運営セッションと `order:write` 権限、注文条件を検証。 |
+| `GET` / `POST` | `/stamps/*` | `GET /:userId` はID指定のスタンプ参照、`GET /visitor/:code` は来場者コードで設定と押印状態を参照。いずれも認証なし。景品交換 (`POST /redeem`) はスタッフログインが必要。付与ルートはイベント/サークル権限を判定。 |
 | `GET` / `POST` / `DELETE` | `/lottery/*` | 抽選設定・景品・抽選・応募・結果・当選受取。来場者応募と運営操作で認可方法が異なる。 |
 | `GET` / `POST` | `/coupons/*` | サークルのクーポン管理、`/verify` で利用可否を確認。クーポン検証だけでは消費せず、注文確定側で再検証・適用する。 |
 | `GET` / `POST` | `/reviews/*` | 来場者コードを使う投稿と、サークル/イベント側の一覧。投稿者コードと対象スコープを検証。 |
@@ -73,10 +74,10 @@
 | `POST` | `/orders` | 発行済み来場者 `userId` と注文条件を検証してPOS注文を作成。 |
 | `POST` | `/pre-orders` | ドラフト新規作成・自動保存。来場者ID等を検証し、更新にはCAS用のドラフトID/更新時刻が必要。 |
 | `GET` | `/pre-orders/user/:code` | 来場者コードで未受取の事前注文を参照。コードは本人性を証明する強い認証ではない。 |
-| `POST` | `/pre-orders/:id/claim` | レジでドラフトを注文として確定。運営セッションと注文条件を検証。 |
 | `POST` | `/wristbands/onboard`, `/wristbands/issue`, `/wristbands/register` | オンボード、デジタルバンド発行、初回登録。`issue` は方式によって認証要件が異なり、物理IDを指定する発行は運営認証が必要。 |
 | `POST` | `/lottery/:id/enter`, `/coupons/verify`, `/reviews/visitor/:code` | 来場者応募、クーポン検証、来場者レビュー投稿。各ハンドラーの状態・回数・対象条件を満たす必要がある。 |
 | `GET` | `/stamps/:userId` | ID指定でスタンプと交換状態を参照。来場者ID自体を秘密として扱う必要がある。 |
+| `GET` | `/stamps/visitor/:code` | 来場者コードでスタンプラリー設定と押印済みサークルを参照。コードは秘密として扱う。未設定または無効コードでは `enabled: false` と空配列を返す。 |
 
 来場者IDやリストバンドコードだけで本人を特定するAPIは、強いユーザー認証ではありません。値を知る利用者が別人の情報を参照したり操作したりできる経路があるため、公開クライアントにコードを埋め込んだり、ログやURLで共有したりしないでください。認証なしの書込みエンドポイントは、公開Web画面を成立させる実装上の導線であり、外部システムからの無制限利用を推奨するものではありません。
 
@@ -122,6 +123,33 @@ curl -i -A 'OpenAI File Downloader, XaiImageApiFetch/1.0' 'http://localhost:8787
   -H 'X-Active-Membership-Id: <YOUR_ACTIVE_MEMBERSHIP_ID>'
 ```
 
+## 主な業務APIの入力と副作用
+
+ここでは外部クライアントが誤解しやすい事前注文、クーポン、スタンプ、抽選の境界だけを記します。これはOpenAPIの代替となる完全なスキーマではありません。正確なバリデーションと応答項目は各ルートの現行実装を参照してください。
+
+### 事前注文
+
+- `POST /api/pre-orders` は来場者 `userId`、`circleId`、`draftId`（1文字以上）、`expectedUpdatedAt`（新規時は `null`、更新時は直前に返された `updatedAt`）、`items` を受け取ります。明細は `menuId`、1以上の `quantity`（省略時1）、任意の `toppingIds` です。任意で最大10件の `{slug, passphrase}` クーポンを渡せます。
+- 更新は `draftId` と `expectedUpdatedAt` の組で競合を検出します。古い更新時刻の書込みは競合エラーになります。クーポンと在庫等はサーバー側で検証し、注文確定時にも再評価します。
+- `POST /api/pre-orders/:id/claim` は匿名ではありません。レジ運営者のセッションと `order:write` 権限を要求し、任意の `cashierId`、`paymentMethod` を受け取ります。
+
+### クーポン
+
+- `GET /api/coupons/circle/:circleId` は `coupon:read`、作成 `POST` と停止 `POST /api/coupons/:id/disable` は `coupon:write` を要求します。
+- 公開の `POST /api/coupons/verify` は `{slug, passphrase, eventUserId}` を受け取り、利用可否をプレビューします。この確認だけでは利用回数を消費しません。
+- 利用は事前注文作成時の `coupons` に指定し、サーバーが検証・適用します。プレビュー結果だけを信頼して値引きを確定しないでください。
+
+### スタンプ
+
+- `GET /api/stamps/visitor/:code` は発行済みのスマートフォン用バンドID、または `eventUser.id` でイベントの設定と押印済みサークルを返します。無効コードや未設定時は `{enabled:false,areas:[],stampedCircleIds:[]}` 相当です。
+- `GET /api/stamps/:userId` はそのIDのスタンプ、交換状態、押印数を返します。どちらの値も本人性を証明する秘密情報として保護してください。
+
+### 抽選
+
+- `GET /api/lottery?eventId=...` は `event:read` を要求します。運営用の抽選取得、作成 `POST /api/lottery`（`event:write`、`{eventId,name,drawAt?,entryConfig?}`）、景品追加 `POST /api/lottery/:id/prizes`（`{name,quantity}`）、景品削除 `DELETE /api/lottery/:id/prizes/:prizeId` はイベント権限が必要です。
+- 来場者応募 `POST /api/lottery/:id/enter` は `{userId}` を受け取り、イベント参加状態と受付期間を検証します。同じ利用者の再応募は冪等です。`GET /api/lottery/:id/result?userId=...` はその利用者自身の結果を返します。
+- `POST /api/lottery/:id/draw` は結果を永続化する抽選実行です。`POST /api/lottery/:id/winners/:winnerId/claim` は `event:write` を要求し、受取時刻を記録します。外部連携から抽選を再実行したり、結果を上書きしたりしないでください。
+
 ## 集計とライブ表示の意味
 
 - `GET /api/orders/stats/sales` は完了済み注文だけを売上集計します。
@@ -141,11 +169,11 @@ curl -i -A 'OpenAI File Downloader, XaiImageApiFetch/1.0' 'http://localhost:8787
 }
 ```
 
-`fields` は入力検証エラー時にのみ付く場合があります。よくあるHTTPステータスは `400` 入力不正、`401` 未認証、`403` 権限不足、`404` 未検出、`409` 競合、`429` 制限、`500` 内部エラーです。`429` は `Retry-After` 秒数を返す場合があります。全APIレスポンスは `X-Request-ID` を返し、エラー本文の `requestId` と一致します。`/api/uploads/*` とBetter Auth応答はこのJSONエラー形式の対象外です。
+`fields` は入力検証エラー時にのみ付く場合があります。よくあるHTTPステータスは `400` 入力不正、`401` 未認証、`403` 権限不足、`404` 未検出、`409` 競合、`429` 制限、`500` 内部エラーです。`429` は `Retry-After` 秒数を返す場合があります。現在、レート制限が確認できるのはメール認証や登録済みパスキー検証など一部の `/api/auth/*` です。全API共通のクォータは定義されていません。全APIレスポンスは `X-Request-ID` を返し、エラー本文の `requestId` と一致します。`/api/uploads/*` とBetter Auth応答はこのJSONエラー形式の対象外です。
 
 ## 外部ソフトウェアからの連携範囲
 
-**HTTPレベルでは、匿名で利用できる一部のRESTルートと、セッションCookieを扱えるクライアントから利用できる運営APIがあります。** ただし現時点で外部向けSDK、OpenAPI/Swagger定義、APIキー発行、汎用OAuthクライアント資格情報フロー、契約済み互換バージョンは確認できません。したがってルートの存在は、第三者向けサポート済みAPI契約を意味しません。
+**HTTPレベルでは、匿名で利用できる一部のRESTルートと、セッションCookieを扱えるクライアントから利用できる運営APIがあります。** ただし現時点で外部向けSDK、OpenAPI/Swagger定義、APIキー発行、汎用OAuthクライアント資格情報フロー、契約済み互換バージョンは確認できません。Webhook、決済代行サービス向けAPI、全API共通のクォータもありません。管理画面の支払記録は内部運営機能で、決済処理APIではありません。したがってルートの存在は、第三者向けサポート済みAPI契約を意味しません。
 
 現行実装から確認できる連携方法:
 
