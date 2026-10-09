@@ -1137,6 +1137,8 @@ export interface EventUser {
   status: string;
   nickname?: string | null;
   favoriteDate?: string | null;
+  birthdayMonthDay?: string | null;
+  age?: number | null;
   onboardedAt?: string | null;
   createdAt: string;
 }
@@ -1150,6 +1152,8 @@ export interface WristbandLookupResult {
     status: string;
     nickname?: string | null;
     favoriteDate?: string | null;
+    birthdayMonthDay?: string | null;
+    age?: number | null;
     onboardedAt?: string | null;
   };
   wristband: {
@@ -1270,11 +1274,19 @@ export interface VisitorProfile {
   displayId: number;
   nickname: string | null;
   favoriteDate: string | null;
+  birthdayMonthDay: string | null;
+  age: number | null;
   onboardedAt: string | null;
 }
 
 export const visitorApi = {
-  onboard: (data: { userId: string; nickname: string; favoriteDate?: string }) =>
+  onboard: (data: {
+    userId: string;
+    nickname: string;
+    favoriteDate?: string;
+    birthdayMonthDay?: string;
+    age?: number;
+  }) =>
     fetchApi<VisitorProfile>("/api/wristbands/onboard", {
       method: "POST",
       body: data,

@@ -542,11 +542,13 @@ wristbandRoutes.post(
       userId: z.string().min(1),
       nickname: z.string().trim().min(1).max(30),
       favoriteDate: z.string().optional(), // YYYY-MM-DD
+      birthdayMonthDay: z.string().regex(/^\d{2}-\d{2}$/).optional(),
+      age: z.number().int().min(0).max(120).optional(),
     })
   ),
   async (c) => {
     const db = c.get("db");
-    const { userId, nickname, favoriteDate } = c.req.valid("json");
+    const { userId, nickname, favoriteDate, birthdayMonthDay, age } = c.req.valid("json");
 
     const users = await db.select().from(eventUser).where(eq(eventUser.id, userId));
     if (users.length === 0) {
@@ -557,6 +559,20 @@ wristbandRoutes.post(
     // 日付は保存前に形式検証する (マイページのセルフ編集からも入ってくるため)。
     if (favoriteDate && !/^\d{4}-\d{2}-\d{2}$/.test(favoriteDate)) {
       apiError("BAD_REQUEST", "日付は YYYY-MM-DD 形式で入力してください");
+    }
+
+    // 2026-10-08: 初回入場登録では月日と申告年齢を必須にする。既存会員の編集値は任意のまま保つ。
+    if (!u.onboardedAt && (!birthdayMonthDay || age === undefined)) {
+      apiError("BAD_REQUEST", "誕生日（月日）と年齢を入力してください");
+    }
+    if (birthdayMonthDay) {
+      const [rawMonth, rawDay] = birthdayMonthDay.split("-");
+      const month = Number(rawMonth ?? 0);
+      const day = Number(rawDay ?? 0);
+      const parsed = new Date(Date.UTC(2000, month - 1, day));
+      if (parsed.getUTCMonth() !== month - 1 || parsed.getUTCDate() !== day) {
+        apiError("BAD_REQUEST", "誕生日（月日）を正しく入力してください");
+      }
     }
 
     // 2026-07-15: 2026-07-06 の write-once (登録後は変更不可) を緩和し、来場者が自分の
@@ -570,6 +586,8 @@ wristbandRoutes.post(
       .set({
         nickname,
         favoriteDate: favoriteDate || null,
+        ...(birthdayMonthDay !== undefined ? { birthdayMonthDay } : {}),
+        ...(age !== undefined ? { age } : {}),
         onboardedAt: u.onboardedAt ?? new Date(),
       })
       .where(eq(eventUser.id, userId));
@@ -581,6 +599,8 @@ wristbandRoutes.post(
       displayId: updated.displayId,
       nickname: updated.nickname,
       favoriteDate: updated.favoriteDate,
+      birthdayMonthDay: updated.birthdayMonthDay,
+      age: updated.age,
       onboardedAt: updated.onboardedAt,
     });
   }
