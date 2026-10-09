@@ -18,6 +18,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ErrorState } from "@/components/ui/ErrorState";
+import { Modal } from "@/components/ui/Modal";
 import { toast } from "sonner";
 import { Minus, Plus, ShoppingCart, Trash2, QrCode, X, ScanLine } from "lucide-react";
 import { resolveAssetUrl } from "@/lib/asset-url";
@@ -25,13 +26,12 @@ import { resolveAssetUrl } from "@/lib/asset-url";
 import { addCartLine, updateCartQuantity, toggleCartTopping, lineSubtotal, checkoutTotal, cartCount, type CartLine, type CartTopping } from "@/features/orders/cart";
 import { useOrderSubmission } from "@/features/orders/use-order-submission";
 import type { CreateOrderInput } from "@fesflow/config/order-contract";
-import { ToppingSelection, parseToppingCategoryMinimums } from "@/components/menu/ToppingSelection";
+import { ToppingSelection, parseToppingCategoryMaximums, parseToppingCategoryMinimums } from "@/components/menu/ToppingSelection";
 import { MenuCategoryFilter, menuCategoryKey } from "@/components/menu/MenuCategoryFilter";
 
 // カートは「行 (line)」単位。同じメニューでもトッピング構成が違えば別行として持てるように
 // menuId ではなく lineId をキーにする (トッピングあり/なしを同時注文したい要件のため)。
-// メニューカード。カート追加前にこのカード上でトッピングを選べるようにするための
-// ローカル選択状態を持つ。追加後は既定トッピングへリセットして次の注文に備える。
+// 2026-10-08: ウィザード設定品は独立画面で一品ずつ選ぶ。確定/取消のたびに既定状態へ戻し、選択の持ち越しを防ぐ。
 function MenuCard({
   menu,
   onAdd,
@@ -53,9 +53,11 @@ function MenuCard({
   };
 
   const [selected, setSelected] = useState<Set<string>>(defaultIds);
+  const [isWizardOpen, setIsWizardOpen] = useState(false);
   // 2026-10-07 Issue #111: トッピング未設定なら選択工程が存在しないため、追加を止めない。
   const [selectionReady, setSelectionReady] = useState(!menu.toppingWizardEnabled || menu.toppings.length === 0);
   const toppingMinimums = parseToppingCategoryMinimums(menu.toppingCategoryMinimums);
+  const toppingMaximums = parseToppingCategoryMaximums(menu.toppingCategoryMaximums);
 
   // メニュー(既定トッピング)が変わったら選択状態を作り直す
   useEffect(() => {
@@ -83,7 +85,23 @@ function MenuCard({
       .map((t) => ({ toppingId: t.id, toppingName: t.name, toppingPrice: t.price }));
     onAdd(menu, chosen);
     setSelected(defaultIds()); // 次の1品のために既定へ戻す
+    setIsWizardOpen(false);
   };
+
+  const openToppingWizard = () => {
+    setSelected(defaultIds());
+    setSelectionReady(false);
+    setIsWizardOpen(true);
+  };
+
+  const closeToppingWizard = () => {
+    setIsWizardOpen(false);
+    setSelected(defaultIds());
+  };
+
+  const wizardTotal = menu.price + availableToppings
+    .filter((t) => selected.has(t.id) && !t.soldOut)
+    .reduce((sum, t) => sum + t.price, 0);
 
   return (
     <Card className={menu.soldOut ? "opacity-60" : ""}>
@@ -110,18 +128,19 @@ function MenuCard({
           <p className="text-xs font-mono text-muted-foreground">在庫: {menu.stockQuantity}個</p>
         )}
 
-        {/* カート追加前のトッピング選択 (このメニューに紐づくトッピングのみ) */}
-        {availableToppings.length > 0 && (
+        {/* 2026-10-08: ウィザード設定品はカード上で誤操作させず、完了後に一度だけカートへ加える。 */}
+        {availableToppings.length > 0 && !menu.toppingWizardEnabled && (
           <div className="space-y-1.5">
-            <p className="text-[10px] font-mono font-bold uppercase tracking-wider text-muted-foreground">トッピング (追加前に選択)</p>
+            <p className="text-[10px] font-mono font-bold uppercase tracking-wider text-muted-foreground">トッピング（任意）</p>
             <ToppingSelection
               menuId={menu.id}
               toppings={availableToppings}
               selected={selected}
               onToggle={toggle}
-              wizardEnabled={menu.toppingWizardEnabled}
+              wizardEnabled={false}
               disabled={menu.soldOut}
               minimums={toppingMinimums}
+              maximums={toppingMaximums}
               onReadyChange={setSelectionReady}
             />
           </div>
@@ -129,13 +148,51 @@ function MenuCard({
 
         <Button
           className="w-full h-10 sm:h-11 border-thick border-border bg-primary text-primary-foreground font-mono text-xs sm:text-sm font-bold uppercase rounded-none hover:bg-background hover:text-foreground transition-all"
-          onClick={handleAdd}
-          disabled={menu.soldOut || !selectionReady}
+          onClick={menu.toppingWizardEnabled && availableToppings.length > 0 ? openToppingWizard : handleAdd}
+          disabled={menu.soldOut || (!menu.toppingWizardEnabled && !selectionReady)}
         >
-          <ShoppingCart className="mr-1 sm:mr-2 h-3 w-3 sm:h-4 sm:w-4" />
-          追加{selectedExtra !== 0 && ` (¥${(menu.price + selectedExtra).toLocaleString()})`}
+          {menu.toppingWizardEnabled && availableToppings.length > 0
+            ? "選択"
+            : `追加${selectedExtra !== 0 ? ` (¥${(menu.price + selectedExtra).toLocaleString()})` : ""}`}
         </Button>
       </CardContent>
+
+      {menu.toppingWizardEnabled && availableToppings.length > 0 && (
+        <Modal
+          isOpen={isWizardOpen}
+          onClose={closeToppingWizard}
+          title={`[${menu.name} のトッピング選択]`}
+          subtitle="カテゴリの条件を確認し、選び終わったらカートへ入れてください。"
+          maxWidth="lg"
+        >
+          <ToppingSelection
+            menuId={menu.id}
+            toppings={availableToppings}
+            selected={selected}
+            onToggle={toggle}
+            wizardEnabled
+            disabled={menu.soldOut}
+            minimums={toppingMinimums}
+            maximums={toppingMaximums}
+            onReadyChange={setSelectionReady}
+          />
+          <div className="flex flex-col-reverse gap-3 border-t-thick border-border pt-3 sm:flex-row sm:items-center sm:justify-between">
+            <Button type="button" variant="outline" onClick={closeToppingWizard} className="w-full sm:w-auto">
+              キャンセル
+            </Button>
+            <div className="flex items-center justify-between gap-3 sm:justify-end">
+              <div className="text-right">
+                <p className="text-[10px] text-muted-foreground">トッピング込み</p>
+                <p className="text-lg font-black">¥{wizardTotal.toLocaleString()}</p>
+              </div>
+              <Button type="button" onClick={handleAdd} disabled={!selectionReady} className="flex-1 sm:flex-none">
+                <ShoppingCart className="h-4 w-4" />
+                カートに入れる
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
     </Card>
   );
 }

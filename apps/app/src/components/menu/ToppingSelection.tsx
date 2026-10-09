@@ -20,6 +20,19 @@ export function parseToppingCategoryMinimums(raw?: string | null): Record<string
   }
 }
 
+// 2026-10-08: 数字以外・0以下の上限を読み込まず、旧メニューは上限なしとして扱う。
+export function parseToppingCategoryMaximums(raw?: string | null): Record<string, number> {
+  try {
+    const value: unknown = raw ? JSON.parse(raw) : {};
+    if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+    return Object.fromEntries(Object.entries(value).filter((entry): entry is [string, number] =>
+      typeof entry[1] === "number" && Number.isInteger(entry[1]) && entry[1] > 0,
+    ));
+  } catch {
+    return {};
+  }
+}
+
 export function ToppingSelection({
   menuId,
   toppings,
@@ -29,6 +42,7 @@ export function ToppingSelection({
   wizardEnabled,
   disabled = false,
   minimums,
+  maximums = {},
   onReadyChange,
 }: {
   menuId: string;
@@ -39,6 +53,7 @@ export function ToppingSelection({
   wizardEnabled: boolean;
   disabled?: boolean;
   minimums: Record<string, number>;
+  maximums?: Record<string, number>;
   onReadyChange: (ready: boolean) => void;
 }) {
   // 2026-10-07 Issue #111: カテゴリ単位の同一UIで、来場者とレジの操作順・必須数判定をそろえる。
@@ -62,12 +77,19 @@ export function ToppingSelection({
   useEffect(() => setStep(0), [menuId]);
   const activeStep = Math.min(step, Math.max(0, groups.length - 1));
   const requirementsMet = !wizardEnabled || groups.every(({ category, options }) =>
-    options.filter((topping) => selected.has(topping.id) && !topping.soldOut).length >= (minimums[category] ?? 0),
+    (() => {
+      const count = options.filter((topping) => selected.has(topping.id) && !topping.soldOut).length;
+      return count >= (minimums[category] ?? 0) && count <= (maximums[category] ?? Number.POSITIVE_INFINITY);
+    })(),
   );
   const ready = requirementsMet && (!wizardEnabled || groups.length === 0 || activeStep === groups.length - 1);
   const activeGroup = groups[activeStep];
-  const canAdvance = !activeGroup || activeGroup.options
-    .filter((topping) => selected.has(topping.id) && !topping.soldOut).length >= (minimums[activeGroup.category] ?? 0);
+  const activeCount = activeGroup?.options
+    .filter((topping) => selected.has(topping.id) && !topping.soldOut).length ?? 0;
+  const canAdvance = !activeGroup || (
+    activeCount >= (minimums[activeGroup.category] ?? 0)
+    && activeCount <= (maximums[activeGroup.category] ?? Number.POSITIVE_INFINITY)
+  );
 
   useEffect(() => {
     onReadyChange(ready);
@@ -82,21 +104,27 @@ export function ToppingSelection({
     <div className="space-y-3">
       {wizardEnabled && (
         <div className="flex items-center justify-between gap-2 border-b-thin border-border pb-2 font-mono text-[10px] uppercase">
-          <span>トッピング選択 {activeStep + 1} / {groups.length}</span>
-          <span className="text-muted-foreground">カテゴリごとに選びます</span>
+          <span>カテゴリ {activeStep + 1} / {groups.length}</span>
+          <span className="text-muted-foreground">選ぶと価格に加算されます</span>
         </div>
       )}
       {shownGroups.map(({ category, options }) => {
         // 2026-10-07 Issue #111: ウィザード無効時は保存済み最低数を表示・判定に使わない。
         const minimum = wizardEnabled ? (minimums[category] ?? 0) : 0;
+        const maximum = wizardEnabled ? maximums[category] : undefined;
         const chosenCount = options.filter((topping) => selected.has(topping.id) && !topping.soldOut).length;
-        const meetsMinimum = chosenCount >= minimum;
+        const meetsRule = chosenCount >= minimum && chosenCount <= (maximum ?? Number.POSITIVE_INFINITY);
+        const ruleLabel = maximum === 1 && minimum === 1
+          ? "1つだけ選択"
+          : minimum > 0
+            ? `${minimum}つ以上選択`
+            : "選ばなくてもOK";
         return (
           <section key={category} className="space-y-2" aria-label={`${categoryLabel(category)}のトッピング`}>
             <div className="flex items-baseline justify-between gap-2">
               <h4 className="font-mono text-xs font-black uppercase tracking-wider">{categoryLabel(category)}</h4>
-              <span className={cn("font-mono text-[10px]", meetsMinimum ? "text-muted-foreground" : "text-warning font-bold")}>
-                {minimum > 0 ? `最低 ${minimum} 個 · ` : "任意 · "}{chosenCount} 個選択中
+              <span className={cn("font-mono text-[10px]", meetsRule ? "text-muted-foreground" : "text-warning font-bold")}>
+                {ruleLabel} · {chosenCount}{maximum ? `/${maximum}` : "個選択中"}
               </span>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -109,7 +137,14 @@ export function ToppingSelection({
                     type="button"
                     aria-pressed={isSelected}
                     disabled={disabled || topping.soldOut}
-                    onClick={() => onToggle(topping.id)}
+                    onClick={() => {
+                      // 2026-10-08: 1つだけ選ぶ設定はラジオ選択のように、次の選択で前の選択を置き換える。
+                      if (maximum === 1 && minimum === 1 && !isSelected) {
+                        const selectedInGroup = options.find((option) => selected.has(option.id));
+                        if (selectedInGroup) onToggle(selectedInGroup.id);
+                      }
+                      onToggle(topping.id);
+                    }}
                     className={cn(
                       "flex min-h-11 items-center gap-1.5 border-thick px-3 py-2 text-xs font-bold transition-colors disabled:cursor-not-allowed disabled:opacity-40",
                       isSelected ? "border-primary bg-primary text-primary-foreground" : "border-border bg-background hover:bg-muted",
@@ -143,7 +178,7 @@ export function ToppingSelection({
             </Button>
           ) : (
             <span className={cn("self-center font-mono text-[10px] font-bold uppercase", ready ? "text-success" : "text-warning")}>
-              {ready ? "選択完了" : "カテゴリの最低数を選んでください"}
+              {ready ? "選択完了" : "表示された選択条件を満たしてください"}
             </span>
           )}
         </div>

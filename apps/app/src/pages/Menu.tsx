@@ -31,7 +31,7 @@ import { addCartLine, updateCartQuantity, toggleCartTopping, lineSubtotal, cartT
 import { useOrderSubmission } from "@/features/orders/use-order-submission";
 import { getPreOrderSaveRetryAfterMs, getPreOrderSaveRetryDelay, isRetryablePreOrderSaveError, shouldRetryPreOrderSave } from "@/features/orders/pre-order-save";
 import type { CreateOrderInput } from "@fesflow/config/order-contract";
-import { ToppingSelection, parseToppingCategoryMinimums } from "@/components/menu/ToppingSelection";
+import { ToppingSelection, parseToppingCategoryMaximums, parseToppingCategoryMinimums } from "@/components/menu/ToppingSelection";
 import { MenuCategoryFilter, menuCategoryKey } from "@/components/menu/MenuCategoryFilter";
 import { findVisitorRouteItem } from "@/lib/visitor-route";
 
@@ -71,6 +71,7 @@ function VisitorMenuCard({
   // 2026-10-07 Issue #111: トッピング未設定なら選択工程が存在しないため、追加を止めない。
   const [selectionReady, setSelectionReady] = useState(!menu.toppingWizardEnabled || (menu.toppings ?? []).length === 0);
   const toppingMinimums = parseToppingCategoryMinimums(menu.toppingCategoryMinimums);
+  const toppingMaximums = parseToppingCategoryMaximums(menu.toppingCategoryMaximums);
 
   useEffect(() => {
     setSelected(defaultIds());
@@ -161,6 +162,7 @@ function VisitorMenuCard({
               wizardEnabled={menu.toppingWizardEnabled}
               disabled={menu.soldOut}
               minimums={toppingMinimums}
+              maximums={toppingMaximums}
               onReadyChange={setSelectionReady}
             />
           </div>

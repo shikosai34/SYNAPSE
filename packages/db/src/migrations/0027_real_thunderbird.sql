@@ -1,0 +1,1 @@
+ALTER TABLE `menu` ADD `topping_category_maximums` text DEFAULT '{}' NOT NULL;
