@@ -89,6 +89,9 @@ PRには以下を書く。
 - 残タスク
   - issueを立てているか
 
+Issueに紐づくPRでは、完了条件をすべて満たす場合のみ本文に `Closes #<issue番号>` を書く。部分対応や調査のみの場合は `Refs #<issue番号>` を使い、Issueを完了扱いにしない。
+既定ブランチ `main` へのPRはGitHub標準機能でマージ時に自動クローズされる。通常のマージ先 `dev` では標準機能が働かないため、`Closes #...` を含むPRが `dev` にマージされた時は `.github/workflows/close-issues-on-dev-merge.yml` がIssueへ根拠コメントを残して自動クローズする。
+
 ## about this project
 
 truboを使ってものレポで構成しています。
