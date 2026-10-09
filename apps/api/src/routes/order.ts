@@ -21,7 +21,7 @@ import { ulid } from "ulidx";
 import { hasPermission } from "../utils/auth";
 import { commitOrder, committedOrder, orderCommand } from "../services/order-commit";
 import { updateOrderStatus } from "../services/order-status";
-import { missingToppingCategoryMinimum } from "../utils/topping-wizard";
+import { validateToppingCategorySelection } from "../utils/topping-wizard";
 import type { AppEnv } from "../types";
 
 const orderRoutes = new Hono<AppEnv>();
@@ -507,10 +507,13 @@ orderRoutes.post(
         const availableMenuToppings = toppings.filter((topping) =>
           menuToppingLinks.some((link) => link.menuId === menuItem.id && link.toppingId === topping.id)
         );
-        const missingCategory = missingToppingCategoryMinimum(menuItem, itemToppings, availableMenuToppings);
-        if (missingCategory) {
-          const label = missingCategory.category || "未分類";
-          apiError("BAD_REQUEST", `${menuItem.name}: 「${label}」から最低${missingCategory.required}個選んでください`);
+        const selectionViolation = validateToppingCategorySelection(menuItem, itemToppings, availableMenuToppings);
+        if (selectionViolation) {
+          const label = selectionViolation.category || "未分類";
+          const requirement = selectionViolation.reason === "minimum"
+            ? `最低${selectionViolation.minimum}個選んでください`
+            : `${selectionViolation.maximum}個まで選べます`;
+          apiError("BAD_REQUEST", `${menuItem.name}: 「${label}」は${requirement}`);
         }
 
         // 2026-09-27: 在庫を商品単位の opt-in にする。ONなら数量0も在庫切れなので

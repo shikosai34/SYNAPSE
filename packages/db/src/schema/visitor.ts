@@ -27,6 +27,9 @@ export const eventUser = sqliteTable(
     // リストバンド紛失時の本人確認/再紐付け用にニックネーム+誕生日のみ収集。
     nickname: text("nickname"),
     favoriteDate: text("favorite_date"), // YYYY-MM-DD (旧 birthday)
+    // 2026-10-08: 入場時点の年齢と、年を含めない誕生日（月日）を別々に保持する。
+    birthdayMonthDay: text("birthday_month_day"), // MM-DD
+    age: integer("age"),
     onboardedAt: integer("onboarded_at", { mode: "timestamp_ms" }), // 初回入力完了時刻
     createdAt: integer("created_at", { mode: "timestamp_ms" })
       .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)

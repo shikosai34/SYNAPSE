@@ -125,7 +125,8 @@ export function ToppingFormModal({ circleId, isOpen, onClose, topping }: Topping
             onBlur={triggerAutoSave}
             placeholder="例: サイズ / ソース"
           />
-          <p className="mt-1 text-[10px] text-muted-foreground">同じ名前を入力すると選択ウィザードで同じステップにまとまります。</p>
+          {/* 2026-10-08: トッピング名でなくカテゴリ名をそろえる操作だと明示し、設定時の迷いを減らす。 */}
+          <p className="mt-1 text-[10px] text-muted-foreground">同じカテゴリ名（例:「ソース」）を付けたトッピングは、ウィザードの同じステップにまとまります。</p>
         </div>
 
         <ImageUpload

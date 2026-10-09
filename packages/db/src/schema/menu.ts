@@ -43,6 +43,8 @@ export const menu = sqliteTable(
       .default(false)
       .notNull(),
     toppingCategoryMinimums: text("topping_category_minimums").default("{}").notNull(),
+    // 2026-10-08: 上限も保持し「ちょうど1つ選択」を画面と注文APIで守る。
+    toppingCategoryMaximums: text("topping_category_maximums").default("{}").notNull(),
     createdAt: integer("created_at", { mode: "timestamp_ms" })
       .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
       .notNull(),

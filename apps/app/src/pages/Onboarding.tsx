@@ -22,6 +22,9 @@ export default function Onboarding() {
   const { isLoaded, isEntered, session, userId } = useVisitor();
   const [nickname, setNickname] = useState("");
   const [favoriteDate, setFavoriteDate] = useState("");
+  const [birthdayMonth, setBirthdayMonth] = useState("");
+  const [birthdayDay, setBirthdayDay] = useState("");
+  const [age, setAge] = useState("");
 
   // 入場前(セッション無し)に直接来たら入場を促す
   useEffect(() => {
@@ -47,6 +50,26 @@ export default function Onboarding() {
     if (profile?.user.favoriteDate) setFavoriteDate(profile.user.favoriteDate);
   }, [profile?.user.favoriteDate]);
 
+  useEffect(() => {
+    const [month = "", day = ""] = profile?.user.birthdayMonthDay?.split("-") ?? [];
+    if (month) setBirthdayMonth(String(Number(month)));
+    if (day) setBirthdayDay(String(Number(day)));
+    if (profile?.user.age != null) setAge(String(profile.user.age));
+  }, [profile?.user.birthdayMonthDay, profile?.user.age]);
+
+  // 2026-10-08: 生年を集めない要件のため月日を別選択にし、2月29日も選べるよううるう年で日数を出す。
+  const daysInBirthdayMonth = birthdayMonth
+    ? new Date(Date.UTC(2000, Number(birthdayMonth), 0)).getUTCDate()
+    : 31;
+  const birthdayMonthDay = birthdayMonth && birthdayDay
+    ? birthdayMonth.padStart(2, "0") + "-" + birthdayDay.padStart(2, "0")
+    : "";
+  const ageNumber = age === "" ? undefined : Number(age);
+  const hasValidAge =
+    ageNumber !== undefined && Number.isInteger(ageNumber) && ageNumber >= 0 && ageNumber <= 120;
+  const hasBirthday = !!birthdayMonthDay && Number(birthdayDay) <= daysInBirthdayMonth;
+  const hasRequiredAdmissionDetails = isEdit || (hasBirthday && hasValidAge);
+
   const mutation = useMutation({
     mutationFn: () => {
       const v = getVisitor();
@@ -55,6 +78,8 @@ export default function Onboarding() {
         userId: v.userId,
         nickname: nickname.trim(),
         favoriteDate: favoriteDate || undefined,
+        birthdayMonthDay: hasBirthday ? birthdayMonthDay : undefined,
+        age: hasValidAge ? ageNumber : undefined,
       });
     },
     onSuccess: (result) => {
@@ -110,9 +135,74 @@ export default function Onboarding() {
           </h1>
           <p className="text-sm text-muted-foreground">
             {isEdit
-              ? "ニックネームとお好きな日付を編集できます。"
-              : "はじめにニックネームを登録してください。スタンプラリーや抽選に使います。"}
+              ? "ニックネーム・誕生日・年齢・お好きな日付を編集できます。"
+              : "ニックネーム・誕生日・年齢を登録してください。誕生日は月日だけで入力できます。"}
           </p>
+        </div>
+
+        <div className="space-y-2">
+          <label htmlFor="visitor-birthday-month" className="text-[11px] font-black uppercase tracking-wider text-muted-foreground">
+            誕生日（月日） {!isEdit && <span className="text-destructive">*</span>}
+          </label>
+          <div className="flex items-center gap-3">
+            <select
+              id="visitor-birthday-month"
+              value={birthdayMonth}
+              onChange={(e) => {
+                const month = e.target.value;
+                setBirthdayMonth(month);
+                if (!month || Number(birthdayDay) > new Date(Date.UTC(2000, Number(month), 0)).getUTCDate()) {
+                  setBirthdayDay("");
+                }
+              }}
+              aria-label="誕生日の月"
+              required={!isEdit}
+              className="h-11 min-w-0 flex-1 rounded-none border-[2px] bg-input px-3 font-mono"
+            >
+              <option value="">月を選択</option>
+              {Array.from({ length: 12 }, (_, index) => String(index + 1)).map((month) => (
+                <option key={month} value={month}>{month}月</option>
+              ))}
+            </select>
+            <select
+              id="visitor-birthday-day"
+              value={birthdayDay}
+              onChange={(e) => setBirthdayDay(e.target.value)}
+              aria-label="誕生日の日"
+              required={!isEdit}
+              disabled={!birthdayMonth}
+              className="h-11 min-w-0 flex-1 rounded-none border-[2px] bg-input px-3 font-mono disabled:opacity-50"
+            >
+              <option value="">日を選択</option>
+              {Array.from({ length: daysInBirthdayMonth }, (_, index) => String(index + 1)).map((day) => (
+                <option key={day} value={day}>{day}日</option>
+              ))}
+            </select>
+          </div>
+          <p className="text-[10px] text-muted-foreground">誕生日の年は入力しません。</p>
+        </div>
+
+        <div className="space-y-2">
+          <label htmlFor="visitor-age" className="text-[11px] font-black uppercase tracking-wider text-muted-foreground">
+            年齢 {!isEdit && <span className="text-destructive">*</span>}
+          </label>
+          <Input
+            id="visitor-age"
+            type="number"
+            inputMode="numeric"
+            min={0}
+            max={120}
+            step={1}
+            value={age}
+            onChange={(e) => setAge(e.target.value)}
+            placeholder="例: 16"
+            required={!isEdit}
+            aria-invalid={age !== "" && !hasValidAge}
+            className="rounded-none border-[2px] h-11"
+          />
+          {age !== "" && !hasValidAge && (
+            <p className="text-xs text-destructive">0〜120の整数を入力してください。</p>
+          )}
         </div>
 
         <div className="space-y-2">
@@ -146,7 +236,12 @@ export default function Onboarding() {
         <Button
           className="w-full h-12 rounded-none border-[2px] uppercase font-black"
           onClick={() => mutation.mutate()}
-          disabled={mutation.isPending || !nickname.trim()}
+          disabled={
+            mutation.isPending ||
+            !nickname.trim() ||
+            !hasRequiredAdmissionDetails ||
+            (age !== "" && !hasValidAge)
+          }
         >
           {mutation.isPending ? "保存中..." : isEdit ? "保存する" : "はじめる"}
         </Button>

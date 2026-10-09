@@ -113,6 +113,7 @@ menuRoutes.post(
       defaultToppingIds: z.array(z.string()).optional(),
       toppingWizardEnabled: z.boolean().optional(),
       toppingCategoryMinimums: z.record(z.string(), z.number().int().min(0).max(20)).optional(),
+      toppingCategoryMaximums: z.record(z.string(), z.number().int().min(1).max(20)).optional(),
     })
   ),
   async (c) => {
@@ -143,6 +144,7 @@ menuRoutes.post(
       defaultToppingIds: JSON.stringify(input.defaultToppingIds ?? []),
       toppingWizardEnabled: input.toppingWizardEnabled ?? false,
       toppingCategoryMinimums: JSON.stringify(input.toppingCategoryMinimums ?? {}),
+      toppingCategoryMaximums: JSON.stringify(input.toppingCategoryMaximums ?? {}),
     });
 
     // トッピングを関連付け
@@ -178,6 +180,7 @@ menuRoutes.put(
       defaultToppingIds: z.array(z.string()).optional(),
       toppingWizardEnabled: z.boolean().optional(),
       toppingCategoryMinimums: z.record(z.string(), z.number().int().min(0).max(20)).optional(),
+      toppingCategoryMaximums: z.record(z.string(), z.number().int().min(1).max(20)).optional(),
     })
   ),
   async (c) => {
@@ -214,6 +217,8 @@ menuRoutes.put(
       updates.toppingWizardEnabled = input.toppingWizardEnabled;
     if (input.toppingCategoryMinimums !== undefined)
       updates.toppingCategoryMinimums = JSON.stringify(input.toppingCategoryMinimums);
+    if (input.toppingCategoryMaximums !== undefined)
+      updates.toppingCategoryMaximums = JSON.stringify(input.toppingCategoryMaximums);
 
     // 2026-09-27: ON商品は残数0なら必ず売切だが、残数がある場合は運営者の手動売切を
     // 尊重する。管理開始や在庫補充時だけ在庫起因の売切を解除し、説明編集では状態を変えない。
