@@ -315,7 +315,7 @@ export function VisitorRecordEditor({
 
   if (detailQuery.isLoading || !draft || !detailQuery.data) {
     return (
-      <Modal isOpen title="[来場者情報を編集]" subtitle="アカウント、リストバンド、家族、サークル利用実績を編集します。" onClose={requestClose} maxWidth="full">
+      <Modal isOpen title="[来場者情報を編集]" subtitle="アカウント、リストバンド、家族、サークル利用実績を編集します。" onClose={requestClose} maxWidth="xl">
         <div className="flex min-h-48 items-center justify-center gap-2 text-sm" role="status">
           <Loader2 className="h-5 w-5 animate-spin" /> 来場者情報を読み込んでいます
         </div>
@@ -336,10 +336,10 @@ export function VisitorRecordEditor({
         title="[来場者情報を編集]"
         subtitle="イベントアカウント、紐付く全バンド、サークル体験ログをまとめて編集します。"
         onClose={requestClose}
-        maxWidth="full"
+        maxWidth="xl"
       >
-        {/* 2026-10-20: 全幅モーダルでも入力欄が横に伸びすぎないよう、編集内容の最大幅を抑える。 */}
-        <div className="mx-auto w-full max-w-4xl">
+        {/* 2026-10-20: 2カラムの入力幅を抑えるため、編集内容に合わせた xl モーダルを使う。 */}
+        <div className="w-full">
         <div className="mb-4 flex flex-col gap-2 border-b-thin border-border pb-3 text-xs sm:flex-row sm:items-center sm:justify-between">
           <p className="break-all"><span className="font-bold">来場者ID:</span> {user.id}</p>
           <p className="text-[10px] text-muted-foreground">作成日時 {new Date(user.createdAt).toLocaleString("ja-JP")} · 更新日時 {new Date(user.updatedAt).toLocaleString("ja-JP")}</p>
