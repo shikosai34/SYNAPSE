@@ -3,7 +3,7 @@ import { useEffect, useRef, useState, Suspense } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ModSandbox } from "@/components/ModSandbox";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { eventApi, circleApi, menuApi, preOrderApi, orderApi, wristbandApi, reviewApi, parseCircleSettings, type CreatePreOrderInput, type MenuWithToppings, type Topping, type PublicStoreReviewList } from "@/lib/api";
+import { eventApi, circleApi, menuApi, preOrderApi, orderApi, wristbandApi, reviewApi, bundleDiscountApi, parseCircleSettings, type CreatePreOrderInput, type MenuWithToppings, type Topping, type PublicStoreReviewList } from "@/lib/api";
 import { useVisitor } from "@/hooks/useVisitor";
 import { useSessionState } from "@/hooks/useSessionState";
 import { getCouponsForCircle, type StoredCoupon } from "@/lib/coupon-storage";
@@ -30,7 +30,7 @@ import { resolveAssetUrl } from "@/lib/asset-url";
 import { isEventEnded } from "@/lib/event-lifecycle";
 import { QRCodeSVG } from "qrcode.react";
 // 2026-10-03: 画面をまたぐカート規則と再送制御を機能モジュールに集約する。
-import { addCartLine, updateCartQuantity, toggleCartTopping, lineSubtotal, cartTotal, cartCount, type CartLine, type CartTopping } from "@/features/orders/cart";
+import { addCartLine, updateCartQuantity, toggleCartTopping, lineSubtotal, cartTotal, cartBundleDiscount, cartCount, type CartLine, type CartTopping } from "@/features/orders/cart";
 import { useOrderSubmission } from "@/features/orders/use-order-submission";
 import { submitMobileOrder } from "@/features/orders/mobile-order-outbox";
 import { getPreOrderSaveRetryAfterMs, getPreOrderSaveRetryDelay, isRetryablePreOrderSaveError, shouldRetryPreOrderSave } from "@/features/orders/pre-order-save";
@@ -387,6 +387,17 @@ function MenuPageContent() {
     enabled: visitorLoaded && !!userId && !!selectedCircleId && !isMobileOrderRoute,
   });
 
+  // 2026-10-23: セット割引 (N個で○円) はモバイル注文・事前注文のどちらでもサーバーが自動適用するため、
+  // 同じ規則で合計を先に見せる。
+  const { data: bundleRules = [] } = useQuery({
+    queryKey: ["bundle-discounts", selectedCircleId],
+    queryFn: () => bundleDiscountApi.active(selectedCircleId!),
+    enabled: !!selectedCircleId,
+    staleTime: 60_000,
+  });
+  const cartBundle = cartBundleDiscount(cart, bundleRules);
+  const cartPayable = Math.max(0, cartTotal(cart) - cartBundle.totalDiscount);
+
   useEffect(() => {
     if (typeof window !== "undefined") setAppOrigin(window.location.origin);
   }, []);
@@ -589,7 +600,7 @@ function MenuPageContent() {
 
   const orderInput: CreateOrderInput | null = selectedCircleId && userId && cart.length > 0 ? {
     circleId: selectedCircleId, userId, peopleCount: 1,
-    ...(isMobileOrderRoute ? { expectedTotalPrice: cartTotal(cart) } : {}),
+    ...(isMobileOrderRoute ? { expectedTotalPrice: cartPayable } : {}),
     items: cart.map((line) => ({ menuId: line.menuId, quantity: line.quantity, toppingIds: line.toppings.map((t) => t.toppingId) })),
   } : null;
   const circleNameForSubmission = useRef(circleData?.name || "サークル");
@@ -638,7 +649,7 @@ function MenuPageContent() {
             orderId: orderData.id,
             orderNumber: orderData.orderNumber,
             circleName: circleNameForSubmission.current,
-            totalPrice: cartTotal(cart),
+            totalPrice: cartPayable,
             items: mobileOrderDisplayItems.current,
           },
         } : undefined,
@@ -723,7 +734,7 @@ function MenuPageContent() {
   };
 
   const getTotalCount = () => cartCount(cart);
-  const getTotalPrice = () => cartTotal(cart);
+  const getTotalPrice = () => cartPayable;
 
   // カート内トッピング編集用に menuId → メニュー(許可トッピング付き)を引けるようにする
   const menuMap = new Map((menus ?? []).map((m) => [m.id, m]));
@@ -1109,6 +1120,11 @@ function MenuPageContent() {
                   </span>
                 )}
               </div>
+              {cartBundle.applied.length > 0 && (
+                <p className="text-[10px] sm:text-xs font-mono font-bold">
+                  {cartBundle.applied.map((item) => `${item.title}${item.sets > 1 ? ` ×${item.sets}` : ""}`).join("・")}適用 −¥{cartBundle.totalDiscount.toLocaleString()}
+                </p>
+              )}
               <p className="text-[10px] sm:text-xs text-primary-foreground/80 font-mono hidden sm:block">
                 事前に注文を予約し、レジでスムーズに会計できます。
               </p>

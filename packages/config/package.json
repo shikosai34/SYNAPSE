@@ -20,6 +20,9 @@
 		"./order-contract": {
 			"default": "./src/order-contract.ts"
 		},
+		"./bundle-discount": {
+			"default": "./src/bundle-discount.ts"
+		},
 		"./register-display-contract": {
 			"default": "./src/register-display-contract.ts"
 		},

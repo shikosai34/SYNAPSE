@@ -356,6 +356,76 @@ export const orderDiscount = sqliteTable(
   ],
 );
 
+// 2026-10-23: 「対象メニューをN個以上」を条件にした自動割引。レジで選ぶ手動割引 (discount) と違い、
+// 条件を満たした注文へサーバーが自動で適用する。対象メニューは bundleDiscountMenu に持つ。
+// kind ごとの value の意味:
+//   set_price     : N個を value 円のセット価格にする (差額を割引)
+//   amount_off    : N個ごとに value 円引き
+//   free_cheapest : N個ごとに一番安い1個分を無料にする (value は未使用で 0)
+//   percent_off   : N個以上で注文全体から value % 引き (1回だけ)
+export const bundleDiscount = sqliteTable(
+  "bundle_discount",
+  {
+    id: text("id").primaryKey().$defaultFn(() => ulid()),
+    circleId: text("circle_id")
+      .notNull()
+      .references(() => circle.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    kind: text("kind").notNull().default("set_price"),
+    bundleSize: integer("bundle_size").notNull(), // 条件の個数 (1セットの個数)
+    value: integer("value").notNull(),
+    status: text("status").notNull().default("active"), // active / disabled
+    createdAt: integer("created_at", { mode: "timestamp_ms" })
+      .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+      .notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" })
+      .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  (table) => [
+    index("bundle_discount_circle_status_idx").on(table.circleId, table.status),
+    check("bundle_discount_size_valid", sql`${table.bundleSize} >= 2`),
+    check("bundle_discount_kind_valid", sql`${table.kind} IN ('set_price', 'amount_off', 'free_cheapest', 'percent_off')`),
+    check("bundle_discount_value_valid", sql`(${table.kind} = 'set_price' AND ${table.value} >= 0)
+      OR (${table.kind} = 'amount_off' AND ${table.value} > 0)
+      OR (${table.kind} = 'free_cheapest' AND ${table.value} = 0)
+      OR (${table.kind} = 'percent_off' AND ${table.value} BETWEEN 1 AND 100)`),
+    check("bundle_discount_status_valid", sql`${table.status} IN ('active', 'disabled')`),
+  ],
+);
+
+// セット対象メニュー。メニュー削除時は注文履歴側で保護されるが、対象からは外れてよいので cascade。
+export const bundleDiscountMenu = sqliteTable(
+  "bundle_discount_menu",
+  {
+    bundleId: text("bundle_id").notNull().references(() => bundleDiscount.id, { onDelete: "cascade" }),
+    menuId: text("menu_id").notNull().references(() => menu.id, { onDelete: "cascade" }),
+  },
+  (table) => [
+    uniqueIndex("bundle_discount_menu_unique").on(table.bundleId, table.menuId),
+    index("bundle_discount_menu_menu_idx").on(table.menuId),
+  ],
+);
+
+// 適用結果を注文時点の値で残す。1注文に複数のセット割引が付き得るので order_discount と違い注文単位の一意制約は置かない。
+export const orderBundleDiscount = sqliteTable(
+  "order_bundle_discount",
+  {
+    id: text("id").primaryKey().$defaultFn(() => ulid()),
+    orderId: text("order_id").notNull().references(() => order.id, { onDelete: "cascade" }),
+    bundleId: text("bundle_id").notNull().references(() => bundleDiscount.id),
+    sets: integer("sets").notNull(),
+    discountApplied: integer("discount_applied").notNull(),
+    createdAt: integer("created_at", { mode: "timestamp_ms" })
+      .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`).notNull(),
+  },
+  (table) => [
+    uniqueIndex("order_bundle_discount_unique").on(table.orderId, table.bundleId),
+    index("order_bundle_discount_bundle_idx").on(table.bundleId),
+  ],
+);
+
 // 事前オーダーテーブル
 export const preOrder = sqliteTable(
   "pre_order",

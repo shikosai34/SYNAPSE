@@ -3,7 +3,7 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { CircleAuthGuard, getAuthInfo, useAuth } from "@/hooks/useCircleAuth";
-import { menuApi, toppingApi, orderApi, circleApi, eventApi, wristbandApi, preOrderApi, couponApi, discountApi, parseCircleSettings, parseEventPaymentMethods, activeWaitTimeReport, type MenuWithToppings, type Topping, type OrderWithItems, type RegisterDiscountOption, type RegisterDisplaySession } from "@/lib/api";
+import { menuApi, toppingApi, orderApi, circleApi, eventApi, wristbandApi, preOrderApi, couponApi, discountApi, bundleDiscountApi, parseCircleSettings, parseEventPaymentMethods, activeWaitTimeReport, type MenuWithToppings, type Topping, type OrderWithItems, type RegisterDiscountOption, type RegisterDisplaySession } from "@/lib/api";
 import { extractIdFromCode, cn } from "@/lib/utils";
 import { undoableAction } from "@/lib/toast-undo";
 import { ModSandbox } from "@/components/ModSandbox";
@@ -29,7 +29,7 @@ import { useBodyScrollLock } from "@/hooks/useBodyScrollLock";
 import { useSessionState } from "@/hooks/useSessionState";
 import { displayOrderNumber } from "@/lib/order-number";
 // 2026-10-03: 画面をまたぐカート規則と再送制御を機能モジュールに集約する。
-import { addCartLine, updateCartQuantity, toggleCartTopping, lineSubtotal, checkoutTotal, cartCount, type CartLine, type CartTopping } from "@/features/orders/cart";
+import { addCartLine, updateCartQuantity, toggleCartTopping, lineSubtotal, checkoutTotal, cartBundleDiscount, cartCount, type CartLine, type CartTopping } from "@/features/orders/cart";
 import { useOrderSubmission } from "@/features/orders/use-order-submission";
 import type { CreateOrderInput } from "@fesflow/config/order-contract";
 import { ToppingSelection, parseToppingCategoryMaximums, parseToppingCategoryMinimums } from "@/components/menu/ToppingSelection";
@@ -228,6 +228,8 @@ function CartBody({
   onSubmit,
   onClear,
   total,
+  bundleApplied,
+  bundleDiscountAmount,
   isPreOrder,
   registerCoupons,
   registerCouponId,
@@ -252,6 +254,9 @@ function CartBody({
   onSubmit: () => void;
   onClear: () => void;
   total: number;
+  // 2026-10-23: 自動適用されるセット割引。手動割引/クーポンの割引額プレビューはこの後の金額に対して計算する。
+  bundleApplied: { id: string; title: string; sets: number; discountApplied: number }[];
+  bundleDiscountAmount: number;
   isPreOrder: boolean;
   registerCoupons: { id: string; title: string; discountPercent: number | null }[];
   registerCouponId: string;
@@ -410,7 +415,7 @@ function CartBody({
             {!isPreOrder && registerCouponId && (() => {
               const selected = registerCoupons.find((coupon) => coupon.id === registerCouponId);
               const amount = selected?.discountPercent
-                ? Math.floor((checkoutTotal(cart, null) * selected.discountPercent) / 100)
+                ? Math.floor(((checkoutTotal(cart, null) - bundleDiscountAmount) * selected.discountPercent) / 100)
                 : 0;
               return amount > 0 ? <p className="text-xs font-bold text-primary">割引額: −¥{amount.toLocaleString()}</p> : null;
             })()}
@@ -435,13 +440,20 @@ function CartBody({
             {!isPreOrder && registerCouponId && <p className="text-[10px] text-muted-foreground">クーポンを解除すると選択できます。</p>}
             {!isPreOrder && discountId && (() => {
               const selected = registerDiscounts.find((item) => item.id === discountId);
-              const subtotal = checkoutTotal(cart, null);
+              const subtotal = Math.max(0, checkoutTotal(cart, null) - bundleDiscountAmount);
               const amount = selected?.kind === "percentage"
                 ? Math.floor((subtotal * selected.value) / 100)
                 : selected ? Math.min(subtotal, selected.value) : 0;
               return <p className="text-xs font-bold text-primary">割引額: −¥{amount.toLocaleString()}</p>;
             })()}
           </div>
+        )}
+        {!isPreOrder && bundleApplied.length > 0 && (
+          <ul className="space-y-0.5 text-xs font-bold text-primary" aria-label="自動適用されたセット割引">
+            {bundleApplied.map((item) => (
+              <li key={item.id}>セット割引 {item.title}{item.sets > 1 ? ` ×${item.sets}` : ""}: −¥{item.discountApplied.toLocaleString()}</li>
+            ))}
+          </ul>
         )}
         <div className="flex justify-between items-center border-thick border-border px-4 py-3 bg-muted" role="status" aria-live="polite" aria-atomic="true">
           <span className="font-mono text-sm uppercase tracking-wider">合計金額</span>
@@ -562,6 +574,14 @@ function RegisterPageContent() {
   const { data: registerDiscounts = [] } = useQuery({
     queryKey: ["register-discounts", circleId],
     queryFn: () => discountApi.registerOptions(circleId),
+    enabled: !!circleId,
+    refetchInterval: 60_000,
+  });
+
+  // 2026-10-23: セット割引 (N個で○円) はサーバーが自動適用する。同じ規則で画面の合計も先に出す。
+  const { data: bundleRules = [] } = useQuery({
+    queryKey: ["bundle-discounts", circleId],
+    queryFn: () => bundleDiscountApi.active(circleId),
     enabled: !!circleId,
     refetchInterval: 60_000,
   });
@@ -873,8 +893,10 @@ function RegisterPageContent() {
 
   // 2026-10-08: 店頭受取では事前注文に保存済みの合計を請求額として見せる。
   // 明細の現行価格を足すと事前注文の割引が消えて見え、画面表示とclaim後の記録額がずれる。
+  // 事前注文の受取は保存済みの合計をそのまま使う。セット割引は事前注文の保存時に織り込み済みなので重ねない。
+  const bundleResult = activePreOrderId ? { applied: [], totalDiscount: 0 } : cartBundleDiscount(cart, bundleRules);
   const getTotalPrice = () => {
-    const subtotal = checkoutTotal(cart, activePreOrderId ? activePreOrderTotalPrice : null);
+    const subtotal = Math.max(0, checkoutTotal(cart, activePreOrderId ? activePreOrderTotalPrice : null) - bundleResult.totalDiscount);
     const selectedCoupon = activePreOrderId ? null : registerCoupons.find((option) => option.id === registerCouponId);
     const couponDiscount = selectedCoupon?.discountPercent ? Math.floor((subtotal * selectedCoupon.discountPercent) / 100) : 0;
     const selectedDiscount = activePreOrderId ? null : registerDiscounts.find((option) => option.id === discountId);
@@ -884,7 +906,8 @@ function RegisterPageContent() {
     return Math.max(0, subtotal - couponDiscount - discountAmount);
   };
   const customerDisplaySnapshot = useMemo<RegisterDisplaySnapshot>(() => {
-    const subtotal = checkoutTotal(cart, activePreOrderId ? activePreOrderTotalPrice : null);
+    const itemsSubtotal = checkoutTotal(cart, activePreOrderId ? activePreOrderTotalPrice : null);
+    const subtotal = Math.max(0, itemsSubtotal - bundleResult.totalDiscount);
     const selectedCoupon = activePreOrderId ? null : registerCoupons.find((option) => option.id === registerCouponId);
     const couponDiscount = selectedCoupon?.discountPercent ? Math.floor((subtotal * selectedCoupon.discountPercent) / 100) : 0;
     const selectedDiscount = activePreOrderId ? null : registerDiscounts.find((option) => option.id === discountId);
@@ -908,11 +931,12 @@ function RegisterPageContent() {
           unitPrice: topping.toppingPrice,
         })),
       })),
-      subtotal,
-      discount: Math.max(0, subtotal - total),
+      // 客側表示の「小計」は割引前の商品合計。セット割引も割引欄に含めて、小計−割引=合計を保つ。
+      subtotal: itemsSubtotal,
+      discount: Math.max(0, itemsSubtotal - total),
       total,
     };
-  }, [cart, circle?.name, activePreOrderId, activePreOrderTotalPrice, registerCoupons, registerCouponId, registerDiscounts, discountId]);
+  }, [cart, circle?.name, activePreOrderId, activePreOrderTotalPrice, registerCoupons, registerCouponId, registerDiscounts, discountId, bundleResult.totalDiscount]);
   const currentCustomerDisplaySnapshot = submittedCustomerDisplaySnapshot ?? customerDisplaySnapshot;
 
   useEffect(() => {
@@ -1514,6 +1538,8 @@ function RegisterPageContent() {
             onSubmit={handleSubmitOrder}
             onClear={clearCart}
             total={getTotalPrice()}
+            bundleApplied={bundleResult.applied}
+            bundleDiscountAmount={bundleResult.totalDiscount}
             isPreOrder={!!activePreOrderId}
             registerCoupons={registerCoupons}
             registerCouponId={registerCouponId}
@@ -1586,6 +1612,8 @@ function RegisterPageContent() {
               onSubmit={handleSubmitOrder}
               onClear={clearCart}
               total={getTotalPrice()}
+              bundleApplied={bundleResult.applied}
+              bundleDiscountAmount={bundleResult.totalDiscount}
               isPreOrder={!!activePreOrderId}
               registerCoupons={registerCoupons}
               registerCouponId={registerCouponId}

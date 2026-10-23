@@ -1,3 +1,5 @@
+import { calculateBundleDiscounts, type BundleRule } from "@fesflow/config/bundle-discount";
+
 // 2026-10-03: POS と来場者画面で共有するカートの規則を UI から分離する。
 // 同一商品のトッピング違いは別行、トッピングの選択順だけが違う場合は同じ行として扱う。
 export interface CartTopping {
@@ -49,3 +51,16 @@ export function toggleCartTopping(cart: CartLine[], lineId: string, topping: Car
       : [...line.toppings, { toppingId: topping.id, toppingName: topping.name, toppingPrice: topping.price }] };
   });
 }
+
+// 2026-10-23: 個数条件の自動割引 (セット価格/円引き/1個分無料/全体%引き) の割引額。サーバーと同じ calculateBundleDiscounts を使うので
+// 画面の合計とサーバーの確定額がずれない。個数条件とセット価格は menuPrice だけで比べ、トッピングは percent_off の対象金額にだけ含める。
+export const cartBundleDiscount = (cart: CartLine[], rules: BundleRule[]) =>
+  calculateBundleDiscounts(
+    cart.map((line) => ({
+      menuId: line.menuId,
+      unitPrice: line.menuPrice,
+      quantity: line.quantity,
+      toppingPrice: line.toppings.reduce((sum, topping) => sum + topping.toppingPrice, 0),
+    })),
+    rules,
+  );

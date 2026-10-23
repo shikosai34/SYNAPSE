@@ -2087,6 +2087,32 @@ export interface RegisterDiscountOption {
   kind: DiscountKind;
   value: number;
 }
+import type { BundleKind } from "@fesflow/config/bundle-discount";
+// 2026-10-23: 「対象メニューをN個以上」で自動適用する割引 (セット価格/円引き/1個分無料/全体%引き)。注文時にサーバーが自動適用し、画面は同じ規則で合計を先に見せる。
+export interface BundleDiscount {
+  id: string;
+  title: string;
+  kind: BundleKind;
+  bundleSize: number;
+  value: number;
+  menuIds: string[];
+}
+export interface BundleDiscountAdmin extends BundleDiscount {
+  circleId: string;
+  status: "active" | "disabled";
+  createdAt: string;
+}
+export const bundleDiscountApi = {
+  listByCircle: (circleId: string) =>
+    fetchApi<BundleDiscountAdmin[]>(`/api/discounts/circle/${encodeURIComponent(circleId)}/bundles`),
+  active: (circleId: string) =>
+    fetchApi<BundleDiscount[]>(`/api/discounts/circle/${encodeURIComponent(circleId)}/bundles/active`),
+  create: (circleId: string, data: { title: string; kind: BundleKind; bundleSize: number; value: number; menuIds: string[] }) =>
+    fetchApi<BundleDiscountAdmin>(`/api/discounts/circle/${encodeURIComponent(circleId)}/bundles`, { method: "POST", body: data }),
+  disable: (id: string) =>
+    fetchApi<{ success: boolean }>(`/api/discounts/bundles/${encodeURIComponent(id)}/disable`, { method: "POST" }),
+};
+
 export const discountApi = {
   listByCircle: (circleId: string) =>
     fetchApi<Discount[]>(`/api/discounts/circle/${encodeURIComponent(circleId)}`),

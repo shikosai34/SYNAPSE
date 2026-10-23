@@ -17,6 +17,8 @@ type CommitOrderInputBase = {
   status: "pending" | "preparing" | "completed";
   registerCoupon?: { id: string; discountApplied: number };
   discount?: { id: string; discountApplied: number };
+  // 2026-10-23: 自動適用したセット割引。適用結果を注文と同じ batch で残す。
+  bundleDiscounts?: { id: string; sets: number; discountApplied: number }[];
   items: Line[];
 };
 // 2026-10-08 (#49): claimのCAS tokenをpreOrderIdと必ず対にし、D1へundefinedをbindできないよう型で制約する。
@@ -165,6 +167,10 @@ export async function commitOrder(db: D1, command: OrderCommand, input: CommitOr
     // 割引の使用記録は会計と同じbatchに含め、注文失敗時に割引記録だけ残さない。
     statements.push(db.prepare(`INSERT INTO order_discount (id,order_id,discount_id,discount_applied)
       VALUES (?,?,?,?)`).bind(ulid(), input.id, input.discount.id, input.discount.discountApplied));
+  }
+  for (const bundle of input.bundleDiscounts ?? []) {
+    statements.push(db.prepare(`INSERT INTO order_bundle_discount (id,order_id,bundle_id,sets,discount_applied)
+      VALUES (?,?,?,?,?)`).bind(ulid(), input.id, bundle.id, bundle.sets, bundle.discountApplied));
   }
   if (input.status !== "pending") statements.push(db.prepare(`INSERT INTO user_stamp (id,user_id,circle_id)
     SELECT ?,?,? WHERE NOT EXISTS (SELECT 1 FROM user_stamp WHERE user_id=? AND circle_id=?)`)

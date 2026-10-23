@@ -27,6 +27,8 @@ import { commitOrder, committedOrder, orderCommand } from "../services/order-com
 import { updateOrderStatus } from "../services/order-status";
 import { validateToppingCategorySelection } from "../utils/topping-wizard";
 import { calculateDiscount } from "../utils/discount";
+import { calculateBundleDiscounts, type AppliedBundle } from "@fesflow/config/bundle-discount";
+import { loadActiveBundleRules } from "../utils/bundle-discount";
 import type { AppEnv } from "../types";
 import { registerDisplaySnapshotSchema } from "@fesflow/config/register-display-contract";
 import { notifyCircleLowStock, notifyVisitorOrderComplete } from "../services/web-push";
@@ -786,6 +788,23 @@ const handleCreateOrder = async (
         totalPrice += subtotal;
       }
 
+      // 2026-10-23: セット割引 (N個で○円) は条件を満たす注文へ自動適用し、手動割引/クーポンより先に引く。
+      // 個数条件とセット価格は menuPrice のみで比べるので、トッピング代は割り引かれない (percent_off だけは注文全体が対象)。
+      let appliedBundles: AppliedBundle[] = [];
+      {
+        const bundleResult = calculateBundleDiscounts(
+          orderItems.map((item) => ({
+            menuId: item.menuId,
+            unitPrice: item.menuPrice,
+            quantity: item.quantity,
+            toppingPrice: (item.toppingIds ?? []).reduce((sum, id) => sum + (toppings.find((row) => row.id === id)?.price ?? 0), 0),
+          })),
+          await loadActiveBundleRules(db, input.circleId),
+        );
+        appliedBundles = bundleResult.applied;
+        totalPrice = Math.max(0, totalPrice - bundleResult.totalDiscount);
+      }
+
       if (appliedRegisterCoupon) {
         const discountApplied = Math.min(totalPrice, Math.floor((totalPrice * registerDiscountPercent!) / 100));
         if (discountApplied <= 0) {
@@ -829,6 +848,7 @@ const handleCreateOrder = async (
         totalPrice, paymentMethod: resolvedPayment, status: orderFlowMode,
         registerCoupon: appliedRegisterCoupon,
         discount: appliedDiscount,
+        bundleDiscounts: appliedBundles,
         items: orderItems.map((item) => ({ ...item,
           toppings: (item.toppingIds ?? []).map((id) => {
             const t = toppings.find((row) => row.id === id)!;

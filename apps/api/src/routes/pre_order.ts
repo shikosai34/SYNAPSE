@@ -19,6 +19,8 @@ import {
 import { eq, and, or, inArray, desc } from "drizzle-orm";
 import { ulid } from "ulidx";
 import { hasPermission } from "../utils/auth";
+import { calculateBundleDiscounts } from "@fesflow/config/bundle-discount";
+import { loadActiveBundleRules } from "../utils/bundle-discount";
 import { commitOrder, committedOrder, orderCommand } from "../services/order-commit";
 import {
   checkCouponEligibility,
@@ -396,6 +398,22 @@ preOrderRoutes.post(
         });
       }
 
+      // 2026-10-23: セット割引 (N個で○円) は下書き保存時に自動適用し、total_price に織り込む。
+      // 受取 (claim) は保存済みの total_price をそのまま請求額にするので、事前注文時点の金額が確定額になる。
+      // 後からセット割引を無効化・変更しても、来場者が見て確定した金額は変わらない。
+      // クーポンはこの後の金額に対してかける (レジ注文と同じ「セット割引が先」の順序)。
+      const menuPriceById = new Map(menus.map((m) => [m.id, m.price]));
+      const bundleResult = calculateBundleDiscounts(
+        items.map((item) => ({
+          menuId: item.menuId,
+          unitPrice: menuPriceById.get(item.menuId) ?? 0,
+          quantity: item.quantity,
+          toppingPrice: (item.toppingIds ?? []).reduce((sum, id) => sum + (toppings.find((row) => row.id === id)?.price ?? 0), 0),
+        })),
+        await loadActiveBundleRules(db, circleId),
+      );
+      totalPrice = Math.max(0, totalPrice - bundleResult.totalDiscount);
+
       // クーポン適用 (2026-09-16, issue #50)。枠の最終判定と消費も注文の保存batch内で行う。
       // 2026-10-16: cart_percentage は税・送料なしの商品小計全体を基準にサーバーで計算する。
       // 複数クーポンの割引合計も商品小計以下に抑え、pre_order の total と割引履歴を一致させる。
@@ -421,9 +439,14 @@ preOrderRoutes.post(
             ? await getCouponMenuIds(db, cp.id)
             : [];
         const remainingSubtotal = Math.max(0, totalPrice - validatedCoupons.reduce((sum, item) => sum + item.discount, 0));
+        // cart_percentage は「セット割引後の合計」に対する割合にする (画面の計算と合わせる)。
+        // 明細ごとの小計は変えず、全体の1行にまとめて渡す。
+        const couponLines = cp.kind === "cart_percentage"
+          ? [{ menuId: "", quantity: 1, subtotal: totalPrice, toppings: [] }]
+          : itemList;
         const computedDiscount = Math.min(
           remainingSubtotal,
-          computeCouponDiscount(cp, targetIds, itemList),
+          computeCouponDiscount(cp, targetIds, couponLines),
         );
         if (computedDiscount <= 0) {
           apiError(

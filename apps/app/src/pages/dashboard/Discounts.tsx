@@ -10,6 +10,7 @@ import { FormField } from "@/components/ui/FormField";
 import { Modal } from "@/components/ui/Modal";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Skeleton } from "@/components/ui/skeleton";
+import { BundleDiscountsSection } from "@/components/discount/BundleDiscountsSection";
 import { discountApi, type DiscountKind } from "@/lib/api";
 import { useAuth, CircleAuthGuard, PermissionGuard } from "@/hooks/useCircleAuth";
 import { useUnsavedChanges } from "@/components/UnsavedNavigationGuard";
@@ -109,6 +110,7 @@ function DiscountsContent() {
               </CardContent>
             </Card>
           ))}</div>}
+        <BundleDiscountsSection circleId={circleId} />
       </div>
       <Modal isOpen={isCreateOpen} onClose={() => setIsCreateOpen(false)} title="[割引作成]" subtitle="作成した割引はサークルのレジでのみ選択できます。">
         <div className="space-y-4">
