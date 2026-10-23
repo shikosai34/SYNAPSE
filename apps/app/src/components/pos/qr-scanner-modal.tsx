@@ -3,6 +3,8 @@ import { useState, useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { useMutation } from "@tanstack/react-query";
 import jsQR from "jsqr";
+import { Scanner, type IDetectedBarcode, type IScannerError } from "@yudiel/react-qr-scanner";
+import "@/lib/qr-wasm";
 import { preOrderApi, wristbandApi, type PreOrderWithDetails } from "@/lib/api";
 import { extractIdFromCode } from "@/lib/utils";
 
@@ -36,18 +38,11 @@ export function QrScannerModal({
   const [preOrders, setPreOrders] = useState<PreOrderWithDetails[]>([]);
   const [isCameraActive, setIsCameraActive] = useState(false);
   const [fallbackMode, setFallbackMode] = useState(false);
-  const videoRef = useRef<HTMLVideoElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  // jsQR デコード用の作業キャンバス (画面には出さない)
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // 連続検出で同じコードを何度も submit しないためのロック
   const lockedRef = useRef(false);
-  // アンマウント後にも確実にストリームを停止するための参照
-  const streamRef = useRef<MediaStream | null>(null);
   const [showManualInput, setShowManualInput] = useState(false);
-  const [isStartingCamera, setIsStartingCamera] = useState(false);
 
   // 写真から読み取るフォールバック (WKWebView等向け)
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -107,157 +102,61 @@ export function QrScannerModal({
 
   const handleCameraBtnClick = () => {
     if (isCameraActive) {
-      stopCamera();
+      setIsCameraActive(false);
       return;
     }
     if (fallbackMode || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
       fileInputRef.current?.click();
       return;
     }
-    startCamera();
+    lockedRef.current = false;
+    setIsCameraActive(true);
   };
 
   useEffect(() => {
     if (isOpen) {
-      startCamera();
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        setFallbackMode(true);
+        toast.info("カメラが直接起動できない環境です。写真撮影モードに切り替えました。もう一度カメラボタンを押してください。");
+      } else {
+        lockedRef.current = false;
+        setIsCameraActive(true);
+      }
     } else {
-      stopCamera();
+      setIsCameraActive(false);
       setScannedCode("");
       setPreOrders([]);
       setShowManualInput(false);
     }
-
-    // アンマウント時にも確実にカメラを停止
-    return () => {
-      stopCamera();
-    };
   }, [isOpen]);
 
-  // カメラ起動
-  // 2026-07-10: <video> を常時 DOM に存在させる設計のため、setIsCameraActive(true) → setTimeout で
-  // React レンダリングを待機するハックは不要。videoRef.current は startCamera 呼び出し時点で確実に存在する。
-  const startCamera = async () => {
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+  // 2026-10-23: 読み取り高速化のため、自前の jsQR フレームループ (canvas 縮小 + 50ms 間引き) をやめ、
+  // @yudiel/react-qr-scanner に置き換えた。ネイティブ BarcodeDetector があればそれを、
+  // 無ければ zxing-wasm を使うので、メインスレッドで JS デコードするより速く、縮小による精度低下もない。
+  // カメラの起動・停止・ストリーム解放は <Scanner> のマウント/アンマウントに任せる。
+  const handleScan = (codes: IDetectedBarcode[]) => {
+    const raw = codes[0]?.rawValue?.trim();
+    if (!raw || lockedRef.current) return;
+    // 一度検出したらロックして重複 submit を防ぎ、カメラを止めてから照会
+    lockedRef.current = true;
+    setScannedCode(raw);
+    setIsCameraActive(false);
+    if (mode === "customer") {
+      lookupCustomerMutation.mutate(raw);
+    } else {
+      searchMutation.mutate(raw);
+    }
+  };
+
+  const handleCameraError = (err: IScannerError) => {
+    console.error("Camera error:", err);
+    setIsCameraActive(false);
+    if (err.kind === "permission-denied" || err.kind === "no-camera") {
       setFallbackMode(true);
       toast.info("カメラが直接起動できない環境です。写真撮影モードに切り替えました。もう一度カメラボタンを押してください。");
-      return;
+    } else {
+      toast.error("カメラの起動に失敗しました。キーボードまたはスキャナー入力をご利用ください");
     }
-
-    setIsStartingCamera(true);
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "environment" },
-      });
-      streamRef.current = stream;
-
-      // 権限ダイアログ中にモーダルを閉じた場合の対策
-      if (!videoRef.current) {
-        stream.getTracks().forEach((track) => track.stop());
-        streamRef.current = null;
-        setIsStartingCamera(false);
-        return;
-      }
-
-      videoRef.current.srcObject = stream;
-      // iOS WKWebView では play() が NotAllowedError を返す場合がある (autoplay policy)
-      // muted + playsInline が HTML 属性として付与されていれば通常は通る
-      await videoRef.current.play();
-
-      lockedRef.current = false;
-      setIsCameraActive(true);
-      setIsStartingCamera(false);
-      toast.info("カメラを起動しました。QRコードにかざしてください");
-      // フレーム走査ループ開始 (jsQR で実際にデコードする)
-      timeoutRef.current = setTimeout(scanFrame, 100);
-    } catch (err: any) {
-      console.error("Camera error:", err);
-      setIsCameraActive(false);
-      setIsStartingCamera(false);
-      // 確実なストリーム解放
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach((t) => t.stop());
-        streamRef.current = null;
-      }
-      if (videoRef.current?.srcObject) {
-        videoRef.current.srcObject = null;
-      }
-      if (err.name === "NotAllowedError" || err.name === "NotFoundError") {
-        setFallbackMode(true);
-        toast.info("カメラが直接起動できない環境です。写真撮影モードに切り替えました。もう一度カメラボタンを押してください。");
-      } else {
-        toast.error("カメラの起動に失敗しました。キーボードまたはスキャナー入力をご利用ください");
-      }
-    }
-  };
-
-  // 毎フレーム: video → canvas → jsQR。検出したら該当コードを自動照会する。
-  const scanFrame = () => {
-    const video = videoRef.current;
-    if (!video || video.readyState !== video.HAVE_ENOUGH_DATA) {
-      timeoutRef.current = setTimeout(scanFrame, 50);
-      return;
-    }
-    const canvas = canvasRef.current ?? (canvasRef.current = document.createElement("canvas"));
-    const w = video.videoWidth;
-    const h = video.videoHeight;
-    if (w === 0 || h === 0) {
-      timeoutRef.current = setTimeout(scanFrame, 50);
-      return;
-    }
-
-    // 爆速化1: 画像を大幅に縮小する (最大400px)
-    const MAX_WIDTH = 400;
-    const scale = Math.min(1, MAX_WIDTH / w);
-    const scaledW = Math.floor(w * scale);
-    const scaledH = Math.floor(h * scale);
-
-    canvas.width = scaledW;
-    canvas.height = scaledH;
-    const ctx = canvas.getContext("2d", { willReadFrequently: true });
-    if (!ctx) {
-      timeoutRef.current = setTimeout(scanFrame, 50);
-      return;
-    }
-    
-    ctx.drawImage(video, 0, 0, scaledW, scaledH);
-    const imageData = ctx.getImageData(0, 0, scaledW, scaledH);
-    
-    // 爆速化2: dontInvert で余計な反転処理を省く（既に設定済み）
-    const result = jsQR(imageData.data, scaledW, scaledH, { inversionAttempts: "dontInvert" });
-    
-    if (result && result.data && !lockedRef.current) {
-      // 一度検出したらロックして重複 submit を防ぎ、カメラを止めてから照会
-      lockedRef.current = true;
-      const code = result.data.trim();
-      setScannedCode(code);
-      stopCamera();
-      if (mode === "customer") {
-        lookupCustomerMutation.mutate(code);
-      } else {
-        searchMutation.mutate(code);
-      }
-      return;
-    }
-    
-    // 爆速化3: フレームを間引く (約20fps = 50ms間隔)
-    timeoutRef.current = setTimeout(scanFrame, 50);
-  };
-
-  // カメラ停止
-  const stopCamera = () => {
-    if (timeoutRef.current != null) {
-      clearTimeout(timeoutRef.current);
-      timeoutRef.current = null;
-    }
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((track) => track.stop());
-      streamRef.current = null;
-    }
-    if (videoRef.current && videoRef.current.srcObject) {
-      videoRef.current.srcObject = null;
-    }
-    setIsCameraActive(false);
-    setIsStartingCamera(false);
   };
 
   // 顧客情報ルックアップ (2026-07-04)
@@ -375,43 +274,43 @@ export function QrScannerModal({
           />
 
           {/*
-            カメラプレビュー: 2026-07-10
-            WKWebView 対策で <video> は常時 DOM に存在させる。
-            isCameraActive が false の場合は hidden で非表示にするだけ。
-            条件付きレンダリング ({isCameraActive && ...}) にすると、getUserMedia の
-            権限ダイアログ表示中は videoRef.current === null になり、
-            stream を割り当てられないレースコンディションが発生する。
+            カメラプレビュー: 2026-10-23
+            <Scanner> は isCameraActive の間だけマウントする。アンマウントでカメラが確実に解放される。
+            formats を qr_code のみに絞るとデコード対象が減って速い (リストバンド/来場者コードは QR のみ)。
+            解像度は理想値 1280x720 に留める。高解像度にしてもデコードが遅くなるだけで読み取りは改善しない。
           */}
-          <div className={`relative w-full aspect-[4/3] sm:aspect-video overflow-hidden border-thick border-border bg-primary${isCameraActive ? "" : " hidden"}`}>
-            <video
-              ref={videoRef}
-              className="h-full w-full object-cover"
-              playsInline
-              muted
-              autoPlay
-            />
-            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-              <div className="h-48 w-48 sm:h-64 sm:w-64 border-4 border-dashed border-red-500 animate-pulse" />
+          {isCameraActive && (
+            <div className="relative w-full aspect-[4/3] sm:aspect-video overflow-hidden border-thick border-border bg-primary">
+              <Scanner
+                onScan={handleScan}
+                onError={handleCameraError}
+                formats={["qr_code"]}
+                constraints={{
+                  facingMode: "environment",
+                  width: { ideal: 1280 },
+                  height: { ideal: 720 },
+                }}
+                scanDelay={0}
+                retryDelay={0}
+                sound={false}
+                components={{ finder: false }}
+                styles={{ container: { width: "100%", height: "100%" } }}
+              />
+              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                <div className="h-48 w-48 sm:h-64 sm:w-64 border-4 border-dashed border-red-500 animate-pulse" />
+              </div>
             </div>
-          </div>
+          )}
 
           {!isCameraActive && (
             <div className="flex flex-col items-center justify-center p-8 border-thick border-dashed border-border bg-muted space-y-4">
-              {isStartingCamera ? (
-                <p className="text-sm font-mono text-muted-foreground text-center animate-pulse">
-                  カメラを起動中...
-                </p>
-              ) : (
-                <>
-                  <p className="text-sm font-mono text-muted-foreground text-center">
-                    カメラが停止しています。
-                  </p>
-                  <Button onClick={handleCameraBtnClick} className="border-thick border-border bg-primary text-primary-foreground font-bold hover:bg-background hover:text-foreground shadow-none">
-                    <Camera className="mr-2 h-5 w-5" />
-                    カメラを起動する
-                  </Button>
-                </>
-              )}
+              <p className="text-sm font-mono text-muted-foreground text-center">
+                カメラが停止しています。
+              </p>
+              <Button onClick={handleCameraBtnClick} className="border-thick border-border bg-primary text-primary-foreground font-bold hover:bg-background hover:text-foreground shadow-none">
+                <Camera className="mr-2 h-5 w-5" />
+                カメラを起動する
+              </Button>
             </div>
           )}
 
