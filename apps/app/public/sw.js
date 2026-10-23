@@ -17,6 +17,8 @@ async function cacheAppShell() {
 	await cache.addAll(APP_SHELL);
 
 	// 2026-10-21: 初回インストール直後のオフライン再読込でも、遅延ロード画面を開けるようJS/CSSをまとめて保存する。
+	// 2026-10-23: QRスキャナーの zxing WASM (自前配信) もオフラインで読めるよう wasm も保存対象にする。
+	// manifest 上 WASM は entry.file として載っている (css 配列ではない)。
 	try {
 		const response = await fetch(ASSET_MANIFEST, { cache: "no-store" });
 		if (!response.ok) return;
@@ -26,7 +28,7 @@ async function cacheAppShell() {
 			for (const file of [entry.file, ...(entry.css ?? [])]) {
 				if (typeof file !== "string") continue;
 				const url = new URL(file, self.location.origin);
-				if (url.origin === self.location.origin && url.pathname.startsWith("/assets/") && /\.(?:m?js|css)$/.test(url.pathname)) {
+				if (url.origin === self.location.origin && url.pathname.startsWith("/assets/") && /\.(?:m?js|css|wasm)$/.test(url.pathname)) {
 					assets.add(url.href);
 				}
 			}
