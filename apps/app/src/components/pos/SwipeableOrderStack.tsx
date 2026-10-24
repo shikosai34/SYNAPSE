@@ -9,7 +9,7 @@ import {
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, CheckCircle, Clock, List, Rows3, Users, XCircle } from "lucide-react";
+import { ArrowLeft, ArrowRight, CheckCircle, Clock, Users, XCircle } from "lucide-react";
 import { displayOrderNumber } from "@/lib/order-number";
 import { useSessionState } from "@/hooks/useSessionState";
 
@@ -45,23 +45,21 @@ export interface SwipeableOrder {
   }>;
 }
 
-export type KitchenOrderView = "horizontal" | "list";
-
 interface SwipeableOrderStackProps {
   orders: SwipeableOrder[];
-  view: KitchenOrderView;
+  paymentMethods: string[];
+  paymentMethodsReady: boolean;
   scrollStateKey: string;
   openAtLatest?: boolean;
-  onViewChange: (view: KitchenOrderView) => void;
   onStart: (id: string) => Promise<unknown>;
   onComplete: (id: string) => Promise<unknown>;
   onMarkReceived: (id: string) => Promise<unknown>;
   onCancelRequest: (order: SwipeableOrder) => void;
+  onSettleRequest: (order: SwipeableOrder, paymentMethod: string) => void;
   cancelAnimationOrderId?: string | null;
   isUpdating?: boolean;
 }
 
-const VERTICAL_SWIPE_THRESHOLD = 72;
 const EXIT_ANIMATION_MS = 300;
 
 function orderTime(date: string | Date | null) {
@@ -105,27 +103,32 @@ function groupedToppings(toppings: NonNullable<SwipeableOrder["items"][number]["
 
 function KitchenOrderCard({
   order,
-  view,
+  paymentMethods,
+  paymentMethodsReady,
   isUpdating,
   onStart,
   onComplete,
   onMarkReceived,
   onCancelRequest,
+  onSettleRequest,
   cancelAnimationOrderId,
 }: {
   order: SwipeableOrder;
-  view: KitchenOrderView;
+  paymentMethods: string[];
+  paymentMethodsReady: boolean;
   isUpdating: boolean;
   onStart: () => Promise<unknown>;
   onComplete: () => Promise<unknown>;
   onMarkReceived: () => Promise<unknown>;
   onCancelRequest: () => void;
+  onSettleRequest: (paymentMethod: string) => void;
   cancelAnimationOrderId?: string | null;
 }) {
-  const gestureStart = useRef<{ x: number; y: number } | null>(null);
   const actionTimer = useRef<number | null>(null);
-  const [gestureHint, setGestureHint] = useState<"start" | "complete" | "cancel" | null>(null);
   const [exitDirection, setExitDirection] = useState<"up" | "down" | null>(null);
+  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState(order.paymentMethod ?? "");
+  const orderPaymentMethod = order.paymentMethod && paymentMethods.includes(order.paymentMethod) ? order.paymentMethod : "";
+  const selectedMethod = orderPaymentMethod || (paymentMethods.includes(selectedPaymentMethod) ? selectedPaymentMethod : "") || (paymentMethods.length === 1 ? paymentMethods[0]! : "");
   const action = orderAction(order.status);
   const isAwaitingPickup = (order.status === "ready" || order.status === "completed") && !order.receivedAt;
   const badge = order.receivedAt
@@ -152,80 +155,23 @@ function KitchenOrderCard({
     else setExitDirection((direction) => direction === "down" ? null : direction);
   }, [cancelAnimationOrderId, order.id]);
 
+  useEffect(() => {
+    if (selectedPaymentMethod && !paymentMethods.includes(selectedPaymentMethod)) setSelectedPaymentMethod("");
+    else if (!selectedPaymentMethod && paymentMethods.length === 1) setSelectedPaymentMethod(paymentMethods[0]!);
+  }, [paymentMethods, selectedPaymentMethod]);
+
   useEffect(() => () => {
     if (actionTimer.current !== null) window.clearTimeout(actionTimer.current);
   }, []);
 
-  // 2026-10-17: 明示ボタンを残したままカード全体で上下操作を受け、カード内に操作案内を重ねない。
-  const onGestureDown = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (view !== "horizontal") return;
-    if (isUpdating || exitDirection || (!action && !canCancel) || !event.isPrimary || event.button !== 0) return;
-    if ((event.target as HTMLElement).closest("button, a, input, select, textarea")) return;
-    event.currentTarget.setPointerCapture(event.pointerId);
-    gestureStart.current = { x: event.clientX, y: event.clientY };
-    setGestureHint(null);
-  };
-  const onGestureMove = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (view !== "horizontal") return;
-    const start = gestureStart.current;
-    if (!start || isUpdating) return;
-    const dx = event.clientX - start.x;
-    const dy = event.clientY - start.y;
-    if (Math.abs(dy) <= Math.abs(dx)) return;
-    event.preventDefault();
-    setGestureHint(dy < -16 ? (action?.kind ?? null) : dy > 16 && canCancel ? "cancel" : null);
-  };
-  const onGestureEnd = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (view !== "horizontal") return;
-    const start = gestureStart.current;
-    gestureStart.current = null;
-    setGestureHint(null);
-    if (!start || isUpdating || exitDirection) return;
-    const dx = event.clientX - start.x;
-    const dy = event.clientY - start.y;
-    if (Math.abs(dy) <= Math.abs(dx)) return;
-    if (dy <= -VERTICAL_SWIPE_THRESHOLD && action) {
-      setExitDirection("up");
-      actionTimer.current = window.setTimeout(() => void performAction(), EXIT_ANIMATION_MS);
-    }
-    else if (dy >= VERTICAL_SWIPE_THRESHOLD && canCancel) onCancelRequest();
-  };
-
-  const onGestureKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
-    if (view !== "horizontal") return;
-    if (event.target !== event.currentTarget || isUpdating || exitDirection) return;
-    if (event.key === "ArrowUp" && action) {
-      event.preventDefault();
-      setExitDirection("up");
-      actionTimer.current = window.setTimeout(() => void performAction(), EXIT_ANIMATION_MS);
-    } else if (event.key === "ArrowDown" && canCancel) {
-      event.preventDefault();
-      onCancelRequest();
-    }
-  };
-
-  // 2026-10-17: スワイプの方向説明は表示・読み上げとも省き、状態名だけを伝える。
+  // 2026-10-25: 完了とキャンセルは誤操作を避けるため、カード上の明示ボタンだけで受け付ける。
   return (
     <Card
-      className={`relative flex h-full flex-col border-thick border-border bg-background transition-[transform,opacity,background-color] duration-300 ease-in-out motion-reduce:transition-none ${view === "horizontal" ? "snap-start" : ""} ${exitDirection === "up" ? "-translate-y-8 bg-success/30 opacity-0" : exitDirection === "down" ? "translate-y-8 bg-destructive/30 opacity-0" : ""} ${view === "horizontal" && (action || canCancel) ? "touch-pan-x cursor-grab select-none active:cursor-grabbing" : ""}`}
+      className={`relative flex h-full flex-col border-thick border-border bg-background transition-[transform,opacity,background-color] duration-300 ease-in-out motion-reduce:transition-none snap-start ${exitDirection === "up" ? "-translate-y-8 bg-success/30 opacity-0" : exitDirection === "down" ? "translate-y-8 bg-destructive/30 opacity-0" : ""}`}
       data-order-id={order.id}
-      onPointerDown={onGestureDown}
-      onPointerMove={onGestureMove}
-      onPointerUp={onGestureEnd}
-      onPointerCancel={() => {
-        gestureStart.current = null;
-        setGestureHint(null);
-      }}
-      onKeyDown={onGestureKeyDown}
-      tabIndex={view === "horizontal" && (action || canCancel) ? 0 : undefined}
       role="group"
       aria-label={`注文 ${displayOrderNumber(order.orderNumber)}、${badge.label}`}
     >
-      {gestureHint && (
-        <div className={`pointer-events-none absolute inset-0 z-10 flex items-center justify-center ${gestureHint === "cancel" ? "bg-destructive/15 text-destructive" : "bg-success/15 text-success"}`}>
-          {gestureHint === "cancel" ? <ArrowDown className="h-8 w-8" /> : <ArrowUp className="h-8 w-8" />}
-        </div>
-      )}
       <CardHeader className="border-b-thin border-border p-3 sm:p-4">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
@@ -291,6 +237,11 @@ function KitchenOrderCard({
             {order.refund.refundedBy && <p>返金記録者: {order.refund.refundedBy}</p>}
           </div>
         )}
+        {order.paymentStatus === "unpaid" && (
+          <div role="status" className="border-thick border-warning bg-warning/10 p-3 text-xs font-black">
+            未決済 · ¥{(order.totalPrice ?? 0).toLocaleString()}
+          </div>
+        )}
       </CardContent>
 
       <CardFooter className="grid grid-cols-1 gap-2 border-t-thin border-border p-3 sm:grid-cols-2 sm:p-4">
@@ -331,6 +282,39 @@ function KitchenOrderCard({
             <XCircle className="mr-2 h-4 w-4" />キャンセル
           </Button>
         )}
+        {order.source === "mobile" && order.paymentStatus === "unpaid" && order.status !== "cancelled" && (
+          <div className="sm:col-span-2">
+            {!paymentMethodsReady ? (
+              <p className="mb-2 font-mono text-xs font-bold text-muted-foreground">受取方法を確認中です。</p>
+            ) : paymentMethods.length > 1 ? (
+              <label className="mb-2 block font-mono text-xs font-bold">
+                受取方法
+                <select
+                  value={selectedMethod}
+                  onChange={(event) => setSelectedPaymentMethod(event.target.value)}
+                  disabled={isUpdating}
+                  className="mt-1 h-11 w-full border-thick border-border bg-background px-3 text-sm"
+                >
+                  <option value="">受取方法を選択</option>
+                  {paymentMethods.map((method) => <option key={method} value={method}>{method}</option>)}
+                </select>
+              </label>
+            ) : selectedMethod ? (
+              <p className="mb-2 font-mono text-xs font-bold">受取方法: {selectedMethod}</p>
+            ) : (
+              <p role="alert" className="mb-2 border-thick border-warning bg-warning/10 p-2 text-xs font-bold">受取方法を読み込めません。レジで記録してください。</p>
+            )}
+            <Button
+              variant="outline"
+              onClick={() => onSettleRequest(selectedMethod)}
+              disabled={isUpdating || !paymentMethodsReady || !selectedMethod}
+              aria-label={`注文${displayOrderNumber(order.orderNumber)}の料金を受け取ったと記録する`}
+              className="h-12 w-full border-thick border-success font-mono font-bold text-success hover:bg-success hover:text-white"
+            >
+              料金を受け取った
+            </Button>
+          </div>
+        )}
       </CardFooter>
 
     </Card>
@@ -339,14 +323,15 @@ function KitchenOrderCard({
 
 export function SwipeableOrderStack({
   orders,
-  view,
+  paymentMethods,
+  paymentMethodsReady,
   scrollStateKey,
   openAtLatest = false,
-  onViewChange,
   onStart,
   onComplete,
   onMarkReceived,
   onCancelRequest,
+  onSettleRequest,
   cancelAnimationOrderId,
   isUpdating = false,
 }: SwipeableOrderStackProps) {
@@ -354,7 +339,6 @@ export function SwipeableOrderStack({
   const scrollSaveTimer = useRef<number | null>(null);
   const hasProcessedOrders = useRef(false);
   const previousOrderIds = useRef("");
-  const previousView = useRef<KitchenOrderView>("list");
   const previousOpenAtLatest = useRef(false);
   const [savedScrollLeft, setSavedScrollLeft] = useSessionState<number | null>(scrollStateKey, null);
   const savedScrollLeftRef = useRef(savedScrollLeft);
@@ -372,15 +356,14 @@ export function SwipeableOrderStack({
   // 2026-10-21: 厨房を離れて戻った時は横並び注文の見ていた位置を先に復元する。
   useLayoutEffect(() => {
     const position = savedScrollLeftRef.current;
-    if (view !== "horizontal" || position === null) return;
+    if (position === null) return;
     const frame = window.requestAnimationFrame(() => {
       if (scrollRef.current) scrollRef.current.scrollLeft = position;
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [scrollStateKey, view]);
+  }, [scrollStateKey]);
 
   useEffect(() => {
-    if (view !== "horizontal") return;
     const element = scrollRef.current;
     if (!element) return;
     const saveScroll = () => {
@@ -398,24 +381,20 @@ export function SwipeableOrderStack({
       try { window.sessionStorage.setItem(scrollStateKey, JSON.stringify(element.scrollLeft)); } catch { /* 保存不可でも通常操作を続ける */ }
       scrollSaveTimer.current = null;
     };
-  }, [scrollStateKey, setSavedScrollLeft, view]);
+  }, [scrollStateKey, setSavedScrollLeft]);
 
-  // 2026-10-17: 作業キューでは最古の対応中注文を中央に置き、全件表示では最新注文から履歴を確認する。
+  // 2026-10-25: 作業中の状態は最古の注文を見せ、その他の履歴は最新側から確認できるようにする。
   useEffect(() => {
     if (
       previousOrderIds.current === orderIds &&
-      previousView.current === view &&
       previousOpenAtLatest.current === openAtLatest
     ) return;
     const firstOrderRender = !hasProcessedOrders.current;
-    const viewChanged = previousView.current !== view;
     previousOrderIds.current = orderIds;
-    previousView.current = view;
     previousOpenAtLatest.current = openAtLatest;
     hasProcessedOrders.current = true;
-    if (view !== "horizontal") return;
-    // 保存位置がある初回表示やリスト表示からの復帰では、下の自動フォーカス移動を止める。
-    if ((firstOrderRender || viewChanged) && savedScrollLeft !== null) return;
+    // 保存位置がある初回表示では、下の自動フォーカス移動を止める。
+    if (firstOrderRender && savedScrollLeft !== null) return;
     const frame = window.requestAnimationFrame(() => {
       const element = scrollRef.current;
       if (!element) return;
@@ -435,7 +414,7 @@ export function SwipeableOrderStack({
       });
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [currentOrder?.id, openAtLatest, orderIds, savedScrollLeft, view]);
+  }, [currentOrder?.id, openAtLatest, orderIds, savedScrollLeft]);
 
   return (
     <section className="space-y-3" aria-label="厨房の注文一覧">
@@ -444,7 +423,7 @@ export function SwipeableOrderStack({
           <p className="font-mono text-xs font-black uppercase tracking-wider">{ordered.length}件の注文</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {view === "horizontal" && ordered.length > 0 && (
+          {ordered.length > 0 && (
             <>
               <Button variant="outline" size="sm" onClick={() => scrollRef.current?.scrollBy({ left: -360, behavior: "smooth" })} className="border-thick border-border font-mono" aria-label="古い注文へ">
                 <ArrowLeft className="mr-1 h-4 w-4" />古い注文
@@ -454,25 +433,14 @@ export function SwipeableOrderStack({
               </Button>
             </>
           )}
-          <div className="flex border-thick border-border" role="group" aria-label="注文表示形式">
-            <Button type="button" size="sm" variant={view === "horizontal" ? "default" : "outline"} aria-pressed={view === "horizontal"} onClick={() => onViewChange("horizontal")} className="border-0 font-mono">
-              <Rows3 className="mr-1 h-4 w-4" />横並び
-            </Button>
-            <Button type="button" size="sm" variant={view === "list" ? "default" : "outline"} aria-pressed={view === "list"} onClick={() => onViewChange("list")} className="border-0 font-mono">
-              <List className="mr-1 h-4 w-4" />リスト
-            </Button>
-          </div>
         </div>
       </div>
-      {/* 2026-10-16: リストは1列にして上から下の順を保ち、奇数件でも最新が左へ戻らないようにする。 */}
       <div
         ref={scrollRef}
-        className={view === "horizontal" && ordered.length > 0
-          ? "flex items-stretch gap-3 overflow-x-auto overscroll-x-contain pb-3 [scrollbar-width:thin]"
-          : "grid grid-cols-1 items-stretch gap-3"}
+        className={ordered.length > 0 ? "flex snap-x snap-mandatory items-stretch gap-3 overflow-x-auto overscroll-x-contain pb-3 [scrollbar-width:thin]" : "flex items-stretch gap-3"}
       >
         {ordered.length === 0 ? (
-          <Card className="border-thick border-dashed border-border">
+          <Card className="w-full shrink-0 border-thick border-dashed border-border">
             <CardContent className="flex flex-col items-center justify-center py-16">
               <CheckCircle className="mb-4 h-12 w-12 text-muted-foreground/40" />
               <p className="font-headline text-xl uppercase text-muted-foreground">注文はありません</p>
@@ -483,16 +451,18 @@ export function SwipeableOrderStack({
           <div
             key={order.id}
             data-order-id={order.id}
-            className={view === "horizontal" ? "w-[min(88vw,26rem)] shrink-0" : "min-w-0"}
+            className="w-[min(88vw,26rem)] shrink-0 snap-start"
           >
             <KitchenOrderCard
               order={order}
-              view={view}
+              paymentMethods={paymentMethods}
+              paymentMethodsReady={paymentMethodsReady}
               isUpdating={isUpdating}
               onStart={() => onStart(order.id)}
               onComplete={() => onComplete(order.id)}
               onMarkReceived={() => onMarkReceived(order.id)}
               onCancelRequest={() => onCancelRequest(order)}
+              onSettleRequest={(paymentMethod) => onSettleRequest(order, paymentMethod)}
               cancelAnimationOrderId={cancelAnimationOrderId}
             />
           </div>

@@ -2,14 +2,14 @@
 import { useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { CircleAuthGuard, useAuth } from "@/hooks/useCircleAuth";
-import { orderApi, toppingApi } from "@/lib/api";
+import { circleApi, eventApi, orderApi, parseCircleSettings, parseEventPaymentMethods, toppingApi } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { toast } from "sonner";
 import { Monitor } from "lucide-react";
-import { SwipeableOrderStack, type KitchenOrderView, type SwipeableOrder } from "@/components/pos/SwipeableOrderStack";
+import { SwipeableOrderStack, type SwipeableOrder } from "@/components/pos/SwipeableOrderStack";
 import { useSessionState } from "@/hooks/useSessionState";
 import { queryCachePolicy } from "@/lib/query-cache-policy";
 
@@ -20,17 +20,17 @@ function BackyardPageContent() {
   const { circleId: authCircleId } = useAuth();
   const circleId = authCircleId ?? "";
   const orderNumberDisplayWindow = useRef<Window | null>(null);
-  // 2026-10-17: 起動時は未着手と調理中を一続きの作業キューにし、最初に対応すべき注文へ案内する。
-  const [selectedStatus, setSelectedStatus] = useSessionState<string | undefined>(`fesflow:backyard:${circleId || "unselected"}:status`, "actionable");
-  const [view, setView] = useSessionState<KitchenOrderView>(`fesflow:backyard:${circleId || "unselected"}:view`, "horizontal");
+  // 2026-10-25: 厨房は未着手から表示し、旧「対応中」保存値も未着手へ読み替える。
+  const [selectedStatus, setSelectedStatus] = useSessionState<string>(`fesflow:backyard:${circleId || "unselected"}:status`, "pending");
+  const activeStatus = ["pending", "preparing", "pickup", "other"].includes(selectedStatus) ? selectedStatus : "pending";
+  const [showUnpaidOnly, setShowUnpaidOnly] = useSessionState<boolean>(`fesflow:backyard:${circleId || "unselected"}:unpaid-only`, false);
   // 注文キャンセルの確認ダイアログ用
   const [pendingCancel, setPendingCancel] = useState<Pick<SwipeableOrder, "id" | "orderNumber" | "totalPrice" | "paymentStatus" | "paymentMethod"> | null>(
     null
   );
   const [cancelAnimationOrderId, setCancelAnimationOrderId] = useState<string | null>(null);
+  const [pendingSettlement, setPendingSettlement] = useState<{ id: string; orderNumber: string; totalPrice?: number; paymentMethod: string } | null>(null);
   const queryClient = useQueryClient();
-  // 2026-10-17: 「対応中」は未着手・調理中を合わせた表示なので、全件取得後に画面側で絞る。
-  const apiStatus = selectedStatus === "actionable" ? undefined : selectedStatus;
 
   const {
     data: orders,
@@ -39,8 +39,9 @@ function BackyardPageContent() {
     error,
     refetch,
   } = useQuery({
-    queryKey: ["orders", circleId, apiStatus],
-    queryFn: () => orderApi.list(circleId, apiStatus),
+    queryKey: ["orders", circleId],
+    // 2026-10-25: 「その他」と未決済の絞り込みを状態に関係なく組み合わせられるよう全件を取得する。
+    queryFn: () => orderApi.list(circleId),
     enabled: !!circleId,
     refetchInterval: 5000, // 5秒ごとに自動更新
     ...queryCachePolicy.live,
@@ -52,6 +53,25 @@ function BackyardPageContent() {
     enabled: !!circleId,
     ...queryCachePolicy.catalog,
   });
+
+  const { data: circle } = useQuery({
+    queryKey: ["circle", circleId],
+    queryFn: () => circleApi.get(circleId),
+    enabled: !!circleId,
+  });
+  const { data: event } = useQuery({
+    queryKey: ["event", circle?.eventId],
+    queryFn: () => eventApi.get(circle!.eventId),
+    enabled: !!circle?.eventId,
+  });
+  // 2026-10-25: 厨房の未決済記録もレジと同じ、イベント・サークル双方が許可する方法だけを表示する。
+  const eventPaymentMethods = parseEventPaymentMethods(event?.paymentMethods);
+  const circlePaymentMethods = parseCircleSettings(circle?.settings).acceptedPayments;
+  const acceptedPaymentMethods = circlePaymentMethods.length > 0
+    ? circlePaymentMethods.filter((method) => eventPaymentMethods.includes(method))
+    : eventPaymentMethods;
+  const paymentMethods = acceptedPaymentMethods.length > 0 ? acceptedPaymentMethods : eventPaymentMethods;
+  const paymentMethodsReady = !!circle && !!event;
 
   const updateStatus = useMutation({
     mutationFn: async (input: {
@@ -93,6 +113,19 @@ function BackyardPageContent() {
       queryClient.invalidateQueries({ queryKey: ["myOrders"] });
     },
     onError: (error: any) => toast.error(error.message || "受け渡し状態を更新できませんでした"),
+  });
+
+  const settleOrder = useMutation({
+    mutationFn: (input: { id: string; paymentMethod: string }) => orderApi.settleMobile(input.id, input.paymentMethod),
+    onSuccess: () => {
+      toast.success("料金を受け取ったことを記録しました");
+      setPendingSettlement(null);
+      queryClient.invalidateQueries({ queryKey: ["orders"] });
+    },
+    onError: (error: any) => {
+      toast.error(error.message || "受け取りの記録に失敗しました");
+      queryClient.invalidateQueries({ queryKey: ["orders"] });
+    },
   });
 
   const handleStartPreparing = (orderId: string) => {
@@ -142,9 +175,18 @@ function BackyardPageContent() {
       })),
     })),
   }));
-  const visibleOrders = selectedStatus === "actionable"
-    ? kitchenOrders.filter((order) => order.status === "pending" || order.status === "preparing")
-    : kitchenOrders;
+  const visibleOrders = kitchenOrders.filter((order) => {
+    const awaitingPickup = (order.status === "ready" || order.status === "completed") && !order.receivedAt;
+    const matchesStatus = activeStatus === "pending"
+      ? order.status === "pending"
+      : activeStatus === "preparing"
+        ? order.status === "preparing"
+        : activeStatus === "pickup"
+          ? awaitingPickup
+          : order.status !== "pending" && order.status !== "preparing" && !awaitingPickup;
+    const matchesPayment = !showUnpaidOnly || (order.paymentStatus === "unpaid" && order.status !== "cancelled");
+    return matchesStatus && matchesPayment;
+  });
 
   if (isLoading) {
     return (
@@ -169,18 +211,19 @@ function BackyardPageContent() {
 
   return (
     <div className="container mx-auto space-y-4 p-3 sm:space-y-6 sm:p-4">
-      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 border-b-thick border-border pb-3">
-        <h1 className="text-2xl sm:text-3xl font-headline uppercase tracking-tight">厨房管理</h1>
-        <div className="flex flex-col gap-2 sm:flex-row">
+      {/* 2026-10-25: 狭い画面でも番号表示と更新を見出しと同じ行に保ち、厨房の操作位置を揃える。 */}
+      <div className="flex flex-row items-center justify-between gap-2 border-b-thick border-border pb-3">
+        <h1 className="whitespace-nowrap text-lg font-headline uppercase tracking-tight sm:text-3xl">厨房管理</h1>
+        <div className="flex shrink-0 gap-1 sm:gap-2">
           <Button
             onClick={openOrderNumberDisplay}
             variant="outline"
-            className="w-full sm:w-auto border-thick border-border rounded-none font-mono uppercase"
+            className="h-10 border-thick border-border rounded-none px-2 font-mono text-xs uppercase sm:px-4 sm:text-sm"
           >
-            <Monitor className="mr-2 h-4 w-4" />
+            <Monitor className="mr-1 h-4 w-4 sm:mr-2" />
             番号表示
           </Button>
-          <Button onClick={() => refetch()} variant="outline" className="w-full sm:w-auto border-thick border-border rounded-none font-mono uppercase">
+          <Button onClick={() => refetch()} variant="outline" className="h-10 border-thick border-border rounded-none px-2 font-mono text-xs uppercase sm:px-4 sm:text-sm">
             更新
           </Button>
         </div>
@@ -194,75 +237,65 @@ function BackyardPageContent() {
       )}
 
       {/* ステータスフィルター */}
-      <div className="flex gap-2 flex-wrap">
+      <div className="flex gap-2 flex-wrap" role="group" aria-label="注文状態">
         <Button
-          variant={selectedStatus === "actionable" ? "default" : "outline"}
-          onClick={() => setSelectedStatus("actionable")}
-          className="border-thick border-border rounded-none font-mono uppercase text-xs sm:text-sm"
-        >
-          対応中
-        </Button>
-        <Button
-          variant={selectedStatus === "pending" ? "default" : "outline"}
+          variant={activeStatus === "pending" ? "default" : "outline"}
+          aria-pressed={activeStatus === "pending"}
           onClick={() => setSelectedStatus("pending")}
           className="border-thick border-border rounded-none font-mono uppercase text-xs sm:text-sm"
         >
           未着手
         </Button>
         <Button
-          variant={selectedStatus === "preparing" ? "default" : "outline"}
+          variant={activeStatus === "preparing" ? "default" : "outline"}
+          aria-pressed={activeStatus === "preparing"}
           onClick={() => setSelectedStatus("preparing")}
           className="border-thick border-border rounded-none font-mono uppercase text-xs sm:text-sm"
         >
           調理中
         </Button>
         <Button
-          variant={selectedStatus === "completed" ? "default" : "outline"}
-          onClick={() => setSelectedStatus("completed")}
-          className="border-thick border-border rounded-none font-mono uppercase text-xs sm:text-sm"
-        >
-          完成
-        </Button>
-        <Button
-          variant={selectedStatus === "pickup" ? "default" : "outline"}
+          variant={activeStatus === "pickup" ? "default" : "outline"}
+          aria-pressed={activeStatus === "pickup"}
           onClick={() => setSelectedStatus("pickup")}
           className="border-thick border-border rounded-none font-mono uppercase text-xs sm:text-sm"
         >
           受け取り待ち
         </Button>
         <Button
-          variant={selectedStatus === "received" ? "default" : "outline"}
-          onClick={() => setSelectedStatus("received")}
+          variant={activeStatus === "other" ? "default" : "outline"}
+          aria-pressed={activeStatus === "other"}
+          onClick={() => setSelectedStatus("other")}
           className="border-thick border-border rounded-none font-mono uppercase text-xs sm:text-sm"
         >
-          受け渡し済み
+          その他
         </Button>
         <Button
-          variant={selectedStatus === "cancelled" ? "default" : "outline"}
-          onClick={() => setSelectedStatus("cancelled")}
-          className="border-thick border-border rounded-none font-mono uppercase text-xs sm:text-sm"
+          variant={showUnpaidOnly ? "default" : "outline"}
+          aria-pressed={showUnpaidOnly}
+          onClick={() => setShowUnpaidOnly((value) => !value)}
+          className="border-thick border-warning rounded-none font-mono uppercase text-xs sm:text-sm"
         >
-          キャンセル
-        </Button>
-        <Button
-          variant={selectedStatus === undefined ? "default" : "outline"}
-          onClick={() => setSelectedStatus(undefined)}
-          className="border-thick border-border rounded-none font-mono uppercase text-xs sm:text-sm"
-        >
-          すべて
+          未決済のみ
         </Button>
       </div>
 
       {/* 注文一覧 */}
       <SwipeableOrderStack
         orders={visibleOrders}
-        view={view}
         scrollStateKey={`fesflow:backyard:${circleId || "unselected"}:horizontal-scroll`}
-        openAtLatest={selectedStatus === undefined}
-        onViewChange={setView}
+        openAtLatest={activeStatus === "other"}
         onStart={handleStartPreparing}
         onComplete={handleComplete}
         onMarkReceived={(id) => markReceived.mutateAsync({ id })}
+        onSettleRequest={(order, paymentMethod) => setPendingSettlement({
+          id: order.id,
+          orderNumber: order.orderNumber,
+          totalPrice: order.totalPrice,
+          paymentMethod,
+        })}
+        paymentMethods={paymentMethods}
+        paymentMethodsReady={paymentMethodsReady}
         onCancelRequest={(order) => setPendingCancel({
           id: order.id,
           orderNumber: order.orderNumber,
@@ -271,7 +304,22 @@ function BackyardPageContent() {
           paymentMethod: order.paymentMethod,
         })}
         cancelAnimationOrderId={cancelAnimationOrderId}
-        isUpdating={updateStatus.isPending || completeOrder.isPending || markReceived.isPending}
+        isUpdating={updateStatus.isPending || completeOrder.isPending || markReceived.isPending || settleOrder.isPending}
+      />
+
+      <ConfirmDialog
+        isOpen={!!pendingSettlement}
+        isPending={settleOrder.isPending}
+        destructive={false}
+        title="料金の受け取りを記録"
+        description={`注文 #${pendingSettlement?.orderNumber ?? ""} の料金 ¥${(pendingSettlement?.totalPrice ?? 0).toLocaleString()} を「${pendingSettlement?.paymentMethod ?? ""}」で受け取ったことを記録します。実際に受け取った後に確定してください。`}
+        confirmLabel="受け取りを記録"
+        cancelLabel="戻る"
+        onConfirm={() => {
+          if (!pendingSettlement) return;
+          void settleOrder.mutateAsync({ id: pendingSettlement.id, paymentMethod: pendingSettlement.paymentMethod });
+        }}
+        onCancel={() => setPendingSettlement(null)}
       />
 
       <ConfirmDialog
