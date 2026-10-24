@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { circleApi, parseCircleSettings, type Circle, type CircleSettings } from "@/lib/api";
@@ -37,15 +37,24 @@ export function CircleSettingsMatrix({ eventId, event }: { eventId: string; even
     queryFn: () => circleApi.list(eventId),
   });
   const [drafts, setDrafts] = useState<Record<string, CircleSettings>>({});
+  const [saved, setSaved] = useState<Record<string, CircleSettings>>({});
+  const hydratedEventId = useRef<string | null>(null);
 
   useEffect(() => {
-    setDrafts(Object.fromEntries(circles.map((circle) => [circle.id, settingsOf(circle)])));
-  }, [circles]);
+    if (hydratedEventId.current !== eventId) {
+      hydratedEventId.current = eventId;
+      setSaved({});
+      setDrafts({});
+      return;
+    }
+    // 2026-10-25: 一覧を再取得しても未保存の他行を上書きしないよう、初回データだけを下書きへ反映する。
+    if (circles.length > 0 && Object.keys(saved).length === 0) {
+      const initial = Object.fromEntries(circles.map((circle) => [circle.id, settingsOf(circle)]));
+      setSaved(initial);
+      setDrafts(initial);
+    }
+  }, [circles, eventId, saved]);
 
-  const saved = useMemo(
-    () => Object.fromEntries(circles.map((circle) => [circle.id, settingsOf(circle)])),
-    [circles],
-  );
   const changedCircleIds = circles
     .filter((circle) => drafts[circle.id] && !sameSettings(drafts[circle.id], saved[circle.id]))
     .map((circle) => circle.id);
@@ -54,8 +63,13 @@ export function CircleSettingsMatrix({ eventId, event }: { eventId: string; even
     mutationFn: ({ circleId, settings }: { circleId: string; settings: CircleSettings }) =>
       circleApi.updateSettings(circleId, settings),
     onSuccess: async (_result, variables) => {
-      await queryClient.invalidateQueries({ queryKey: ["circles", eventId] });
+      setSaved((current) => ({ ...current, [variables.circleId]: variables.settings }));
       setDrafts((current) => ({ ...current, [variables.circleId]: variables.settings }));
+      queryClient.setQueryData<Circle[]>(["circles", eventId], (current) =>
+        current?.map((circle) => circle.id === variables.circleId
+          ? { ...circle, settings: JSON.stringify(variables.settings) }
+          : circle),
+      );
       toast.success("サークル設定を保存しました");
     },
     onError: (error: any) => toast.error(error?.message || "サークル設定を保存できませんでした"),
@@ -84,6 +98,14 @@ export function CircleSettingsMatrix({ eventId, event }: { eventId: string; even
     }
   }, [event?.paymentMethods]);
   const storeAreas = useMemo(() => parseStoreAreas(event?.storeAreas), [event?.storeAreas]);
+  const refreshCircles = async () => {
+    const result = await refetch();
+    if (result.data) {
+      const refreshed = Object.fromEntries(result.data.map((circle) => [circle.id, settingsOf(circle)]));
+      setSaved(refreshed);
+      setDrafts(refreshed);
+    }
+  };
 
   const update = (circleId: string, change: (settings: CircleSettings) => CircleSettings) => {
     setDrafts((current) => {
@@ -115,7 +137,7 @@ export function CircleSettingsMatrix({ eventId, event }: { eventId: string; even
             行がサークル、列が設定です。横にスクロールして確認し、各行の保存ボタンで反映します。
           </p>
         </div>
-        <Button type="button" variant="outline" onClick={() => void refetch()} disabled={isFetching}>
+        <Button type="button" variant="outline" onClick={() => void refreshCircles()} disabled={isFetching || changedCircleIds.length > 0}>
           {isFetching ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
           一覧を更新
         </Button>
@@ -132,6 +154,7 @@ export function CircleSettingsMatrix({ eventId, event }: { eventId: string; even
         <p className="py-6 text-center text-sm text-muted-foreground">登録されているサークルはありません。</p>
       ) : (
         <>
+          {changedCircleIds.length > 0 && <p role="status" className="text-xs font-bold text-warning">未保存の変更があります。保存してから一覧を更新できます。</p>}
           <div className="max-w-full overflow-x-auto border-thick border-border" tabIndex={0} aria-label="サークル設定一覧。横にスクロールできます">
             <table className="w-max min-w-full border-collapse text-left">
               <caption className="sr-only">サークルごとの運用設定</caption>
