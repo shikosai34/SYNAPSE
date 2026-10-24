@@ -153,6 +153,12 @@ function KitchenOrderCard({
   const elapsedSeconds = tracksElapsedTime && Number.isFinite(createdAtMs)
     ? Math.floor(Math.max(0, elapsedClock - createdAtMs) / 10_000) * 10
     : null;
+  // 2026-10-25: 10秒刻みは維持し、1分を超えた時間を分秒で読み取りやすくする。
+  const elapsedTime = elapsedSeconds === null
+    ? null
+    : elapsedSeconds >= 60
+      ? `${Math.floor(elapsedSeconds / 60)}分${elapsedSeconds % 60}秒`
+      : `${elapsedSeconds}秒`;
 
   const performAction = async () => {
     try {
@@ -201,10 +207,10 @@ function KitchenOrderCard({
                 <span>{order.items.length}品目</span>
               </CardDescription>
             </div>
-            <div className="flex shrink-0 items-center gap-2">
-              {elapsedSeconds !== null && (
-                <span className="font-mono text-xs font-bold tabular-nums text-muted-foreground sm:text-sm" aria-label={`注文受付から${elapsedSeconds}秒`}>
-                  {elapsedSeconds}秒
+            <div className="flex shrink-0 flex-col items-end gap-1">
+              {elapsedTime !== null && (
+                <span className="font-headline text-2xl font-black leading-none tabular-nums sm:text-3xl" aria-label={`注文受付から${elapsedTime}経過`}>
+                  {elapsedTime}
                 </span>
               )}
               <Badge variant={badge.variant} className="shrink-0">{badge.label}</Badge>
