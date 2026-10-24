@@ -204,7 +204,7 @@ function KitchenOrderCard({
                 <span className="inline-flex rounded-none border-thin border-border bg-background px-1.5 py-0 text-[10px] font-semibold uppercase tracking-[1px]">
                   {order.source === "mobile" ? "モバイル注文" : "レジ注文"}
                 </span>
-                <span>{order.items.length}品目</span>
+                {/* 2026-10-25: 商品明細はカード内に列挙しているため、誤解を招く品目数は繰り返さない。 */}
               </CardDescription>
             </div>
             <div className="flex shrink-0 flex-col items-end gap-1">
