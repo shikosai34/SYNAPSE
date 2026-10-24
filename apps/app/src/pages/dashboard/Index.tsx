@@ -5,12 +5,28 @@ import {
   useAuth,
 } from "@/hooks/useCircleAuth";
 import { circleApi, parseCircleSettings } from "@/lib/api";
-import { Link } from "react-router-dom";
+import { cn } from "@/lib/utils";
+import { Link, useLocation } from "react-router-dom";
 import { visitorUrl } from "@/lib/visitor-url";
+import {
+  BarChart3,
+  Download,
+  LayoutDashboard,
+  MonitorPlay,
+  Package,
+  QrCode,
+  Settings,
+  Star,
+  Tag,
+  Ticket,
+  TrendingUp,
+  UserCheck,
+  Users,
+  UtensilsCrossed,
+} from "lucide-react";
 import {
   Card,
   CardContent,
-  CardDescription,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
@@ -19,10 +35,11 @@ import { Badge } from "@/components/ui/badge";
 import DashboardLayout from "@/components/DashboardLayout";
 
 function DashboardContent() {
+  const location = useLocation();
   // 2026-07-16: circleId は独自の useState+useEffect(mount時一度きり) をやめ、
   // authChange 購読で常に最新値を返す useAuth() に統一。同一パス上でのスペース
   // 切り替え時に古い circleId が残らないようにする。
-  const { role, roleName, userName, circleName, circleId: authCircleId } = useAuth();
+  const { role, roleName, userName, circleName, circleId: authCircleId, isCircleOwner, checkPermission, isLoading: authLoading } = useAuth();
   const circleId = authCircleId ?? "";
   const { data: circle } = useQuery({
     queryKey: ["circle", circleId],
@@ -32,97 +49,55 @@ function DashboardContent() {
   const settings = parseCircleSettings(circle?.settings);
 
   // 2026-09-27: 在庫管理は組み込み機能として常時表示し、スタッフ管理だけ拡張設定に従う。
-  const rawItems = [
+  // 2026-10-25: ホームの管理メニューも左ナビと同じカテゴリ・アイコン・行表示で探しやすくする。
+  const menuGroups = [
     {
-      title: "メニュー管理",
-      description: "メニューとトッピングの追加・編集",
-      href: "/circle/dashboard/menu",
-      // 遷移先ページのガード (menu:write / stock:write) に合わせる。read だと開いて権限なしになる (2026-10-05)。
-      permission: "menu:write" as const,
+      label: "運営",
+      items: [
+        { title: "ダッシュボード", href: "/circle/dashboard", icon: LayoutDashboard },
+        { title: "モバイルオーダーQR", href: "/circle/dashboard/qr", icon: QrCode, permission: "circle:read" },
+        { title: "番号表示", href: "/circle/dashboard/number-display", icon: MonitorPlay, permission: "circle:write" },
+      ],
     },
     {
-      title: "在庫管理",
-      description: "商品の在庫を管理し、注文時の残数を自動反映",
-      href: "/circle/dashboard/stock",
-      permission: "stock:write" as const,
+      label: "商品・在庫",
+      items: [
+        { title: "メニュー管理", href: "/circle/dashboard/menu", icon: UtensilsCrossed, permission: "menu:write" },
+        { title: "在庫管理", href: "/circle/dashboard/stock", icon: Package, permission: "stock:write" },
+      ],
     },
     {
-      title: "売上管理",
-      description: "売上データの確認と分析 (グラフ表示対応)",
-      href: "/circle/dashboard/sales",
-      permission: "sales:read" as const,
-    },
-    // 2026-10-17: レジ専用の価格調整をクーポン管理と分けて案内する。
-    {
-      title: "割引管理",
-      description: "レジで使う割合引き・金額引きを作成・停止",
-      href: "/circle/dashboard/discounts",
-      permission: "discount:read" as const,
-    },
-    // 2026-09-27: 管理メニューからもレビュー一覧へ直接移動できるようにする。
-    {
-      title: "レビュー",
-      description: "来場者から届いた評価と感想の確認",
-      href: "/circle/dashboard/reviews",
-      permission: "sales:read" as const,
+      label: "売上・分析",
+      items: [
+        { title: "売上管理", href: "/circle/dashboard/sales", icon: TrendingUp, permission: "sales:read" },
+        { title: "統計・分析", href: "/circle/dashboard/analytics", icon: BarChart3, permission: "sales:read" },
+        { title: "レビュー", href: "/circle/dashboard/reviews", icon: Star, permission: "sales:read" },
+        { title: "データエクスポート", href: "/circle/dashboard/export", icon: Download, permission: "sales:read" },
+        { title: "クーポン管理", href: "/circle/dashboard/coupons", icon: Ticket, permission: "coupon:read" },
+        { title: "割引管理", href: "/circle/dashboard/discounts", icon: Tag, permission: "discount:read" },
+      ],
     },
     {
-      title: "統計・分析",
-      description: "サークルの売上、注文、人気メニュー、評価、支払い方法の統計",
-      href: "/circle/dashboard/analytics",
-      permission: "sales:read" as const,
+      label: "管理",
+      items: [
+        ...(isCircleOwner ? [{ title: "サークル設定", href: "/circle/dashboard/circle", icon: Settings }] : []),
+        ...(isCircleOwner ? [{ title: "メンバー管理", href: "/circle/dashboard/members", icon: Users }] : []),
+        ...(settings.extensions.staff
+          ? [{ title: "スタッフ管理", href: "/circle/dashboard/staff", icon: UserCheck, permission: "staff:read" }]
+          : []),
+      ],
     },
-    {
-      title: "データエクスポート",
-      description: "売上統計、注文履歴、登録商品などのCSVダウンロード",
-      href: "/circle/dashboard/export",
-      permission: "sales:read" as const,
-    },
-    {
-      title: "サークル設定",
-      description: "注文モード・拡張機能・サークル情報の編集",
-      href: "/circle/dashboard/circle",
-      permission: "circle:read" as const,
-      ownerOnly: true,
-    },
-    {
-      title: "メンバー管理",
-      description: "メンバーの追加・権限設定",
-      href: "/circle/dashboard/members",
-      permission: "member:read" as const,
-      ownerOnly: true,
-    },
-    {
-      title: "モバイルオーダーQR",
-      description: "店頭掲示用POPシートの表示・印刷",
-      href: "/circle/dashboard/qr",
-      permission: "circle:read" as const,
-    },
-    {
-      title: "番号表示",
-      description: "呼出番号と表示する画像・動画を設定",
-      href: "/circle/dashboard/number-display",
-      permission: "circle:write" as const,
-    },
-    // --- ここから拡張機能 (末尾) ---
-    ...(settings.extensions.staff
-      ? [{
-          title: "スタッフ管理",
-          description: "シフトとスタッフの管理",
-          href: "/circle/dashboard/staff",
-          permission: "staff:read" as const,
-        }]
-      : []),
     // 2026-07-11: 「拡張機能 (モッド)」カードを撤去。独立ページ /circle/dashboard/mods は
     // 既に廃止 (モッド管理はサークル設定へ統合) されており、App.tsx にルートが無いため
     // このカードは押すと * → Placeholder に落ちる死リンクになっていた。
   ];
-
-  // 表示位置に応じて連番(01, 02, ...)を採番する
-  const menuItems = rawItems.map((item, i) => ({
-    ...item,
-    index: String(i + 1).padStart(2, "0"),
-  }));
+  // 左メニューと同じ権限条件で絞り、権限の読み込み中は項目が消えて見えない状態を避ける。
+  const visibleMenuGroups = menuGroups
+    .map((group) => ({
+      ...group,
+      items: group.items.filter((item) => !item.permission || authLoading || checkPermission(item.permission as any)),
+    }))
+    .filter((group) => group.items.length > 0);
 
   return (
     <DashboardLayout
@@ -145,27 +120,35 @@ function DashboardContent() {
           )}
         </div>
 
-        <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
-          {menuItems.map((item) => (
-            <PermissionGuard key={item.href} permission={item.permission} ownerOnly={"ownerOnly" in item}>
-              <Link to={item.href}>
-                <Card className="cursor-pointer border-thick border-border rounded-none shadow-none hover:bg-primary hover:text-primary-foreground group h-full transition-all">
-                  <CardHeader className="p-4 pb-2">
-                    <div className="flex items-center gap-2">
-                      <span className="font-mono text-lg font-black leading-none">
-                        {item.index}
-                      </span>
-                      <CardTitle className="text-xs font-bold uppercase tracking-wider">{item.title}</CardTitle>
-                    </div>
-                  </CardHeader>
-                  <CardContent className="p-4 pt-0">
-                    <CardDescription className="group-hover:text-primary-foreground text-[10px]">
-                      {item.description}
-                    </CardDescription>
-                  </CardContent>
-                </Card>
-              </Link>
-            </PermissionGuard>
+        <div className="space-y-5">
+          {visibleMenuGroups.map((group) => (
+            <section key={group.label} aria-label={group.label}>
+              <p className="px-3 pb-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                {group.label}
+              </p>
+              <nav aria-label={`${group.label}の管理メニュー`} className="ml-2 space-y-0.5 border-l border-border pl-2">
+                {group.items.map((item) => {
+                  const Icon = item.icon;
+                  const isActive = location.pathname === item.href;
+                  return (
+                    <Link
+                      key={item.href}
+                      to={item.href}
+                      aria-current={isActive ? "page" : undefined}
+                      className={cn(
+                        "flex min-h-11 w-full items-center gap-2 border border-transparent px-3 py-2 text-left text-[12px] font-bold uppercase transition-all select-none cursor-pointer",
+                        isActive
+                          ? "bg-primary text-primary-foreground border-primary"
+                          : "text-muted-foreground hover:bg-muted hover:text-foreground",
+                      )}
+                    >
+                      <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
+                      <span className="min-w-0 break-words whitespace-normal">{item.title}</span>
+                    </Link>
+                  );
+                })}
+              </nav>
+            </section>
           ))}
         </div>
 
