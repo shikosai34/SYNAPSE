@@ -113,7 +113,7 @@ async function includeOrderItems(
   }));
 }
 
-// 2026-10-21: 顧客表示の共有は注文情報を絞った投影用APIに分け、会計・来場者情報を返さない。
+// 2026-10-25: 未決済表示に必要な決済状態だけを返し、金額・決済方法・来場者情報は投影APIに含めない。
 orderRoutes.get("/projector", async (c) => {
   const circleId = c.req.query("circleId");
   if (!circleId) apiError("BAD_REQUEST", "circleIdが必要です");
@@ -122,6 +122,7 @@ orderRoutes.get("/projector", async (c) => {
   const rows = await c.get("db").select({
     orderNumber: order.orderNumber,
     status: order.status,
+    paymentStatus: order.paymentStatus,
     receivedAt: order.receivedAt,
     createdAt: order.createdAt,
   }).from(order).where(and(

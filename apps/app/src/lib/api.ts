@@ -301,6 +301,7 @@ export const staffApi = {
 export interface ProjectorOrder {
   orderNumber: string;
   status: string;
+  paymentStatus: string;
   receivedAt: string | null;
   createdAt: string;
 }
