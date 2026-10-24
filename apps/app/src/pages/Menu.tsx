@@ -1274,7 +1274,6 @@ function MenuPageContent() {
 
         <OrderAllergyWarning
           warnings={cartAllergyWarnings}
-          familyAllergies={familyAllergies}
           enabled={!!userId && cart.length > 0}
         />
 

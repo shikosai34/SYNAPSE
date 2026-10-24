@@ -20,6 +20,7 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { Modal } from "@/components/ui/Modal";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { toast } from "sonner";
 import { Minus, Plus, ShoppingCart, Trash2, X, ScanLine, Monitor, Copy, Receipt, RefreshCw, TriangleAlert } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
@@ -471,7 +472,6 @@ function CartBody({
         )}
         <OrderAllergyWarning
           warnings={allergyWarnings}
-          familyAllergies={activeCustomer?.allergies ?? null}
           enabled={!!activeCustomer && cart.length > 0}
         />
         {/* 2026-10-17: 不足状態は確定ボタンの文言に集約し、画面上部の案内と重ねない。 */}
@@ -517,6 +517,7 @@ function RegisterPageContent() {
   const registerStateKey = `fesflow:register-state:${circleId || "unselected"}`;
   const [selectedMenuCategory, setSelectedMenuCategory] = useSessionState<string | null>(`${registerStateKey}:category`, null);
   const [cart, setCart] = useSessionState<CartLine[]>(`${registerStateKey}:cart`, []);
+  const [isClearCartConfirmOpen, setIsClearCartConfirmOpen] = useState(false);
   const [isCustomerQrModalOpen, setIsCustomerQrModalOpen] = useState(false);
   const [isCustomerDisplayModalOpen, setIsCustomerDisplayModalOpen] = useState(false);
   const [customerDisplayShare, setCustomerDisplayShare] = useState<CustomerDisplayShare | null>(null);
@@ -1094,6 +1095,11 @@ function RegisterPageContent() {
     });
   };
 
+  // 2026-10-25: 商品・割引・事前注文の選択を誤操作で消さないよう、すべてのクリア操作を確認後に実行する。
+  const requestClearCart = () => {
+    if (cart.length > 0) setIsClearCartConfirmOpen(true);
+  };
+
   if (menusLoading) {
     return (
       <div className="p-4 space-y-4">
@@ -1233,7 +1239,7 @@ function RegisterPageContent() {
                         if (actionType === "ADD_TO_CART") {
                           const m = menuMap.get(payload.menuId);
                           if (m) addLine(m, []);
-                        } else if (actionType === "CLEAR_CART") clearCart();
+                        } else if (actionType === "CLEAR_CART") requestClearCart();
                       }}
                     />
                   </div>
@@ -1421,7 +1427,7 @@ function RegisterPageContent() {
                     if (actionType === "ADD_TO_CART") {
                       const m = menuMap.get(payload.menuId);
                       if (m) addLine(m, []);
-                    } else if (actionType === "CLEAR_CART") clearCart();
+                    } else if (actionType === "CLEAR_CART") requestClearCart();
                   }}
                 />
               </div>
@@ -1453,7 +1459,7 @@ function RegisterPageContent() {
             onRemoveLine={removeLine}
             onSubmit={handleSubmitOrder}
             onRequestCustomerScan={() => setIsCustomerQrModalOpen(true)}
-            onClear={clearCart}
+            onClear={requestClearCart}
             total={getTotalPrice()}
             bundleApplied={bundleResult.applied}
             bundleDiscountAmount={bundleResult.totalDiscount}
@@ -1526,7 +1532,7 @@ function RegisterPageContent() {
               onRemoveLine={removeLine}
               onSubmit={handleSubmitOrder}
               onRequestCustomerScan={() => setIsCustomerQrModalOpen(true)}
-              onClear={clearCart}
+              onClear={requestClearCart}
               total={getTotalPrice()}
               bundleApplied={bundleResult.applied}
               bundleDiscountAmount={bundleResult.totalDiscount}
@@ -1544,6 +1550,17 @@ function RegisterPageContent() {
           </div>
         </div>
       ), document.body)}
+      <ConfirmDialog
+        isOpen={isClearCartConfirmOpen}
+        title="カートをクリアしますか？"
+        description="カート内の商品と割引設定をクリアします。この操作は取り消せます。"
+        confirmLabel="カートをクリア"
+        onConfirm={() => {
+          clearCart();
+          setIsClearCartConfirmOpen(false);
+        }}
+        onCancel={() => setIsClearCartConfirmOpen(false)}
+      />
     </div>
   );
 }
