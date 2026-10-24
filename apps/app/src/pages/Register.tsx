@@ -1320,8 +1320,8 @@ function RegisterPageContent() {
             </Card>
           )}
 
-          {/* 2026-10-22: 既存のモバイル注文は新規カートと分け、注文番号と支払状態を確認して会計する。 */}
-          {activeCustomer && (
+          {/* 2026-10-22: 既存のモバイル注文は新規カートと分けて会計する。0件の時は画面を占有しない。 */}
+          {activeCustomer && ((unpaidMobileOrders.data?.length ?? 0) > 0 || (unpaidMobileOrders.isError && !unpaidMobileOrders.data)) && (
             <section aria-labelledby="unpaid-mobile-orders-title" className="mb-5 space-y-3">
               <div className="flex flex-wrap items-center justify-between gap-2 border-b-thick border-border pb-2">
                 <h2 id="unpaid-mobile-orders-title" className="flex items-center gap-2 text-sm font-black uppercase tracking-wider">
@@ -1338,20 +1338,8 @@ function RegisterPageContent() {
                   {unpaidMobileOrders.isFetching ? "更新中…" : "一覧を更新"}
                 </Button>
               </div>
-              <p className="border-l-4 border-warning bg-warning/10 px-3 py-2 text-xs leading-relaxed">
-                注文はすでに厨房へ登録されています。下の明細を会計してください。注文をカートに入れ直す必要はありません。
-              </p>
-
-              {unpaidMobileOrders.isError ? (
+              {unpaidMobileOrders.isError && !unpaidMobileOrders.data ? (
                 <ErrorState error={unpaidMobileOrders.error} onRetry={() => void unpaidMobileOrders.refetch()} />
-              ) : unpaidMobileOrders.isLoading ? (
-                <div className="space-y-2" aria-label="未会計注文を読み込み中">
-                  <Skeleton className="h-28 w-full" />
-                </div>
-              ) : (unpaidMobileOrders.data ?? []).length === 0 ? (
-                <div className="border-thick border-border bg-background px-4 py-5 text-center text-sm text-muted-foreground">
-                  この来場者の未会計モバイル注文はありません。
-                </div>
               ) : (
                 <div className="space-y-3">
                   {(unpaidMobileOrders.data ?? []).map((mobileOrder: OrderWithItems) => {
