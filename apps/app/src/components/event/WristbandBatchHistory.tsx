@@ -66,12 +66,8 @@ export function WristbandBatchHistory({ eventId, activeBatchId, onResume }: Wris
   };
 
   return (
-    <section aria-labelledby="wristband-batch-history-title" className="border-t-thick border-border pt-4">
-      <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <h4 id="wristband-batch-history-title" className="text-xs font-bold uppercase">[発行・取込履歴]</h4>
-          <p className="text-[10px] text-muted-foreground">画面を閉じた後もCSVを再取得し、未完了の登録を続けられます。</p>
-        </div>
+    <section aria-label="発行・取込履歴" className="space-y-3">
+      <div className="flex justify-end">
         {batchesQuery.data && <span className="text-[10px] text-muted-foreground">全{batchesQuery.data.pages[0]?.total ?? 0}件</span>}
       </div>
 

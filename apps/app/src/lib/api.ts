@@ -1810,7 +1810,7 @@ export const wristbandApi = {
     },
     pagination: { offset: number; limit: number },
     sorting: {
-      sortBy: "createdAt" | "displayId" | "nickname" | "favoriteDate" | "accountStatus" | "wristbandId" | "bandStatus";
+      sortBy: "createdAt" | "displayId" | "nickname" | "favoriteDate" | "ageGroup" | "onboardedAt" | "accountStatus" | "wristbandId" | "bandStatus";
       sortDirection: "asc" | "desc";
     }
   ) =>

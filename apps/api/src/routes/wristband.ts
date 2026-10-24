@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { z } from "zod";
 import { circle, circleVisit, eventUser, wristband, wristbandBatch, wristbandBatchChunk, event, type DB } from "@fesflow/db";
-import { eq, and, asc, desc, or, like, isNull, isNotNull, countDistinct, count, inArray } from "drizzle-orm";
+import { eq, and, asc, desc, or, like, isNull, isNotNull, countDistinct, count, inArray, sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { hasPermission } from "../utils/auth";
 import { zBody, zQuery } from "../z-validator";
@@ -41,7 +41,7 @@ wristbandRoutes.get(
       offset: z.coerce.number().int().min(0).optional().default(0),
       limit: z.coerce.number().int().min(1).max(500).optional().default(50),
       sortBy: z
-        .enum(["createdAt", "displayId", "nickname", "favoriteDate", "accountStatus", "wristbandId", "bandStatus"])
+        .enum(["createdAt", "displayId", "nickname", "favoriteDate", "ageGroup", "onboardedAt", "accountStatus", "wristbandId", "bandStatus"])
         .optional()
         .default("createdAt"),
       sortDirection: z.enum(["asc", "desc"]).optional().default("desc"),
@@ -53,14 +53,12 @@ wristbandRoutes.get(
 
     const canReadMembers = await hasPermission(c, null, "member:read", eventId);
     const canReplaceWristbands = await hasPermission(c, null, "wristband:replace", eventId);
-    if (!canReadMembers && !canReplaceWristbands) {
+    const canOperateStampRally = await hasPermission(c, null, "stamp-rally:operate", eventId);
+    // 2026-10-25: リストバンド管理を既存の交換担当・景品交換担当にも開放する。書き込みAPIは引き続き各操作の権限で保護する。
+    if (!canReadMembers && !canReplaceWristbands && !canOperateStampRally) {
       apiError("FORBIDDEN", "この操作にはスタッフ権限が必要です");
     }
-    // 2026-10-20: 交換担当には紛失対応に必要な物理バンド検索だけを許可し、来場者一覧APIの詳細情報を返さない。
-    const replacementOnly = !canReadMembers && canReplaceWristbands;
-    if (replacementOnly && (bandType !== "physical" || limit > 50 || !query.trim())) {
-      apiError("FORBIDDEN", "紛失バンド交換では検索語を指定して物理バンドだけを検索してください");
-    }
+    const restrictedVisitorProfile = !canReadMembers;
 
     const conditions = [eq(eventUser.eventId, eventId)];
 
@@ -72,8 +70,9 @@ wristbandRoutes.get(
     if (profileStatus === "pending") conditions.push(isNull(eventUser.onboardedAt));
 
     if (query && query.trim().length > 0) {
-      const queryNum = parseInt(query, 10);
-      const isNum = !isNaN(queryNum) && /^\d+$/.test(query);
+      const normalizedQuery = query.trim();
+      const queryNum = Number(normalizedQuery);
+      const isNum = Number.isSafeInteger(queryNum) && /^\d+$/.test(normalizedQuery);
 
       const orConditions = [
         like(eventUser.nickname, `%${query}%`),
@@ -110,13 +109,15 @@ wristbandRoutes.get(
       displayId: eventUser.displayId,
       nickname: eventUser.nickname,
       favoriteDate: eventUser.favoriteDate,
+      ageGroup: eventUser.ageGroup,
+      onboardedAt: eventUser.onboardedAt,
       accountStatus: eventUser.status,
       wristbandId: wristband.id,
       bandStatus: wristband.status,
     }[sortBy];
     const primaryOrder = sortDirection === "asc" ? asc(sortColumn) : desc(sortColumn);
 
-    const rows = await db
+    const rowsQuery = db
       .select({
         user: eventUser,
         wristband: wristband,
@@ -130,10 +131,19 @@ wristbandRoutes.get(
         )
       )
       .where(and(...conditions))
-      .orderBy(primaryOrder, desc(eventUser.createdAt), desc(eventUser.id))
       // 2026-10-15 (#125): ページング単位をリストバンドではなく共有アカウントにし、
       // 家族が複数バンドを持っていても同じ来場者を複数ページに重複表示しない。
-      .groupBy(eventUser.id)
+      .groupBy(eventUser.id);
+    const numericQuery = query.trim();
+    const numericDisplayId = /^\d+$/.test(numericQuery) && Number.isSafeInteger(Number(numericQuery))
+      ? Number(numericQuery)
+      : null;
+    // 2026-10-25: 数字だけの検索は呼出ID完全一致を先頭に固定し、ページをまたいでも見つけやすくする。
+    const order = numericDisplayId === null
+      ? [primaryOrder, desc(eventUser.createdAt), desc(eventUser.id)] as const
+      : [sql`CASE WHEN ${eventUser.displayId} = ${numericDisplayId} THEN 0 ELSE 1 END`, primaryOrder, desc(eventUser.createdAt), desc(eventUser.id)] as const;
+    const rows = await rowsQuery
+      .orderBy(...order)
       .limit(limit)
       .offset(offset);
 
@@ -156,13 +166,23 @@ wristbandRoutes.get(
       items: rows.map((r) => {
         const visitorBands = familyWristbands.filter((band) => band.userId === r.user.id);
         return {
-          user: replacementOnly
-            ? { id: r.user.id, displayId: r.user.displayId, nickname: r.user.nickname, status: r.user.status }
+          user: restrictedVisitorProfile
+            ? {
+                id: r.user.id,
+                eventId: r.user.eventId,
+                displayId: r.user.displayId,
+                status: r.user.status,
+                nickname: r.user.nickname,
+                favoriteDate: r.user.favoriteDate,
+                ageGroup: r.user.ageGroup,
+                onboardedAt: r.user.onboardedAt,
+                createdAt: r.user.createdAt,
+              }
             : r.user,
-          wristband: replacementOnly && r.wristband
+          wristband: restrictedVisitorProfile && r.wristband
             ? { id: r.wristband.id, userId: r.wristband.userId, status: r.wristband.status, nickname: r.wristband.nickname, assignedAt: r.wristband.assignedAt }
             : r.wristband,
-          familyWristbands: replacementOnly
+          familyWristbands: restrictedVisitorProfile
             ? visitorBands.map(({ id, userId, status, nickname, assignedAt }) => ({ id, userId, status, nickname, assignedAt }))
             : visitorBands,
           familyBandCount: visitorBands.length,

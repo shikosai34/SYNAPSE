@@ -35,7 +35,7 @@ import { EventReviewsTab } from "@/pages/dashboard/Reviews";
 
 export default function EventDashboard() {
   const navigate = useNavigate();
-  const { eventId, role, isLoading: authLoading, isAuthenticated } = useAuth();
+  const { eventId, role, isLoading: authLoading, isAuthenticated, checkPermission } = useAuth();
   // 2026-10-20: 当日スタッフはイベント画面に入れるが、イベント管理者向けデータ取得は個別に制限する。
   const isEventManager = role === ROLES.EVENT_MANAGER;
   const isEventDashboardRole = isEventManager || role === ROLES.EVENT_STAFF ||
@@ -309,6 +309,7 @@ export default function EventDashboard() {
               eventId={eventId}
               hasPhysicalWristband={eventData?.hasPhysicalWristband}
               allowSelfIssue={eventData?.allowSelfIssue}
+              canManageWristbands={isEventManager || checkPermission("member:write")}
             />
           )}
 

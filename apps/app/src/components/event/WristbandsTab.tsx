@@ -28,11 +28,13 @@ import { visitorUrl } from "@/lib/visitor-url";
 import { generateWristbandIds } from "@/lib/wristband-id-generator";
 import { WristbandBatchHistory } from "@/components/event/WristbandBatchHistory";
 import { VisitorRecordEditor } from "@/components/event/VisitorRecordEditor";
+import { visitorAgeGroupLabel } from "@fesflow/config/visitor-profile";
 
 interface WristbandsTabProps {
   eventId: string;
   hasPhysicalWristband?: boolean;
   allowSelfIssue?: boolean;
+  canManageWristbands?: boolean;
 }
 
 type VisitorFilters = {
@@ -41,7 +43,7 @@ type VisitorFilters = {
   profileStatus: "all" | "complete" | "pending";
 };
 
-type VisitorSortField = "createdAt" | "displayId" | "nickname" | "favoriteDate" | "accountStatus" | "wristbandId" | "bandStatus";
+type VisitorSortField = "createdAt" | "displayId" | "nickname" | "favoriteDate" | "ageGroup" | "onboardedAt" | "accountStatus" | "wristbandId" | "bandStatus";
 
 const VISITOR_PAGE_SIZE = 500;
 // D1は1クエリあたりのバインド変数が100個まで。親行は4列を明示するため、
@@ -51,12 +53,14 @@ const VISITOR_SORT_COLUMNS: { label: string; field: Exclude<VisitorSortField, "c
   { label: "呼出ID", field: "displayId" },
   { label: "ニックネーム", field: "nickname" },
   { label: "お好きな日付", field: "favoriteDate" },
+  { label: "年代", field: "ageGroup" },
+  { label: "入場登録", field: "onboardedAt" },
   { label: "アカウント状態", field: "accountStatus" },
   { label: "紐付くバンドID", field: "wristbandId" },
   { label: "バンド状態", field: "bandStatus" },
 ];
 
-export function WristbandsTab({ eventId, hasPhysicalWristband = true, allowSelfIssue = true }: WristbandsTabProps) {
+export function WristbandsTab({ eventId, hasPhysicalWristband = true, allowSelfIssue = true, canManageWristbands = true }: WristbandsTabProps) {
   const queryClient = useQueryClient();
 
   // 検索・表示関連の状態
@@ -74,6 +78,7 @@ export function WristbandsTab({ eventId, hasPhysicalWristband = true, allowSelfI
     direction: "desc",
   });
   const [isVisitorTableOpen, setIsVisitorTableOpen] = useState(false);
+  const [isBatchHistoryOpen, setIsBatchHistoryOpen] = useState(false);
   const visitorScrollContainerRef = useRef<HTMLDivElement>(null);
   const visitorLoadMoreRef = useRef<HTMLDivElement>(null);
 
@@ -375,8 +380,28 @@ export function WristbandsTab({ eventId, hasPhysicalWristband = true, allowSelfI
         </div>
       </div>
 
+      {/* 2026-10-25: 登録済み来場者一覧を受付準備より先に置き、運用中に必要な確認へすぐ移れるようにする。 */}
+      <Card className="rounded-none bg-background shadow-none border-thick border-border">
+        <CardHeader className="p-4 flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <CardTitle className="text-xs uppercase font-bold">登録済み来場者</CardTitle>
+            <CardDescription className="text-[10px]">
+              {visitors.length}件読み込み済み / 全{visitorTotal}件{searchQuery ? "（検索条件あり）" : ""}
+            </CardDescription>
+          </div>
+          <Button
+            onClick={() => setIsVisitorTableOpen(true)}
+            variant="outline"
+            className="h-12 w-full border-thick border-border text-sm font-bold rounded-none sm:w-auto sm:min-w-64"
+          >
+            一覧を開く（全{visitorTotal}件）
+          </Button>
+        </CardHeader>
+      </Card>
+
       {/* 2026-10-16: イベント設定を運用の基準にし、使わない物理バンド手順を隠して受付準備の迷いを減らす。 */}
-      <section aria-labelledby="wristband-provisioning-title" className="space-y-3">
+      {/* 2026-10-25: 交換・景品交換担当には管理画面を閲覧用で開き、発行や編集は member:write に限定する。 */}
+      {canManageWristbands && <section aria-labelledby="wristband-provisioning-title" className="space-y-3">
         <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <h3 id="wristband-provisioning-title" className="text-xs font-bold uppercase tracking-wider">
@@ -493,15 +518,30 @@ export function WristbandsTab({ eventId, hasPhysicalWristband = true, allowSelfI
                   </p>
                 </div>
               )}
-              <WristbandBatchHistory
-                eventId={eventId}
-                activeBatchId={activeBatchId}
-                onResume={(batch) => batchOperationMutation.mutate({ mode: "resume", batchId: batch.id })}
-              />
+              <div className="border-t-thick border-border pt-4">
+                <Button type="button" variant="outline" className="w-full border-thick border-border text-xs font-bold" onClick={() => setIsBatchHistoryOpen(true)}>
+                  発行・取込履歴を開く
+                </Button>
+                <p className="mt-2 text-[10px] text-muted-foreground">CSVの再取得や、未完了の登録を続けられます。</p>
+              </div>
             </CardContent>
           </Card>}
         </div>
-      </section>
+      </section>}
+
+      <Modal
+        isOpen={isBatchHistoryOpen}
+        onClose={() => setIsBatchHistoryOpen(false)}
+        title="[発行・取込履歴]"
+        subtitle="画面を閉じた後もCSVを再取得し、未完了の登録を続けられます。"
+        maxWidth="xl"
+      >
+        <WristbandBatchHistory
+          eventId={eventId}
+          activeBatchId={activeBatchId}
+          onResume={(batch) => batchOperationMutation.mutate({ mode: "resume", batchId: batch.id })}
+        />
+      </Modal>
 
       <Modal
         isOpen={isImportModalOpen}
@@ -683,18 +723,6 @@ export function WristbandsTab({ eventId, hasPhysicalWristband = true, allowSelfI
         </div>
       </Modal>
 
-      <Card className="rounded-none bg-background shadow-none border-thick border-border">
-        <CardHeader className="p-4 flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <CardTitle className="text-xs uppercase font-bold">登録済み来場者</CardTitle>
-            <CardDescription className="text-[10px]">
-              {visitors.length}件読み込み済み / 全{visitorTotal}件{searchQuery ? "（検索条件あり）" : ""}
-            </CardDescription>
-          </div>
-          <Button onClick={() => setIsVisitorTableOpen(true)} variant="outline" className="border-thick border-border h-9 text-xs font-bold rounded-none">一覧を開く（全{visitorTotal}件）</Button>
-        </CardHeader>
-      </Card>
-
       {/* 2026-09-27: 来場者の行が画面を押し下げないよう、検索と編集操作を表モーダルにまとめる。 */}
       <Modal
         isOpen={isVisitorTableOpen}
@@ -854,6 +882,7 @@ export function WristbandsTab({ eventId, hasPhysicalWristband = true, allowSelfI
               <table className="w-full min-w-[880px] text-xs text-left border-collapse">
                 <thead className="sticky top-0 z-10 bg-background">
                   <tr className="border-b-thin border-border bg-muted/10 font-bold font-mono">
+                    {/* 2026-10-25: 受付済み状態と年代を利用可能状態・好きな日付と区別して確認できる列として示す。 */}
                     {VISITOR_SORT_COLUMNS.map(({ label, field }) => (
                       <th
                         key={field}
@@ -879,20 +908,32 @@ export function WristbandsTab({ eventId, hasPhysicalWristband = true, allowSelfI
                       <td className="p-3 font-bold">
                         <div className="flex items-center gap-2">
                           <span>#{res.user.displayId}</span>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => handleOpenVisitorDetails(res)}
-                            aria-label={`来場者 #${res.user.displayId}を編集`}
-                            className="h-7 rounded-none border-thick border-border px-2 text-[10px]"
-                          >
-                            <Edit className="mr-1 h-3 w-3" />
-                            編集
-                          </Button>
+                          {canManageWristbands && <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => handleOpenVisitorDetails(res)}
+                              aria-label={`来場者 #${res.user.displayId}を編集`}
+                              className="h-7 rounded-none border-thick border-border px-2 text-[10px]"
+                            >
+                              <Edit className="mr-1 h-3 w-3" />
+                              編集
+                            </Button>}
                         </div>
                       </td>
                       <td className="p-3">{res.user.nickname || <span className="text-muted-foreground text-[10px]">未登録</span>}</td>
                       <td className="p-3">{res.user.favoriteDate || <span className="text-muted-foreground text-[10px]">未登録</span>}</td>
+                      <td className="p-3">{visitorAgeGroupLabel(res.user.ageGroup)}</td>
+                      <td className="p-3">
+                        <Badge
+                          variant="default"
+                          className={`rounded-none text-[8px] font-mono border-thick ${res.user.onboardedAt
+                            ? "bg-success/10 text-success border-success"
+                            : "bg-warning/10 text-warning border-warning"
+                          }`}
+                        >
+                          {res.user.onboardedAt ? "入場登録済み" : "入場未登録"}
+                        </Badge>
+                      </td>
                       <td className="p-3">
                         <Badge
                           variant="default"
