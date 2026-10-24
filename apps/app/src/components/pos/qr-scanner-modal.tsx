@@ -167,7 +167,7 @@ export function QrScannerModal({
     },
     onSuccess: (data) => {
       if (data.user) {
-        toast.success(`顧客を特定しました: ${data.wristband?.id || data.user.id}`);
+        // 2026-10-25: 読取後はレジ画面の来場者状態に反映されるため、ID付き成功通知は重ねない。
         if (onCustomerScanned) {
           onCustomerScanned(data.user.id, data.wristband?.id || null, data.familyBandCount ?? 0, data.user.allergies ?? null, data.wristband?.status ?? null);
         }

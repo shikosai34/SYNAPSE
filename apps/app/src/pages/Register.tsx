@@ -226,6 +226,7 @@ function CartBody({
   onRemoveLine,
   onSetPeople,
   onSubmit,
+  onRequestCustomerScan,
   onClear,
   total,
   bundleApplied,
@@ -252,6 +253,7 @@ function CartBody({
   onRemoveLine: (lineId: string) => void;
   onSetPeople: (n: number) => void;
   onSubmit: () => void;
+  onRequestCustomerScan: () => void;
   onClear: () => void;
   total: number;
   // 2026-10-23: 自動適用されるセット割引。手動割引/クーポンの割引額プレビューはこの後の金額に対して計算する。
@@ -498,10 +500,11 @@ function CartBody({
           enabled={!!activeCustomer && cart.length > 0}
         />
         {/* 2026-10-17: 不足状態は確定ボタンの文言に集約し、画面上部の案内と重ねない。 */}
+        {/* 2026-10-25: 来場者未選択時はこのボタンからQR読み取りを開く。 */}
         <Button
           className="w-full h-14 border-thick border-border bg-primary text-primary-foreground font-mono text-base font-black uppercase rounded-none hover:bg-background hover:text-foreground transition-all"
-          onClick={onSubmit}
-          disabled={cart.length === 0 || submitting || !activeCustomer || needsPayment}
+          onClick={() => activeCustomer ? onSubmit() : onRequestCustomerScan()}
+          disabled={cart.length === 0 || submitting || (!!activeCustomer && needsPayment)}
         >
           {submitting
             ? "確定中…"
@@ -558,7 +561,6 @@ function RegisterPageContent() {
     window.addEventListener("resize", closeOnWideViewport);
     return () => window.removeEventListener("resize", closeOnWideViewport);
   }, [isCartPanelOpen]);
-  const [scannedCode, setScannedCode] = useState("");
   const [activeCustomer, setActiveCustomer] = useSessionState<{ userId: string; wristbandId: string | null; familyBandCount: number; allergies: JapaneseAllergen[] | null; isUnregistered?: boolean } | null>(`${registerStateKey}:customer`, null);
   const [pendingUnregisteredCustomer, setPendingUnregisteredCustomer] = useState<WristbandLookupResult | null>(null);
   const [mobilePaymentMethods, setMobilePaymentMethods] = useState<Record<string, string>>({});
@@ -675,7 +677,6 @@ function RegisterPageContent() {
       allergies: parseJapaneseAllergens(data.user.allergies),
       isUnregistered,
     });
-    setScannedCode("");
   };
 
   const lookupCustomer = useMutation({
@@ -689,11 +690,9 @@ function RegisterPageContent() {
         const isUnregistered = !data.user.onboardedAt || !data.wristband?.onboardedAt;
         if (isUnregistered && registerSettings.warnOnUnregisteredWristband) {
           setPendingUnregisteredCustomer(data);
-          setScannedCode("");
           return;
         }
         activateLookupCustomer(data);
-        toast.success("来場者を確認しました");
       } else {
         toast.error("ユーザーが見つかりませんでした");
       }
@@ -1278,10 +1277,9 @@ function RegisterPageContent() {
             </div>
           </div>
 
-          {/* 2026-10-17: 来場者の確認操作を一か所に集約し、状態説明は主ボタンへ置き換える。 */}
+          {/* 2026-10-25: 来場者の特定はQR読み取りだけにし、見出しと手入力検索を重ねない。 */}
           {!activeCustomer ? (
             <div className="mb-4 flex flex-col items-center justify-center gap-4 border-thick border-border bg-muted/40 p-4 text-center font-mono sm:p-6">
-              <h2 className="text-sm font-black uppercase tracking-wider">来場者を確認</h2>
               <Button
                 onClick={() => setIsCustomerQrModalOpen(true)}
                 className="flex h-auto min-h-20 w-full max-w-md flex-col gap-2 border-heavy px-8 py-5 text-base sm:w-auto"
@@ -1289,30 +1287,6 @@ function RegisterPageContent() {
                 <ScanLine className="h-12 w-12 sm:h-16 sm:w-16" />
                 <span>QRを読み取る</span>
               </Button>
-              <div className="flex items-center gap-2 w-full max-w-md">
-                <Input
-                  type="text"
-                  aria-label="QRコードまたはリストバンドID"
-                  placeholder="QR / リストバンドID"
-                  className="h-11 min-w-0 flex-1 border-thick border-border bg-background font-mono text-xs focus-visible:ring-0"
-                  value={scannedCode}
-                  onChange={(e) => setScannedCode(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      if (scannedCode.trim()) lookupCustomer.mutate(scannedCode.trim());
-                    }
-                  }}
-                />
-                <Button
-                  variant="outline"
-                  disabled={lookupCustomer.isPending || !scannedCode.trim()}
-                  onClick={() => lookupCustomer.mutate(scannedCode.trim())}
-                  className="h-11 shrink-0 border-thick border-border font-mono text-xs"
-                >
-                  {lookupCustomer.isPending ? "確認中…" : "検索"}
-                </Button>
-              </div>
             </div>
           ) : (
             <Card className="mb-4 bg-muted/40">
@@ -1519,6 +1493,7 @@ function RegisterPageContent() {
             onRemoveLine={removeLine}
             onSetPeople={setPeopleCount}
             onSubmit={handleSubmitOrder}
+            onRequestCustomerScan={() => setIsCustomerQrModalOpen(true)}
             onClear={clearCart}
             total={getTotalPrice()}
             bundleApplied={bundleResult.applied}
@@ -1593,6 +1568,7 @@ function RegisterPageContent() {
               onRemoveLine={removeLine}
               onSetPeople={setPeopleCount}
               onSubmit={handleSubmitOrder}
+              onRequestCustomerScan={() => setIsCustomerQrModalOpen(true)}
               onClear={clearCart}
               total={getTotalPrice()}
               bundleApplied={bundleResult.applied}
