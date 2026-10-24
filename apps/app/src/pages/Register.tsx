@@ -218,13 +218,11 @@ function CartBody({
   cart,
   idPrefix,
   menuMap,
-  peopleCount,
   activeCustomer,
   submitting,
   onToggleTopping,
   onUpdateQuantity,
   onRemoveLine,
-  onSetPeople,
   onSubmit,
   onRequestCustomerScan,
   onClear,
@@ -245,13 +243,11 @@ function CartBody({
   cart: CartLine[];
   idPrefix: "desktop" | "mobile";
   menuMap: Map<string, MenuWithToppings>;
-  peopleCount: number;
   activeCustomer: { userId: string; wristbandId: string | null; familyBandCount: number; allergies: JapaneseAllergen[] | null; isUnregistered?: boolean } | null;
   submitting: boolean;
   onToggleTopping: (lineId: string, topping: Topping) => void;
   onUpdateQuantity: (lineId: string, delta: number) => void;
   onRemoveLine: (lineId: string) => void;
-  onSetPeople: (n: number) => void;
   onSubmit: () => void;
   onRequestCustomerScan: () => void;
   onClear: () => void;
@@ -274,7 +270,6 @@ function CartBody({
   // 支払い方法が2つ以上あるのに未選択なら確定を止める。
   const needsPayment = paymentMethods.length > 1 && !paymentMethod;
   // 2026-10-16: カート操作の状態を読み上げ可能にし、数量変更後の合計と選択状態を追えるようにする。
-  const peopleCountId = `${idPrefix}-people-count`;
   const allergyWarnings = getCartAllergyWarnings(cart, menuMap, activeCustomer?.allergies ?? null);
   return (
     // 2026-07-16: 親 (aside / モバイルのスライドアップパネル) は max-height + overflow-hidden で
@@ -382,22 +377,6 @@ function CartBody({
           このフッター自体は縮まないようにする (縮むのは上のアイテム一覧側だけにする)。
           これが無いと flex の既定 shrink:1 により極端なケースで確定ボタンごと潰れうる。 */}
       <div className="shrink-0 p-3 sm:p-4 border-t-thick border-border space-y-3 bg-background">
-        <div className="flex items-center gap-3">
-          {/* 2026-10-16: PC用とモバイル用のカートが同時にDOMへあるため、入力IDを分けてラベル先を一意にする。 */}
-          <Label htmlFor={peopleCountId} className="font-mono text-xs uppercase tracking-wider whitespace-nowrap">来店人数</Label>
-          {/* 入力中は 0/空を許容し、フォーカスを外した時に 1 未満なら 1 へ戻す
-              (min=1 だと打ち直しのたびに値が押し戻されて入力しづらいため)。 */}
-          <Input
-            id={peopleCountId}
-            type="number"
-            inputMode="numeric"
-            className="h-10 text-center font-bold border-thick border-border rounded-none"
-            value={peopleCount}
-            onChange={(e) => onSetPeople(Math.max(0, Math.trunc(Number(e.target.value)) || 0))}
-            onBlur={() => { if (peopleCount < 1) onSetPeople(1); }}
-          />
-        </div>
-        {/* 2026-10-17: 来店人数はラベルで区別し、家族バンド数との関係を説明文で繰り返さない。 */}
         {registerCoupons.length > 0 && (
           <div className="space-y-1.5">
             <Label htmlFor={`${idPrefix}-register-coupon`} className="font-mono text-xs uppercase tracking-wider">レジ専用割引券</Label>
@@ -487,12 +466,8 @@ function CartBody({
             </div>
           </div>
         )}
-        {activeCustomer && (
-          <div className="border-thick border-border bg-muted/20 p-2 text-xs font-mono">
-            <div>来場者: {activeCustomer.wristbandId ?? activeCustomer.userId}</div>
-            <div className="mt-1 font-bold">登録バンド {activeCustomer.familyBandCount}本</div>
-            {activeCustomer.isUnregistered && <div className="mt-1 font-bold text-error" role="status">入場登録前・アレルギー情報未確認</div>}
-          </div>
+        {activeCustomer?.isUnregistered && (
+          <p className="text-xs font-bold text-error" role="status">入場登録前・アレルギー情報未確認</p>
         )}
         <OrderAllergyWarning
           warnings={allergyWarnings}
@@ -542,7 +517,6 @@ function RegisterPageContent() {
   const registerStateKey = `fesflow:register-state:${circleId || "unselected"}`;
   const [selectedMenuCategory, setSelectedMenuCategory] = useSessionState<string | null>(`${registerStateKey}:category`, null);
   const [cart, setCart] = useSessionState<CartLine[]>(`${registerStateKey}:cart`, []);
-  const [peopleCount, setPeopleCount] = useSessionState(`${registerStateKey}:people`, 1);
   const [isCustomerQrModalOpen, setIsCustomerQrModalOpen] = useState(false);
   const [isCustomerDisplayModalOpen, setIsCustomerDisplayModalOpen] = useState(false);
   const [customerDisplayShare, setCustomerDisplayShare] = useState<CustomerDisplayShare | null>(null);
@@ -776,8 +750,9 @@ function RegisterPageContent() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeCustomer, circleId]);
 
+  // 2026-10-25: 来店人数は手入力させず、家族として紐づく有効バンド数を注文人数に使う。
   const orderInput: CreateOrderInput | null = activeCustomer ? {
-    circleId, userId: activeCustomer.userId, peopleCount,
+    circleId, userId: activeCustomer.userId, peopleCount: Math.max(1, activeCustomer.familyBandCount),
     items: cart.map((line) => ({ menuId: line.menuId, quantity: line.quantity, toppingIds: line.toppings.map((t) => t.toppingId) })),
     paymentMethod: paymentMethod || undefined,
     cashierId: getAuthInfo()?.userEmail ?? undefined,
@@ -793,7 +768,6 @@ function RegisterPageContent() {
       submittingCustomerDisplaySnapshot.current = null;
       toast.success(`注文完了！呼出番号: ${displayOrderNumber(data.orderNumber)}`);
       setCart([]);
-      setPeopleCount(1);
       setActiveCustomer(null); // 会計完了後に顧客情報をクリア
       setActivePreOrderId(null);
       setRegisterCouponId("");
@@ -829,7 +803,6 @@ function RegisterPageContent() {
         },
       });
       setCart([]);
-      setPeopleCount(1);
       setActiveCustomer(null);
       setActivePreOrderId(null);
       setRegisterCouponId("");
@@ -1473,13 +1446,11 @@ function RegisterPageContent() {
             cart={cart}
             idPrefix="desktop"
             menuMap={menuMap}
-            peopleCount={peopleCount}
             activeCustomer={activeCustomer}
             submitting={createOrder.isPending || claimOrder.isPending}
             onToggleTopping={toggleTopping}
             onUpdateQuantity={updateQuantity}
             onRemoveLine={removeLine}
-            onSetPeople={setPeopleCount}
             onSubmit={handleSubmitOrder}
             onRequestCustomerScan={() => setIsCustomerQrModalOpen(true)}
             onClear={clearCart}
@@ -1548,13 +1519,11 @@ function RegisterPageContent() {
               cart={cart}
               idPrefix="mobile"
               menuMap={menuMap}
-              peopleCount={peopleCount}
               activeCustomer={activeCustomer}
               submitting={createOrder.isPending || claimOrder.isPending}
               onToggleTopping={toggleTopping}
               onUpdateQuantity={updateQuantity}
               onRemoveLine={removeLine}
-              onSetPeople={setPeopleCount}
               onSubmit={handleSubmitOrder}
               onRequestCustomerScan={() => setIsCustomerQrModalOpen(true)}
               onClear={clearCart}
