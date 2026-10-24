@@ -10,6 +10,7 @@ import { ToggleSwitch } from "@/components/ui/ToggleSwitch";
 import { toast } from "sonner";
 import { resolveAssetUrl } from "@/lib/asset-url";
 import { useUnsavedChanges } from "@/components/UnsavedNavigationGuard";
+import { CircleSettingsMatrix } from "@/components/event/CircleSettingsMatrix";
 
 // 開催状態の選択肢 (主催者が切り替えられるのは upcoming/live/ended。archived は保持期間としてシステム側概念)。
 const LIFECYCLE_OPTIONS: { value: EventLifecycleStatus; label: string; desc: string }[] = [
@@ -281,6 +282,8 @@ export function SettingsTab({ eventId, event }: SettingsTabProps) {
           イベント基本設定・テーマ
         </h2>
       </div>
+
+      <CircleSettingsMatrix eventId={eventId} event={event} />
 
       {/* 開催状態 (2026-07-15)。注文可否や来場者/管理の表示モードを決める最重要設定。 */}
       <Card className="rounded-none bg-background shadow-none">
