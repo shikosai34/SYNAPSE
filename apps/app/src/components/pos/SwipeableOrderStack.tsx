@@ -9,6 +9,7 @@ import {
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { ToggleSwitch } from "@/components/ui/ToggleSwitch";
 import { ArrowLeft, ArrowRight, CheckCircle, Clock, Users, XCircle } from "lucide-react";
 import { displayOrderNumber } from "@/lib/order-number";
 import { useSessionState } from "@/hooks/useSessionState";
@@ -47,6 +48,8 @@ export interface SwipeableOrder {
 
 interface SwipeableOrderStackProps {
   orders: SwipeableOrder[];
+  showUnpaidOnly: boolean;
+  onShowUnpaidOnlyChange: (next: boolean) => void;
   paymentMethods: string[];
   paymentMethodsReady: boolean;
   scrollStateKey: string;
@@ -342,6 +345,8 @@ function KitchenOrderCard({
 
 export function SwipeableOrderStack({
   orders,
+  showUnpaidOnly,
+  onShowUnpaidOnlyChange,
   paymentMethods,
   paymentMethodsReady,
   scrollStateKey,
@@ -452,6 +457,11 @@ export function SwipeableOrderStack({
               </Button>
             </>
           )}
+          {/* 2026-10-25: 未決済フィルターを注文一覧の移動操作の隣に置き、一覧との関係を分かりやすくする。 */}
+          <div className="flex h-9 shrink-0 items-center gap-1 px-1 font-mono text-[10px] font-bold sm:gap-2 sm:px-2 sm:text-xs">
+            <span>未決済のみ</span>
+            <ToggleSwitch checked={showUnpaidOnly} onChange={onShowUnpaidOnlyChange} label="未決済注文のみ表示" />
+          </div>
         </div>
       </div>
       <div
