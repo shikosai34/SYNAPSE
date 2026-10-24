@@ -11,8 +11,6 @@ import {
   orderItem,
   orderItemTopping,
   eventUser,
-  wristband,
-  review,
   circleVisit,
   menu,
   notification,
@@ -1004,258 +1002,215 @@ eventRoutes.get("/:id/visitors", async (c) => {
 });
 
 // イベント統計・分析 (2026-07-12)
-// イベント配下の全サークルを横断集計して来場者/売上/注文/評価/回遊の指標を返す。
-// event_manager (sales:read) 権限が必要。super_admin は素では不可、なりすまし経由のみ
-// (hasPermission がなりすまし対応済み)。サーバ側集計にすることで、フロントが
-// サークル数だけ注文 API を叩く N+1 を避け、来場者/レビュー/訪問データも一括で返す。
+// 2026-10-25: 全期間レポートは大規模イベントでもWorkerに全行を載せないよう、D1側で集計する。
+// event_manager (sales:read) 権限が必要。
 eventRoutes.get("/:id/analytics", async (c) => {
   const db = c.get("db");
   const eventId = c.req.param("id");
-
   if (!(await hasPermission(c, null, "sales:read", eventId))) {
     apiError("FORBIDDEN", "このイベントの統計を閲覧する権限がありません");
   }
 
-  // 配下サークル (非削除)
-  const circles = await db
-    .select({ id: circle.id, name: circle.name })
-    .from(circle)
-    .where(and(eq(circle.eventId, eventId), isNull(circle.deletedAt)));
-  const circleIds = circles.map((c2) => c2.id);
-  const circleName = new Map(circles.map((c2) => [c2.id, c2.name]));
+  const query = async <T>(statement: string) => {
+    const result = await db.$client.prepare(statement).bind(eventId).all<T>();
+    return result.results ?? [];
+  };
+  type Group = {
+    circle_id: string; status: string; payment_status: string; payment_method: string | null;
+    completed: number; hour: number; count: number;
+    amount: number | string | null; people: number | string | null;
+  };
+  type Refund = { circle_id: string; payment_method: string | null; hour: number; count: number; amount: number | string | null };
+  type CircleRow = { id: string; name: string };
+  type Review = { circle_id: string; count: number; rating: number | string | null };
+  type Age = { age_group: string | null; count: number };
+  const orderHour = "CAST((COALESCE(o.paid_at, o.created_at) + 32400000) / 3600000 AS INTEGER) % 24";
+  const refundHour = "CAST((r.refunded_at + 32400000) / 3600000 AS INTEGER) % 24";
+  const visitorHour = "CAST((u.onboarded_at + 32400000) / 3600000 AS INTEGER) % 24";
+  const [circles, orders, refunds, reviews, visitors, visitorHours, bandAges, fallbackAges, visits, menus] =
+    await Promise.all([
+      query<CircleRow>("SELECT id, name FROM circle WHERE event_id = ? AND deleted_at IS NULL"),
+      query<Group>(
+        "SELECT o.circle_id, o.status, o.payment_status, o.payment_method, o.completed, " +
+        orderHour + " AS hour, COUNT(*) AS count, SUM(o.total_price) AS amount, " +
+        "SUM(o.people_count) AS people FROM orders o JOIN circle c ON o.circle_id = c.id " +
+        "WHERE c.event_id = ? AND c.deleted_at IS NULL " +
+        "GROUP BY o.circle_id, o.status, o.payment_status, o.payment_method, o.completed, hour",
+      ),
+      query<Refund>(
+        "SELECT o.circle_id, r.original_payment_method AS payment_method, " + refundHour +
+        " AS hour, COUNT(*) AS count, SUM(r.amount) AS amount FROM order_refund r " +
+        "JOIN orders o ON r.order_id = o.id JOIN circle c ON o.circle_id = c.id " +
+        "WHERE c.event_id = ? AND c.deleted_at IS NULL " +
+        "GROUP BY o.circle_id, r.original_payment_method, hour",
+      ),
+      query<Review>(
+        "SELECT r.circle_id, COUNT(*) AS count, SUM(r.rating) AS rating FROM review r " +
+        "JOIN circle c ON r.circle_id = c.id WHERE c.event_id = ? AND c.deleted_at IS NULL " +
+        "GROUP BY r.circle_id",
+      ),
+      query<{ total: number; entered: number }>(
+        "SELECT COUNT(*) AS total, COALESCE(SUM(onboarded_at IS NOT NULL), 0) AS entered " +
+        "FROM event_user WHERE event_id = ?",
+      ),
+      query<{ hour: number; count: number }>(
+        "SELECT " + visitorHour + " AS hour, COUNT(*) AS count FROM event_user u " +
+        "WHERE u.event_id = ? AND u.onboarded_at IS NOT NULL GROUP BY hour",
+      ),
+      query<Age>(
+        "SELECT w.age_group, COUNT(*) AS count FROM wristband w JOIN event_user u ON w.user_id = u.id " +
+        "WHERE u.event_id = ? AND u.onboarded_at IS NOT NULL AND w.status IN ('active','smartphone') " +
+        "GROUP BY w.age_group",
+      ),
+      query<Age>(
+        "SELECT u.age_group, COUNT(*) AS count FROM event_user u WHERE u.event_id = ? " +
+        "AND u.onboarded_at IS NOT NULL AND NOT EXISTS (SELECT 1 FROM wristband w " +
+        "WHERE w.user_id = u.id AND w.status IN ('active','smartphone')) GROUP BY u.age_group",
+      ),
+      query<{ count: number; visitors: number }>(
+        "SELECT COUNT(*) AS count, COUNT(DISTINCT v.event_user_id) AS visitors " +
+        "FROM circle_visit v JOIN circle c ON v.circle_id = c.id " +
+        "JOIN event_user u ON v.event_user_id = u.id WHERE c.event_id = ? " +
+        "AND c.deleted_at IS NULL AND u.onboarded_at IS NOT NULL AND v.created_at >= u.onboarded_at",
+      ),
+      query<{ menu_name: string; quantity: number | string | null; revenue: number | string | null }>(
+        "SELECT i.menu_name, SUM(i.quantity) AS quantity, SUM(i.menu_price * i.quantity) AS revenue " +
+        "FROM order_item i JOIN orders o ON i.order_id = o.id JOIN circle c ON o.circle_id = c.id " +
+        "WHERE c.event_id = ? AND c.deleted_at IS NULL AND o.payment_status = 'paid' " +
+        "AND o.status != 'cancelled' GROUP BY i.menu_name ORDER BY quantity DESC LIMIT 20",
+      ),
+    ]);
 
-  // 注文 (キャンセルは売上/客数から除外)
-  const orders = circleIds.length
-    ? await db.select().from(order).where(inArray(order.circleId, circleIds))
-    : [];
-  const liveOrders = orders.filter((o) => o.status !== "cancelled");
-  // 2026-10-22: 購買数・メニューは返金済み注文を除き、会計総額と返金額は別々に集計する。
-  const paidOrders = liveOrders.filter((o) => o.paymentStatus === "paid");
-  // 2026-10-22: 返金記録のない旧取消注文を売上・返金へ推定計上しない。
-  const settledOrders = orders.filter((o) =>
-    o.paymentStatus === "refunded" || (o.paymentStatus === "paid" && o.status !== "cancelled"),
-  );
-  const refunds = circleIds.length
-    ? await db.select({
-        circleId: order.circleId,
-        amount: orderRefund.amount,
-        originalPaymentMethod: orderRefund.originalPaymentMethod,
-        refundedAt: orderRefund.refundedAt,
-      }).from(orderRefund)
-        .innerJoin(order, eq(orderRefund.orderId, order.id))
-        .where(inArray(order.circleId, circleIds))
-    : [];
-  const orderIds = paidOrders.map((o) => o.id);
+  const asNumber = (value: number | string | null | undefined) => Number(value ?? 0);
+  const circleStats = new Map(circles.map((row) => [row.id, {
+    gross: 0, refunds: 0, orders: 0, rating: 0, reviews: 0,
+  }]));
+  const byHour = Array.from({ length: 24 }, (_, hour) => ({ hour, orders: 0, revenue: 0, refunds: 0, visitors: 0 }));
+  const paymentStats = new Map<string, { orders: number; revenue: number }>();
+  const refundStats = new Map<string, { orders: number; amount: number }>();
+  let liveOrderCount = 0;
+  let completedCount = 0;
+  let paidOrderCount = 0;
+  let customers = 0;
+  let grossRevenue = 0;
+  for (const row of orders) {
+    const count = asNumber(row.count);
+    const amount = asNumber(row.amount);
+    if (row.status !== "cancelled") {
+      liveOrderCount += count;
+      if (row.status === "completed" || row.completed) completedCount += count;
+      if (row.payment_status === "paid") {
+        paidOrderCount += count;
+        customers += asNumber(row.people);
+        const stats = circleStats.get(row.circle_id);
+        if (stats) stats.orders += count;
+      }
+    }
+    const settled = row.payment_status === "refunded" ||
+      (row.payment_status === "paid" && row.status !== "cancelled");
+    if (!settled) continue;
+    grossRevenue += amount;
+    byHour[row.hour]!.orders += count;
+    byHour[row.hour]!.revenue += amount;
+    const stats = circleStats.get(row.circle_id);
+    if (stats) stats.gross += amount;
+    const method = row.payment_method || "未設定";
+    const payment = paymentStats.get(method) ?? { orders: 0, revenue: 0 };
+    payment.orders += count;
+    payment.revenue += amount;
+    paymentStats.set(method, payment);
+  }
 
-  // 注文明細 (人気メニュー集計用)
-  const items = orderIds.length
-    ? await db.select().from(orderItem).where(inArray(orderItem.orderId, orderIds))
-    : [];
+  let refundAmount = 0;
+  let refundCount = 0;
+  for (const row of refunds) {
+    const count = asNumber(row.count);
+    const amount = asNumber(row.amount);
+    refundCount += count;
+    refundAmount += amount;
+    byHour[row.hour]!.refunds += amount;
+    const stats = circleStats.get(row.circle_id);
+    if (stats) stats.refunds += amount;
+    const method = row.payment_method || "未設定";
+    const payment = refundStats.get(method) ?? { orders: 0, amount: 0 };
+    payment.orders += count;
+    payment.amount += amount;
+    refundStats.set(method, payment);
+  }
 
-  // 来場者
-  const visitors = await db
-    .select()
-    .from(eventUser)
-    .where(eq(eventUser.eventId, eventId));
-  // 2026-10-19: event_user は事前発行時に作られるため、入場確定時刻がある家族アカウントだけを来場者として数える。
-  const registeredVisitors = visitors.filter((visitor) => visitor.onboardedAt != null);
-  const enteredAtByVisitor = new Map(
-    registeredVisitors.map((visitor) => [visitor.id, visitor.onboardedAt!.getTime()] as const),
-  );
-  // 家族プロフィールは共有アカウント(eventUser)ではなく、有効な各バンドに保存される。
-  const activeWristbands = await db
-    .select({ userId: wristband.userId, ageGroup: wristband.ageGroup })
-    .from(wristband)
-    .innerJoin(eventUser, eq(wristband.userId, eventUser.id))
-    .where(and(
-      eq(eventUser.eventId, eventId),
-      inArray(wristband.status, ["active", "smartphone"]),
-    ));
+  let reviewCount = 0;
+  let ratingTotal = 0;
+  for (const row of reviews) {
+    const count = asNumber(row.count);
+    const rating = asNumber(row.rating);
+    reviewCount += count;
+    ratingTotal += rating;
+    const stats = circleStats.get(row.circle_id);
+    if (stats) { stats.reviews = count; stats.rating = rating; }
+  }
+  // 家族単位の年齢 fallback は、有効なバンドが1本もない入場済みアカウントだけに適用する。
+  const ageCounts = new Map<string, number>();
+  let visitorProfiles = 0;
+  for (const row of [...bandAges, ...fallbackAges]) {
+    const count = asNumber(row.count);
+    visitorProfiles += count;
+    const label = VISITOR_AGE_GROUPS.find((group) => group.value === row.age_group)?.label;
+    if (label) ageCounts.set(label, (ageCounts.get(label) || 0) + count);
+  }
+  for (const row of visitorHours) byHour[row.hour]!.visitors = asNumber(row.count);
 
-  // レビュー / 回遊
-  const reviews = circleIds.length
-    ? await db.select().from(review).where(inArray(review.circleId, circleIds))
-    : [];
-  const allVisits = circleIds.length
-    ? await db.select().from(circleVisit).where(inArray(circleVisit.circleId, circleIds))
-    : [];
-  // 2026-10-19: 入場処理前のスキャン履歴は、来場者の回遊実績に含めない。
-  const visits = allVisits.filter((visit) => {
-    const enteredAt = enteredAtByVisitor.get(visit.eventUserId);
-    return enteredAt !== undefined && visit.createdAt.getTime() >= enteredAt;
-  });
-
-  // JST の時刻に補正してから時間帯バケットを取る (文化祭は JST 前提)。
-  const jstHour = (ms: number) => new Date(ms + 9 * 3600 * 1000).getUTCHours();
-
-  const grossRevenue = settledOrders.reduce((sum, o) => sum + o.totalPrice, 0);
-  const refundAmount = refunds.reduce((sum, refund) => sum + refund.amount, 0);
+  const totalVisitors = asNumber(visitors[0]?.total);
+  const enteredVisitors = asNumber(visitors[0]?.entered);
   const revenue = grossRevenue - refundAmount;
-  const customers = paidOrders.reduce((s, o) => s + o.peopleCount, 0);
-  const completed = liveOrders.filter((o) => o.status === "completed" || o.completed).length;
-
-  // 時間帯別 (0-23)
-  const byHour = Array.from({ length: 24 }, (_, h) => ({
-    hour: h,
-    orders: 0,
-    revenue: 0,
-    refunds: 0,
-    visitors: 0,
-  }));
-  for (const o of settledOrders) {
-    // 2026-10-22: 時間帯別の入金額は実会計時刻に帰属し、返金は独立した系列で返す。
-    const h = jstHour((o.paidAt ?? o.createdAt).getTime());
-    byHour[h]!.orders += 1;
-    byHour[h]!.revenue += o.totalPrice;
-  }
-  for (const refund of refunds) {
-    const h = jstHour(refund.refundedAt.getTime());
-    byHour[h]!.refunds += refund.amount;
-  }
-  for (const v of registeredVisitors) {
-    const h = jstHour(v.onboardedAt!.getTime());
-    byHour[h]!.visitors += 1;
-  }
-
-  // サークル別ランキング
-  const circleAgg = new Map<string, { grossRevenue: number; refundAmount: number; revenue: number; orders: number; ratingSum: number; reviews: number }>();
-  for (const id of circleIds) circleAgg.set(id, { grossRevenue: 0, refundAmount: 0, revenue: 0, orders: 0, ratingSum: 0, reviews: 0 });
-  for (const o of settledOrders) {
-    const a = circleAgg.get(o.circleId);
-    if (a) {
-      a.grossRevenue += o.totalPrice;
-    }
-  }
-  for (const o of paidOrders) {
-    const a = circleAgg.get(o.circleId);
-    if (a) {
-      a.orders += 1;
-    }
-  }
-  for (const refund of refunds) {
-    const a = circleAgg.get(refund.circleId);
-    if (a) a.refundAmount += refund.amount;
-  }
-  for (const aggregate of circleAgg.values()) {
-    aggregate.revenue = aggregate.grossRevenue - aggregate.refundAmount;
-  }
-  for (const r of reviews) {
-    const a = circleAgg.get(r.circleId);
-    if (a) {
-      a.ratingSum += r.rating;
-      a.reviews += 1;
-    }
-  }
-  const circleRanking = circleIds
-    .map((id) => {
-      const a = circleAgg.get(id)!;
-      return {
-        circleId: id,
-        name: circleName.get(id) || "",
-        revenue: a.revenue,
-        grossRevenue: a.grossRevenue,
-        refundAmount: a.refundAmount,
-        orders: a.orders,
-        reviews: a.reviews,
-        avgRating: a.reviews ? Math.round((a.ratingSum / a.reviews) * 10) / 10 : null,
-      };
-    })
+  const circleRanking = circles.map((row) => {
+    const stats = circleStats.get(row.id)!;
+    const net = stats.gross - stats.refunds;
+    return {
+      circleId: row.id, name: row.name, revenue: net, grossRevenue: stats.gross,
+      refundAmount: stats.refunds, orders: stats.orders, reviews: stats.reviews,
+      avgRating: stats.reviews ? Math.round((stats.rating / stats.reviews) * 10) / 10 : null,
+    };
+  }).sort((a, b) => b.revenue - a.revenue);
+  const ageBuckets = VISITOR_AGE_GROUPS.map(({ label }) => label)
+    .filter((label) => ageCounts.has(label))
+    .map((label) => ({ label, count: ageCounts.get(label)! }));
+  const paymentBreakdown = Array.from(paymentStats.entries())
+    .map(([method, value]) => ({ method, ...value }))
     .sort((a, b) => b.revenue - a.revenue);
-
-  // 人気メニュー (販売個数 top 20)
-  const menuAgg = new Map<string, { quantity: number; revenue: number }>();
-  for (const it of items) {
-    const key = it.menuName;
-    const a = menuAgg.get(key) || { quantity: 0, revenue: 0 };
-    a.quantity += it.quantity;
-    a.revenue += it.menuPrice * it.quantity;
-    menuAgg.set(key, a);
-  }
-  const menuRanking = Array.from(menuAgg.entries())
-    .map(([menuName, a]) => ({ menuName, ...a }))
-    .sort((a, b) => b.quantity - a.quantity)
-    .slice(0, 20);
-
-  // 2026-10-20: 申告年代はリストバンドごとに集計し、来場者属性の分析に使う。
-  // 注文・回遊は共有アカウント単位なので年代別へ配賦せず、注文集計は別軸にする。
-  const wristbandsByAccount = new Map<string, typeof activeWristbands>();
-  for (const band of activeWristbands) {
-    const accountBands = wristbandsByAccount.get(band.userId) ?? [];
-    accountBands.push(band);
-    wristbandsByAccount.set(band.userId, accountBands);
-  }
-  const ageProfiles = registeredVisitors.flatMap((visitor) => {
-    const accountBands = wristbandsByAccount.get(visitor.id) ?? [];
-    return accountBands.length > 0 ? accountBands : [{ userId: visitor.id, ageGroup: visitor.ageGroup }];
-  });
-  const ageBucketsMap = new Map<string, number>();
-  const ageOrder = VISITOR_AGE_GROUPS.map(({ label }) => label);
-  for (const profile of ageProfiles) {
-    const ageGroup = profile.ageGroup;
-    if (!ageGroup) continue;
-    const label = VISITOR_AGE_GROUPS.find((group) => group.value === ageGroup)?.label;
-    if (!label) continue;
-    ageBucketsMap.set(label, (ageBucketsMap.get(label) || 0) + 1);
-  }
-  const ageBuckets = ageOrder
-    .filter((label) => ageBucketsMap.has(label))
-    .map((label) => ({ label, count: ageBucketsMap.get(label)! }));
-
-  const uniqueVisitFrom = new Set(visits.map((v) => v.eventUserId)).size;
-  const entryRate = visitors.length ? Math.round((registeredVisitors.length / visitors.length) * 100) : 0;
-
-  // 支払い方法別の入金集計。返金は元の支払い方法別に独立して照合する。
-  const payAgg = new Map<string, { orders: number; revenue: number }>();
-  for (const o of settledOrders) {
-    const key = o.paymentMethod || "未設定";
-    const a = payAgg.get(key) || { orders: 0, revenue: 0 };
-    a.orders += 1;
-    a.revenue += o.totalPrice;
-    payAgg.set(key, a);
-  }
-  const refundAgg = new Map<string, { orders: number; amount: number }>();
-  for (const refund of refunds) {
-    const key = refund.originalPaymentMethod || "未設定";
-    const a = refundAgg.get(key) || { orders: 0, amount: 0 };
-    a.orders += 1;
-    a.amount += refund.amount;
-    refundAgg.set(key, a);
-  }
-  const paymentBreakdown = Array.from(payAgg.entries())
-    .map(([method, a]) => ({ method, ...a }))
-    .sort((a, b) => b.revenue - a.revenue);
-  const refundBreakdown = Array.from(refundAgg.entries())
-    .map(([method, a]) => ({ method, ...a }))
+  const refundBreakdown = Array.from(refundStats.entries())
+    .map(([method, value]) => ({ method, ...value }))
     .sort((a, b) => b.amount - a.amount);
+  const visitCount = asNumber(visits[0]?.count);
+  const visitingUsers = asNumber(visits[0]?.visitors);
+  const entryRate = totalVisitors ? Math.round((enteredVisitors / totalVisitors) * 100) : 0;
 
   return c.json({
     totals: {
-      visitors: registeredVisitors.length,
-      visitorProfiles: ageProfiles.length,
-      preRegisteredAccounts: visitors.length,
+      visitors: enteredVisitors,
+      visitorProfiles,
+      preRegisteredAccounts: totalVisitors,
       entryRate,
-      // 2026-10-19: 旧クライアント互換のため、従来の項目名も入場処理済み数/率として残す。
-      onboarded: registeredVisitors.length,
+      onboarded: enteredVisitors,
       onboardedRate: entryRate,
-      orders: paidOrders.length,
+      orders: paidOrderCount,
       grossRevenue,
-      refundOrders: refunds.length,
+      refundOrders: refundCount,
       refundAmount,
       revenue,
       customers,
       avgSpend: customers ? Math.round(revenue / customers) : 0,
       circles: circles.length,
-      reviews: reviews.length,
-      avgRating: reviews.length
-        ? Math.round((reviews.reduce((s, r) => s + r.rating, 0) / reviews.length) * 10) / 10
-        : null,
-      completedRate: liveOrders.length ? Math.round((completed / liveOrders.length) * 100) : 0,
-      circleVisits: visits.length,
-      visitingUsers: uniqueVisitFrom,
+      reviews: reviewCount,
+      avgRating: reviewCount ? Math.round((ratingTotal / reviewCount) * 10) / 10 : null,
+      completedRate: liveOrderCount ? Math.round((completedCount / liveOrderCount) * 100) : 0,
+      circleVisits: visitCount,
+      visitingUsers,
     },
     byHour,
     circleRanking,
-    menuRanking,
+    menuRanking: menus.map((row) => ({
+      menuName: row.menu_name, quantity: asNumber(row.quantity), revenue: asNumber(row.revenue),
+    })),
     ageBuckets,
     paymentBreakdown,
     refundBreakdown,
