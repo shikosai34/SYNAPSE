@@ -188,6 +188,30 @@ export function CircleManageModal({
               {storeAreas.map((area) => <option key={area.id} value={area.id}>{area.name}</option>)}
             </select>
           </label>
+
+          {/* 2026-10-25: イベント運営者からも、サークルごとの未登録バンド受付ルールを変更できるようにする。 */}
+          <div className="space-y-2 border-t-thin border-border pt-3">
+            <h4 className="text-[11px] font-bold">入場登録前のリストバンド</h4>
+            <label className="flex items-center justify-between gap-3 text-[11px]">
+              <span>未登録バンドの警告を表示する</span>
+              <ToggleSwitch
+                checked={draft.warnOnUnregisteredWristband}
+                onChange={(value) => setDraft((current) => ({ ...current, warnOnUnregisteredWristband: value }))}
+                disabled={saveSettings.isPending}
+                label="未登録バンドの警告を表示する"
+              />
+            </label>
+            <label className="flex items-center justify-between gap-3 text-[11px]">
+              <span>警告画面から注文を受け付ける</span>
+              <ToggleSwitch
+                checked={draft.allowUnregisteredWristbandOrder}
+                onChange={(value) => setDraft((current) => ({ ...current, allowUnregisteredWristbandOrder: value }))}
+                disabled={saveSettings.isPending}
+                label="警告画面から注文を受け付ける"
+              />
+            </label>
+            <p className="text-[10px] text-muted-foreground">警告を有効にすると、アレルギー情報と注文番号を確認できないことをレジに表示します。</p>
+          </div>
           <Button
             type="button"
             className="w-full"

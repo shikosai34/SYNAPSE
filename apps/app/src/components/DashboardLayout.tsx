@@ -57,6 +57,8 @@ interface MenuItem {
   // 指定時、この権限を持たないユーザーにはメニュー項目ごと出さない (2026-10-05)。
   // 各ページのガードと同じ権限を指定し、開いても「権限がありません」になる項目を出さないようにする。
   permission?: string;
+  // 2026-10-25: 一方の担当権限で利用できる画面を表す。配列内は OR 条件で判定する。
+  permissions?: string[];
 }
 
 // サイドメニューをカテゴリ見出し付きで表示するためのグループ単位 (2026-07-16)。
@@ -268,7 +270,7 @@ function DashboardLayoutFrame({
         { title: "注文モニタ", tab: "order-monitor", icon: MonitorCheck, permission: "order:read" },
         { title: "在庫・売り切れ", tab: "inventory", icon: Boxes, permission: "stock:read" },
         { title: "一斉アナウンス", tab: "announce", icon: Megaphone, permission: "member:write" },
-        { title: "リストバンド管理", tab: "wristbands", icon: IdCard, permission: "member:write" },
+        { title: "リストバンド管理", tab: "wristbands", icon: IdCard, permissions: ["member:write", "wristband:replace", "stamp-rally:operate"] },
         { title: "紛失バンド交換", tab: "wristband-loss", icon: ShieldAlert, permission: "wristband:replace" },
         { title: "景品交換受付", tab: "stamp-redemptions", icon: Ticket, permission: "stamp-rally:operate" },
         { title: "スタンプラリー", tab: "stamp-rally", icon: Ticket, permission: "event:write" },
@@ -347,7 +349,11 @@ function DashboardLayoutFrame({
     .map((group) => ({
       ...group,
       items: group.items.filter(
-        (item) => !item.permission || authLoading || checkPermission(item.permission as any)
+        (item) =>
+          (!item.permission && !item.permissions)
+          || authLoading
+          || (item.permission ? checkPermission(item.permission as any) : false)
+          || (item.permissions?.some((permission) => checkPermission(permission as any)) ?? false)
       ),
     }))
     .filter((group) => group.items.length > 0);

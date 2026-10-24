@@ -34,6 +34,9 @@ function NumberColumn({
         ) : ordered.map((order) => (
           <div key={order.orderNumber} className={`flex min-h-20 flex-col items-center justify-center border-thick border-foreground px-2 py-3 text-center ${tone === "ready" ? "bg-success text-white" : "bg-background"}`}>
             <span className="break-all font-mono text-2xl font-black leading-tight tabular-nums sm:text-4xl xl:text-5xl">{displayOrderNumber(order.orderNumber)}</span>
+            {order.paymentStatus === "unpaid" && (
+              <span className="mt-2 border-thick border-error bg-error px-2 py-1 font-mono text-sm font-bold text-white sm:text-base">未決済</span>
+            )}
             {tone === "preparing" && (
               <span className="mt-2 font-mono text-xs font-bold uppercase sm:text-sm">
                 {order.status === "pending" ? "受付" : "作成中"}

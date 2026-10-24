@@ -3,7 +3,7 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { CircleAuthGuard, getAuthInfo, useAuth } from "@/hooks/useCircleAuth";
-import { menuApi, toppingApi, orderApi, circleApi, eventApi, wristbandApi, preOrderApi, couponApi, discountApi, bundleDiscountApi, parseCircleSettings, parseEventPaymentMethods, activeWaitTimeReport, type MenuWithToppings, type Topping, type OrderWithItems, type RegisterDiscountOption, type RegisterDisplaySession } from "@/lib/api";
+import { menuApi, toppingApi, orderApi, circleApi, eventApi, wristbandApi, preOrderApi, couponApi, discountApi, bundleDiscountApi, parseCircleSettings, parseEventPaymentMethods, type MenuWithToppings, type Topping, type OrderWithItems, type RegisterDiscountOption, type RegisterDisplaySession, type WristbandLookupResult } from "@/lib/api";
 import { extractIdFromCode, cn } from "@/lib/utils";
 import { undoableAction } from "@/lib/toast-undo";
 import { ModSandbox } from "@/components/ModSandbox";
@@ -20,8 +20,9 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { Modal } from "@/components/ui/Modal";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { toast } from "sonner";
-import { Minus, Plus, ShoppingCart, Trash2, QrCode, X, ScanLine, Monitor, Copy, Receipt, RefreshCw } from "lucide-react";
+import { Minus, Plus, ShoppingCart, Trash2, X, ScanLine, Monitor, Copy, Receipt, RefreshCw, TriangleAlert } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { ApiError } from "@/lib/api-error";
 import { resolveAssetUrl } from "@/lib/asset-url";
@@ -218,14 +219,13 @@ function CartBody({
   cart,
   idPrefix,
   menuMap,
-  peopleCount,
   activeCustomer,
   submitting,
   onToggleTopping,
   onUpdateQuantity,
   onRemoveLine,
-  onSetPeople,
   onSubmit,
+  onRequestCustomerScan,
   onClear,
   total,
   bundleApplied,
@@ -244,14 +244,13 @@ function CartBody({
   cart: CartLine[];
   idPrefix: "desktop" | "mobile";
   menuMap: Map<string, MenuWithToppings>;
-  peopleCount: number;
-  activeCustomer: { userId: string; wristbandId: string | null; familyBandCount: number; allergies: JapaneseAllergen[] | null } | null;
+  activeCustomer: { userId: string; wristbandId: string | null; familyBandCount: number; allergies: JapaneseAllergen[] | null; isUnregistered?: boolean } | null;
   submitting: boolean;
   onToggleTopping: (lineId: string, topping: Topping) => void;
   onUpdateQuantity: (lineId: string, delta: number) => void;
   onRemoveLine: (lineId: string) => void;
-  onSetPeople: (n: number) => void;
   onSubmit: () => void;
+  onRequestCustomerScan: () => void;
   onClear: () => void;
   total: number;
   // 2026-10-23: 自動適用されるセット割引。手動割引/クーポンの割引額プレビューはこの後の金額に対して計算する。
@@ -272,7 +271,6 @@ function CartBody({
   // 支払い方法が2つ以上あるのに未選択なら確定を止める。
   const needsPayment = paymentMethods.length > 1 && !paymentMethod;
   // 2026-10-16: カート操作の状態を読み上げ可能にし、数量変更後の合計と選択状態を追えるようにする。
-  const peopleCountId = `${idPrefix}-people-count`;
   const allergyWarnings = getCartAllergyWarnings(cart, menuMap, activeCustomer?.allergies ?? null);
   return (
     // 2026-07-16: 親 (aside / モバイルのスライドアップパネル) は max-height + overflow-hidden で
@@ -380,22 +378,6 @@ function CartBody({
           このフッター自体は縮まないようにする (縮むのは上のアイテム一覧側だけにする)。
           これが無いと flex の既定 shrink:1 により極端なケースで確定ボタンごと潰れうる。 */}
       <div className="shrink-0 p-3 sm:p-4 border-t-thick border-border space-y-3 bg-background">
-        <div className="flex items-center gap-3">
-          {/* 2026-10-16: PC用とモバイル用のカートが同時にDOMへあるため、入力IDを分けてラベル先を一意にする。 */}
-          <Label htmlFor={peopleCountId} className="font-mono text-xs uppercase tracking-wider whitespace-nowrap">来店人数</Label>
-          {/* 入力中は 0/空を許容し、フォーカスを外した時に 1 未満なら 1 へ戻す
-              (min=1 だと打ち直しのたびに値が押し戻されて入力しづらいため)。 */}
-          <Input
-            id={peopleCountId}
-            type="number"
-            inputMode="numeric"
-            className="h-10 text-center font-bold border-thick border-border rounded-none"
-            value={peopleCount}
-            onChange={(e) => onSetPeople(Math.max(0, Math.trunc(Number(e.target.value)) || 0))}
-            onBlur={() => { if (peopleCount < 1) onSetPeople(1); }}
-          />
-        </div>
-        {/* 2026-10-17: 来店人数はラベルで区別し、家族バンド数との関係を説明文で繰り返さない。 */}
         {registerCoupons.length > 0 && (
           <div className="space-y-1.5">
             <Label htmlFor={`${idPrefix}-register-coupon`} className="font-mono text-xs uppercase tracking-wider">レジ専用割引券</Label>
@@ -485,22 +467,19 @@ function CartBody({
             </div>
           </div>
         )}
-        {activeCustomer && (
-          <div className="border-thick border-border bg-muted/20 p-2 text-xs font-mono">
-            <div>来場者: {activeCustomer.wristbandId ?? activeCustomer.userId}</div>
-            <div className="mt-1 font-bold">登録バンド {activeCustomer.familyBandCount}本</div>
-          </div>
+        {activeCustomer?.isUnregistered && (
+          <p className="text-xs font-bold text-error" role="status">入場登録前・アレルギー情報未確認</p>
         )}
         <OrderAllergyWarning
           warnings={allergyWarnings}
-          familyAllergies={activeCustomer?.allergies ?? null}
           enabled={!!activeCustomer && cart.length > 0}
         />
         {/* 2026-10-17: 不足状態は確定ボタンの文言に集約し、画面上部の案内と重ねない。 */}
+        {/* 2026-10-25: 来場者未選択時はこのボタンからQR読み取りを開く。 */}
         <Button
           className="w-full h-14 border-thick border-border bg-primary text-primary-foreground font-mono text-base font-black uppercase rounded-none hover:bg-background hover:text-foreground transition-all"
-          onClick={onSubmit}
-          disabled={cart.length === 0 || submitting || !activeCustomer || needsPayment}
+          onClick={() => activeCustomer ? onSubmit() : onRequestCustomerScan()}
+          disabled={cart.length === 0 || submitting || (!!activeCustomer && needsPayment)}
         >
           {submitting
             ? "確定中…"
@@ -538,8 +517,7 @@ function RegisterPageContent() {
   const registerStateKey = `fesflow:register-state:${circleId || "unselected"}`;
   const [selectedMenuCategory, setSelectedMenuCategory] = useSessionState<string | null>(`${registerStateKey}:category`, null);
   const [cart, setCart] = useSessionState<CartLine[]>(`${registerStateKey}:cart`, []);
-  const [peopleCount, setPeopleCount] = useSessionState(`${registerStateKey}:people`, 1);
-  const [isQrModalOpen, setIsQrModalOpen] = useState(false);
+  const [isClearCartConfirmOpen, setIsClearCartConfirmOpen] = useState(false);
   const [isCustomerQrModalOpen, setIsCustomerQrModalOpen] = useState(false);
   const [isCustomerDisplayModalOpen, setIsCustomerDisplayModalOpen] = useState(false);
   const [customerDisplayShare, setCustomerDisplayShare] = useState<CustomerDisplayShare | null>(null);
@@ -558,8 +536,8 @@ function RegisterPageContent() {
     window.addEventListener("resize", closeOnWideViewport);
     return () => window.removeEventListener("resize", closeOnWideViewport);
   }, [isCartPanelOpen]);
-  const [scannedCode, setScannedCode] = useState("");
-  const [activeCustomer, setActiveCustomer] = useSessionState<{ userId: string; wristbandId: string | null; familyBandCount: number; allergies: JapaneseAllergen[] | null } | null>(`${registerStateKey}:customer`, null);
+  const [activeCustomer, setActiveCustomer] = useSessionState<{ userId: string; wristbandId: string | null; familyBandCount: number; allergies: JapaneseAllergen[] | null; isUnregistered?: boolean } | null>(`${registerStateKey}:customer`, null);
+  const [pendingUnregisteredCustomer, setPendingUnregisteredCustomer] = useState<WristbandLookupResult | null>(null);
   const [mobilePaymentMethods, setMobilePaymentMethods] = useState<Record<string, string>>({});
   const [activePreOrderId, setActivePreOrderId] = useSessionState<string | null>(`${registerStateKey}:preorder`, null);
   const [activePreOrderTotalPrice, setActivePreOrderTotalPrice] = useSessionState<number | null>(`${registerStateKey}:preorder-total`, null);
@@ -593,19 +571,7 @@ function RegisterPageContent() {
     // 2026-10-07 (#9): レジ担当にも報告後30分の期限切れを画面上で反映する。
     refetchInterval: 60_000,
   });
-  // 2026-10-21: レジを離れて厨房へ移動しても、報告前の待ち時間入力を同じサークル内で保つ。
-  const [waitMinutes, setWaitMinutes] = useSessionState<string>(`${registerStateKey}:wait-minutes`, "10");
-  const waitTimeReport = activeWaitTimeReport(circle?.settings);
-  const reportWaitTime = useMutation({
-    mutationFn: () => circleApi.reportWaitTime(circleId, Number(waitMinutes)),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["circle", circleId] });
-      queryClient.invalidateQueries({ queryKey: ["circles", circle?.eventId] });
-      toast.success("待ち時間を報告しました");
-    },
-    onError: (error: any) => toast.error(error.message || "待ち時間を報告できませんでした"),
-  });
-
+  const registerSettings = parseCircleSettings(circle?.settings);
   // 支払い方法 (2026-07-12): サークルの対応方法 ∩ イベントの方法。
   // サークルが未指定ならイベントの全方法。1つだけならレジで選択させず自動採用する。
   const { data: registerEvent } = useQuery({
@@ -676,6 +642,18 @@ function RegisterPageContent() {
   // カート内トッピング編集用に menuId → メニュー(許可トッピング付き)を引けるようにする
   const menuMap = new Map((menus ?? []).map((m) => [m.id, m]));
 
+  const activateLookupCustomer = (data: WristbandLookupResult, isUnregistered = false) => {
+    setSubmittedCustomerDisplaySnapshot(null);
+    // 2026-10-25: 警告を了承した担当者の操作を経てから顧客を注文フローへ渡す。
+    setActiveCustomer({
+      userId: data.user.id,
+      wristbandId: data.wristband?.id || null,
+      familyBandCount: data.familyBandCount ?? 0,
+      allergies: parseJapaneseAllergens(data.user.allergies),
+      isUnregistered,
+    });
+  };
+
   const lookupCustomer = useMutation({
     mutationFn: async (code: string) => {
       const parsedCode = extractIdFromCode(code);
@@ -683,17 +661,13 @@ function RegisterPageContent() {
     },
     onSuccess: (data) => {
       if (data.user) {
-        setSubmittedCustomerDisplaySnapshot(null);
-        // 顧客を特定するだけ。事前オーダーのロードは activeCustomer の変化を監視する
-        // useEffect 側で行う (カメラスキャン経由でも確実に走らせるための共通化)。
-        setActiveCustomer({
-          userId: data.user.id,
-          wristbandId: data.wristband?.id || null,
-          familyBandCount: data.familyBandCount ?? 0,
-          allergies: parseJapaneseAllergens(data.user.allergies),
-        });
-        toast.success("来場者を確認しました");
-        setScannedCode("");
+        // 2026-10-25: バンド単位の onboardedAt を見て、登録前の注文に進む前に情報不足を知らせる。
+        const isUnregistered = !data.user.onboardedAt || !data.wristband?.onboardedAt;
+        if (isUnregistered && registerSettings.warnOnUnregisteredWristband) {
+          setPendingUnregisteredCustomer(data);
+          return;
+        }
+        activateLookupCustomer(data);
       } else {
         toast.error("ユーザーが見つかりませんでした");
       }
@@ -777,8 +751,9 @@ function RegisterPageContent() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeCustomer, circleId]);
 
+  // 2026-10-25: 来店人数は手入力させず、家族として紐づく有効バンド数を注文人数に使う。
   const orderInput: CreateOrderInput | null = activeCustomer ? {
-    circleId, userId: activeCustomer.userId, peopleCount,
+    circleId, userId: activeCustomer.userId, peopleCount: Math.max(1, activeCustomer.familyBandCount),
     items: cart.map((line) => ({ menuId: line.menuId, quantity: line.quantity, toppingIds: line.toppings.map((t) => t.toppingId) })),
     paymentMethod: paymentMethod || undefined,
     cashierId: getAuthInfo()?.userEmail ?? undefined,
@@ -794,7 +769,6 @@ function RegisterPageContent() {
       submittingCustomerDisplaySnapshot.current = null;
       toast.success(`注文完了！呼出番号: ${displayOrderNumber(data.orderNumber)}`);
       setCart([]);
-      setPeopleCount(1);
       setActiveCustomer(null); // 会計完了後に顧客情報をクリア
       setActivePreOrderId(null);
       setRegisterCouponId("");
@@ -830,7 +804,6 @@ function RegisterPageContent() {
         },
       });
       setCart([]);
-      setPeopleCount(1);
       setActiveCustomer(null);
       setActivePreOrderId(null);
       setRegisterCouponId("");
@@ -843,14 +816,6 @@ function RegisterPageContent() {
       toast.error(error.message || "注文確定に失敗しました");
     },
   });
-
-  const isPreOrderEnabled = () => {
-    if (!circle?.mods) return false;
-    try {
-      const parsed = JSON.parse(circle.mods);
-      return parsed.installed?.["circle-pre-order-cod"]?.enabled ?? false;
-    } catch { return false; }
-  };
 
   const getActiveMods = () => {
     if (!circle?.mods) return [];
@@ -1130,6 +1095,11 @@ function RegisterPageContent() {
     });
   };
 
+  // 2026-10-25: 商品・割引・事前注文の選択を誤操作で消さないよう、すべてのクリア操作を確認後に実行する。
+  const requestClearCart = () => {
+    if (cart.length > 0) setIsClearCartConfirmOpen(true);
+  };
+
   if (menusLoading) {
     return (
       <div className="p-4 space-y-4">
@@ -1149,21 +1119,58 @@ function RegisterPageContent() {
     );
   }
 
-  const preOrderActive = isPreOrderEnabled();
-
   return (
     <div className="relative">
-      <QrScannerModal circleId={circleId} isOpen={isQrModalOpen} onClose={() => setIsQrModalOpen(false)} />
+      {/* 2026-10-25: カートパネル (z-80) 上で読取画面を操作し、読取後の警告をさらに前面へ表示する。 */}
       <QrScannerModal
         circleId={circleId}
         isOpen={isCustomerQrModalOpen}
         onClose={() => setIsCustomerQrModalOpen(false)}
         mode="customer"
-        onCustomerScanned={(userId, wristbandId, familyBandCount, allergies) => {
-          setSubmittedCustomerDisplaySnapshot(null);
-          setActiveCustomer({ userId, wristbandId, familyBandCount, allergies: parseJapaneseAllergens(allergies) });
+        zIndexClassName="z-[90]"
+        onCustomerScanned={(userId, wristbandId) => {
+          // 2026-10-25: カメラ読取も手入力と同じ照会・未登録警告を通し、バンド状態を再確認する。
+          lookupCustomer.mutate(wristbandId || userId);
         }}
       />
+      {/* 2026-10-25: 未登録警告を、読取画面とカートパネルの両方より前に表示する。 */}
+      <Modal
+        isOpen={!!pendingUnregisteredCustomer}
+        title="[入場登録されていません]"
+        subtitle="このリストバンドは入場登録が完了していません。"
+        onClose={() => setPendingUnregisteredCustomer(null)}
+        maxWidth="md"
+        zIndexClassName="z-[100]"
+      >
+        <div role="alert" aria-live="assertive" className="space-y-3 border-heavy border-error bg-error/10 p-4 text-error">
+          <div className="flex items-start gap-3">
+            <TriangleAlert className="mt-0.5 h-6 w-6 shrink-0" aria-hidden="true" />
+            <div className="space-y-2">
+              <p className="font-headline text-base font-black">入場登録されていないリストバンドです</p>
+              <p className="text-sm font-bold leading-relaxed">アレルギー登録がされていないため、アレルギー情報を確認できません。既存の注文番号も確認できません。</p>
+              <p className="text-xs leading-relaxed">注文を受けるときは、内容を確認してから担当者の判断で続行してください。</p>
+            </div>
+          </div>
+        </div>
+        <div className="mt-4 flex flex-col-reverse gap-2 border-t-thick border-border pt-4 sm:flex-row sm:justify-end">
+          <Button type="button" variant="outline" onClick={() => setPendingUnregisteredCustomer(null)}>
+            閉じる
+          </Button>
+          {registerSettings.allowUnregisteredWristbandOrder && pendingUnregisteredCustomer && (
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={() => {
+                activateLookupCustomer(pendingUnregisteredCustomer, true);
+                setPendingUnregisteredCustomer(null);
+                toast.warning("入場登録前のリストバンドで注文を受け付けます");
+              }}
+            >
+              入場登録していないリストバンドで注文を受ける
+            </Button>
+          )}
+        </div>
+      </Modal>
       <Modal
         isOpen={isCustomerDisplayModalOpen}
         title="[お客さま用カート表示]"
@@ -1216,27 +1223,10 @@ function RegisterPageContent() {
         {/* 2026-10-16: モバイルの固定会計バーが商品ボタンを覆わないよう、バーと安全領域分の余白を予約する。 */}
         <div className="flex-1 min-w-0 p-3 pb-[calc(10rem+env(safe-area-inset-bottom))] sm:p-4 sm:pb-[calc(11rem+env(safe-area-inset-bottom))] xl:pb-4">
           {/* ヘッダーバー */}
-          <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 bg-primary p-3 sm:p-4 text-primary-foreground border-thick border-border mb-4">
-            <h1 className="font-mono text-lg sm:text-2xl font-black uppercase tracking-wider">[レジ]</h1>
-            <div className="flex gap-2 flex-wrap">
-              {preOrderActive && (
-                <Button
-                  variant="outline"
-                  onClick={() => setIsQrModalOpen(true)}
-                  className="h-10 sm:h-12 text-xs sm:text-sm uppercase tracking-wider bg-background text-foreground"
-                >
-                  <QrCode className="mr-1 sm:mr-2 h-4 w-4 sm:h-5 sm:w-5" />
-                  [QR受取 (事前注文)]
-                </Button>
-              )}
-              <Button
-                variant="outline"
-                onClick={openCustomerDisplay}
-                className="h-10 bg-background text-xs uppercase tracking-wider text-foreground sm:h-12 sm:text-sm"
-              >
-                <Monitor className="mr-1 h-4 w-4 sm:mr-2 sm:h-5 sm:w-5" />
-                [お客さま画面]
-              </Button>
+          {/* 2026-10-25: 来場者確認後の通常会計で事前注文も確定できるため、重複する専用QR受取導線を省く。 */}
+          <div className="mb-4 flex items-center justify-between gap-3 border-thick border-border bg-primary p-3 text-primary-foreground sm:p-4">
+            <h1 className="shrink-0 font-mono text-lg font-black uppercase tracking-wider sm:text-2xl">[レジ]</h1>
+            <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
               {getActiveMods().map((mod: any) => {
                 const hook = mod.manifest?.hooks?.registerAction;
                 if (!hook) return null;
@@ -1253,52 +1243,26 @@ function RegisterPageContent() {
                         if (actionType === "ADD_TO_CART") {
                           const m = menuMap.get(payload.menuId);
                           if (m) addLine(m, []);
-                        } else if (actionType === "CLEAR_CART") clearCart();
+                        } else if (actionType === "CLEAR_CART") requestClearCart();
                       }}
                     />
                   </div>
                 );
               })}
+              <Button
+                variant="outline"
+                onClick={openCustomerDisplay}
+                className="h-10 shrink-0 whitespace-nowrap bg-background text-xs uppercase tracking-wider text-foreground sm:h-12 sm:text-sm"
+              >
+                <Monitor className="mr-1 h-4 w-4 sm:mr-2 sm:h-5 sm:w-5" />
+                [お客さま画面]
+              </Button>
             </div>
           </div>
 
-          {/* 2026-10-17: レジでは現在値と更新操作だけを短く示し、有効期限の説明を重ねない。 */}
-          <section className="mb-4 border-b-thin border-border pb-3 font-mono">
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-              <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                <h2 className="text-xs font-black uppercase tracking-wider">待ち時間</h2>
-                {waitTimeReport ? (
-                  <p role="status" className="text-xs text-success">約{waitTimeReport.minutes}分待ち · {waitTimeReport.minutesAgo}分前</p>
-                ) : (
-                  <p role="status" className="text-xs text-muted-foreground">未報告</p>
-                )}
-              </div>
-              <div className="flex w-full items-center gap-2 sm:w-auto">
-                <select
-                  aria-label="待ち時間"
-                  value={waitMinutes}
-                  onChange={(event) => setWaitMinutes(event.target.value)}
-                  className="h-10 min-w-0 flex-1 border-thick border-border bg-background px-3 text-xs sm:flex-initial"
-                >
-                  {Array.from({ length: 25 }, (_, index) => index * 10).map((minutes) => (
-                    <option key={minutes} value={minutes}>{minutes === 0 ? "待ち時間なし" : `${minutes}分待ち`}</option>
-                  ))}
-                </select>
-                <Button
-                  onClick={() => reportWaitTime.mutate()}
-                  disabled={reportWaitTime.isPending}
-                  className="h-10 shrink-0 whitespace-nowrap text-xs"
-                >
-                  {reportWaitTime.isPending ? "報告中…" : "報告"}
-                </Button>
-              </div>
-            </div>
-          </section>
-
-          {/* 2026-10-17: 来場者の確認操作を一か所に集約し、状態説明は主ボタンへ置き換える。 */}
+          {/* 2026-10-25: 来場者の特定はQR読み取りだけにし、見出しと手入力検索を重ねない。 */}
           {!activeCustomer ? (
             <div className="mb-4 flex flex-col items-center justify-center gap-4 border-thick border-border bg-muted/40 p-4 text-center font-mono sm:p-6">
-              <h2 className="text-sm font-black uppercase tracking-wider">来場者を確認</h2>
               <Button
                 onClick={() => setIsCustomerQrModalOpen(true)}
                 className="flex h-auto min-h-20 w-full max-w-md flex-col gap-2 border-heavy px-8 py-5 text-base sm:w-auto"
@@ -1306,37 +1270,13 @@ function RegisterPageContent() {
                 <ScanLine className="h-12 w-12 sm:h-16 sm:w-16" />
                 <span>QRを読み取る</span>
               </Button>
-              <div className="flex items-center gap-2 w-full max-w-md">
-                <Input
-                  type="text"
-                  aria-label="QRコードまたはリストバンドID"
-                  placeholder="QR / リストバンドID"
-                  className="h-11 min-w-0 flex-1 border-thick border-border bg-background font-mono text-xs focus-visible:ring-0"
-                  value={scannedCode}
-                  onChange={(e) => setScannedCode(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      if (scannedCode.trim()) lookupCustomer.mutate(scannedCode.trim());
-                    }
-                  }}
-                />
-                <Button
-                  variant="outline"
-                  disabled={lookupCustomer.isPending || !scannedCode.trim()}
-                  onClick={() => lookupCustomer.mutate(scannedCode.trim())}
-                  className="h-11 shrink-0 border-thick border-border font-mono text-xs"
-                >
-                  {lookupCustomer.isPending ? "確認中…" : "検索"}
-                </Button>
-              </div>
             </div>
           ) : (
             <Card className="mb-4 bg-muted/40">
               <CardContent className="flex flex-col gap-3 p-3 font-mono sm:flex-row sm:items-center sm:justify-between">
-                <div className="flex items-center gap-2 text-xs font-black text-success sm:text-sm">
-                  <span className="h-2.5 w-2.5 shrink-0 bg-success" />
-                  来場者確認済み
+                <div className={`flex items-center gap-2 text-xs font-black sm:text-sm ${activeCustomer.isUnregistered ? "text-error" : "text-success"}`}>
+                  <span className={`h-2.5 w-2.5 shrink-0 ${activeCustomer.isUnregistered ? "bg-error" : "bg-success"}`} />
+                  {activeCustomer.isUnregistered ? "入場登録前のバンドで注文を受付中" : "来場者確認済み"}
                 </div>
                 <div className="flex shrink-0 items-center gap-2 self-end sm:self-auto">
                   <Button
@@ -1363,8 +1303,8 @@ function RegisterPageContent() {
             </Card>
           )}
 
-          {/* 2026-10-22: 既存のモバイル注文は新規カートと分け、注文番号と支払状態を確認して会計する。 */}
-          {activeCustomer && (
+          {/* 2026-10-22: 既存のモバイル注文は新規カートと分けて会計する。0件の時は画面を占有しない。 */}
+          {activeCustomer && ((unpaidMobileOrders.data?.length ?? 0) > 0 || (unpaidMobileOrders.isError && !unpaidMobileOrders.data)) && (
             <section aria-labelledby="unpaid-mobile-orders-title" className="mb-5 space-y-3">
               <div className="flex flex-wrap items-center justify-between gap-2 border-b-thick border-border pb-2">
                 <h2 id="unpaid-mobile-orders-title" className="flex items-center gap-2 text-sm font-black uppercase tracking-wider">
@@ -1381,20 +1321,8 @@ function RegisterPageContent() {
                   {unpaidMobileOrders.isFetching ? "更新中…" : "一覧を更新"}
                 </Button>
               </div>
-              <p className="border-l-4 border-warning bg-warning/10 px-3 py-2 text-xs leading-relaxed">
-                注文はすでに厨房へ登録されています。下の明細を会計してください。注文をカートに入れ直す必要はありません。
-              </p>
-
-              {unpaidMobileOrders.isError ? (
+              {unpaidMobileOrders.isError && !unpaidMobileOrders.data ? (
                 <ErrorState error={unpaidMobileOrders.error} onRetry={() => void unpaidMobileOrders.refetch()} />
-              ) : unpaidMobileOrders.isLoading ? (
-                <div className="space-y-2" aria-label="未会計注文を読み込み中">
-                  <Skeleton className="h-28 w-full" />
-                </div>
-              ) : (unpaidMobileOrders.data ?? []).length === 0 ? (
-                <div className="border-thick border-border bg-background px-4 py-5 text-center text-sm text-muted-foreground">
-                  この来場者の未会計モバイル注文はありません。
-                </div>
               ) : (
                 <div className="space-y-3">
                   {(unpaidMobileOrders.data ?? []).map((mobileOrder: OrderWithItems) => {
@@ -1503,7 +1431,7 @@ function RegisterPageContent() {
                     if (actionType === "ADD_TO_CART") {
                       const m = menuMap.get(payload.menuId);
                       if (m) addLine(m, []);
-                    } else if (actionType === "CLEAR_CART") clearCart();
+                    } else if (actionType === "CLEAR_CART") requestClearCart();
                   }}
                 />
               </div>
@@ -1528,15 +1456,14 @@ function RegisterPageContent() {
             cart={cart}
             idPrefix="desktop"
             menuMap={menuMap}
-            peopleCount={peopleCount}
             activeCustomer={activeCustomer}
             submitting={createOrder.isPending || claimOrder.isPending}
             onToggleTopping={toggleTopping}
             onUpdateQuantity={updateQuantity}
             onRemoveLine={removeLine}
-            onSetPeople={setPeopleCount}
             onSubmit={handleSubmitOrder}
-            onClear={clearCart}
+            onRequestCustomerScan={() => setIsCustomerQrModalOpen(true)}
+            onClear={requestClearCart}
             total={getTotalPrice()}
             bundleApplied={bundleResult.applied}
             bundleDiscountAmount={bundleResult.totalDiscount}
@@ -1602,15 +1529,14 @@ function RegisterPageContent() {
               cart={cart}
               idPrefix="mobile"
               menuMap={menuMap}
-              peopleCount={peopleCount}
               activeCustomer={activeCustomer}
               submitting={createOrder.isPending || claimOrder.isPending}
               onToggleTopping={toggleTopping}
               onUpdateQuantity={updateQuantity}
               onRemoveLine={removeLine}
-              onSetPeople={setPeopleCount}
               onSubmit={handleSubmitOrder}
-              onClear={clearCart}
+              onRequestCustomerScan={() => setIsCustomerQrModalOpen(true)}
+              onClear={requestClearCart}
               total={getTotalPrice()}
               bundleApplied={bundleResult.applied}
               bundleDiscountAmount={bundleResult.totalDiscount}
@@ -1628,6 +1554,17 @@ function RegisterPageContent() {
           </div>
         </div>
       ), document.body)}
+      <ConfirmDialog
+        isOpen={isClearCartConfirmOpen}
+        title="カートをクリアしますか？"
+        description="カート内の商品と割引設定をクリアします。この操作は取り消せます。"
+        confirmLabel="カートをクリア"
+        onConfirm={() => {
+          clearCart();
+          setIsClearCartConfirmOpen(false);
+        }}
+        onCancel={() => setIsClearCartConfirmOpen(false)}
+      />
     </div>
   );
 }

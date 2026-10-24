@@ -8,6 +8,7 @@ import {
   parseCircleSettings,
   parseEventPaymentMethods,
   parseStoreAreas,
+  activeWaitTimeReport,
   type CircleReviewPublicationSettings,
   type OrderFlowMode,
 } from "@/lib/api";
@@ -92,6 +93,16 @@ function CircleSettingsContent() {
   // 対応する支払い方法 (2026-07-12)。イベントの paymentMethods の部分集合。
   const [acceptedPayments, setAcceptedPayments] = useState<string[]>([]);
   const [storeAreaId, setStoreAreaId] = useState<string | null>(null);
+  // 2026-10-25: 待ち時間報告をレジから設定画面へ移し、保存済み設定とは独立して即時報告する。
+  const [waitMinutes, setWaitMinutes] = useState("10");
+  const [lastWaitTimeReport, setLastWaitTimeReport] = useState<{
+    circleId: string;
+    minutes: number;
+    reportedAt: string;
+  } | null>(null);
+  // 2026-10-25: 未登録バンドはアレルギーと既存注文を確認できないため、警告と注文許可を個別設定する。
+  const [warnOnUnregisteredWristband, setWarnOnUnregisteredWristband] = useState(true);
+  const [allowUnregisteredWristbandOrder, setAllowUnregisteredWristbandOrder] = useState(false);
   const [reviewPublication, setReviewPublication] = useState<CircleReviewPublicationSettings>({
     publishReviews: false,
     showAverageRating: false,
@@ -108,6 +119,8 @@ function CircleSettingsContent() {
     staffEnabled: false,
     acceptedPayments: [] as string[],
     storeAreaId: null as string | null,
+    warnOnUnregisteredWristband: true,
+    allowUnregisteredWristbandOrder: false,
     reviewPublication: {
       publishReviews: false,
       showAverageRating: false,
@@ -160,6 +173,8 @@ function CircleSettingsContent() {
       setStaffEnabled(s.extensions.staff);
       setAcceptedPayments(s.acceptedPayments);
       setStoreAreaId(s.storeAreaId);
+      setWarnOnUnregisteredWristband(s.warnOnUnregisteredWristband);
+      setAllowUnregisteredWristbandOrder(s.allowUnregisteredWristbandOrder);
       setReviewPublication(s.reviewPublication);
       setSettingsSnapshot({
         orderFlowMode: s.orderFlowMode,
@@ -169,6 +184,8 @@ function CircleSettingsContent() {
         staffEnabled: s.extensions.staff,
         acceptedPayments: s.acceptedPayments,
         storeAreaId: s.storeAreaId,
+        warnOnUnregisteredWristband: s.warnOnUnregisteredWristband,
+        allowUnregisteredWristbandOrder: s.allowUnregisteredWristbandOrder,
         reviewPublication: s.reviewPublication,
       });
     }
@@ -182,6 +199,21 @@ function CircleSettingsContent() {
   });
   const eventPayments = parseEventPaymentMethods(eventData?.paymentMethods);
   const eventStoreAreas = parseStoreAreas(eventData?.storeAreas);
+  const waitTimeReport = lastWaitTimeReport?.circleId === circleId
+    ? activeWaitTimeReport(JSON.stringify({ waitTimeReport: lastWaitTimeReport }))
+    : activeWaitTimeReport(circle?.settings);
+
+  // 2026-10-25: 報告は運用設定の下書きを再取得で消さないよう、サークル詳細を無効化せず
+  // 来場者向け一覧だけ更新する。現在画面の報告値はAPI応答で即時反映する。
+  const reportWaitTime = useMutation({
+    mutationFn: () => circleApi.reportWaitTime(circleId, Number(waitMinutes)),
+    onSuccess: (result) => {
+      setLastWaitTimeReport({ circleId, ...result.waitTimeReport });
+      queryClient.invalidateQueries({ queryKey: ["circles", circle?.eventId] });
+      toast.success("待ち時間を報告しました");
+    },
+    onError: (error: any) => toast.error(error.message || "待ち時間を報告できませんでした"),
+  });
 
   const updateCircle = useMutation({
     mutationFn: async (input: {
@@ -213,7 +245,8 @@ function CircleSettingsContent() {
 
   // 「運用設定」の保存。circleApi.updateSettings は settings カラムを丸ごと上書きするため、
   // 注文モード・拡張機能・支払い方法・レビュー公開設定を常にまとめて送る。旧stock値も後方互換用に保持する。
-  const settingsDraft = { orderFlowMode, preOrderEnabled, mobileOrderEnabled, stockEnabled, staffEnabled, acceptedPayments, storeAreaId, reviewPublication };
+  // 2026-10-25: JSON.stringify による dirty 判定を使うため、snapshot とキー順を一致させる。
+  const settingsDraft = { orderFlowMode, preOrderEnabled, mobileOrderEnabled, stockEnabled, staffEnabled, acceptedPayments, storeAreaId, warnOnUnregisteredWristband, allowUnregisteredWristbandOrder, reviewPublication };
   const updateSettings = useMutation({
     mutationFn: async (draft: typeof settingsDraft) =>
       circleApi.updateSettings(circleId, {
@@ -225,6 +258,8 @@ function CircleSettingsContent() {
         acceptedPayments: draft.acceptedPayments.filter((p) => eventPayments.includes(p)),
         storeAreaId: draft.storeAreaId,
         reviewPublication: draft.reviewPublication,
+        warnOnUnregisteredWristband: draft.warnOnUnregisteredWristband,
+        allowUnregisteredWristbandOrder: draft.allowUnregisteredWristbandOrder,
       }),
     onSuccess: (_result, draft) => {
       toast.success("運用設定を保存しました");
@@ -307,6 +342,8 @@ function CircleSettingsContent() {
       setAcceptedPayments(settingsSnapshot.acceptedPayments);
       setStoreAreaId(settingsSnapshot.storeAreaId);
       setReviewPublication(settingsSnapshot.reviewPublication);
+      setWarnOnUnregisteredWristband(settingsSnapshot.warnOnUnregisteredWristband);
+      setAllowUnregisteredWristbandOrder(settingsSnapshot.allowUnregisteredWristbandOrder);
     },
   });
 
@@ -421,6 +458,49 @@ function CircleSettingsContent() {
           </CardContent>
         </Card>
 
+        {/* 2026-10-25: 待ち時間は営業中に設定画面から随時報告する。保存済み設定の一括保存とは分離する。 */}
+        <Card className="rounded-none shadow-none">
+          <CardHeader className="pb-3 border-b-thick border-border">
+            <CardTitle className="text-sm font-bold uppercase">待ち時間報告</CardTitle>
+            <CardDescription className="text-xs text-muted-foreground">
+              来場者に表示する現在の待ち時間を報告します。報告は30分間、現在値として表示されます。
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-4 pt-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="space-y-1">
+              {waitTimeReport ? (
+                <p role="status" className="text-xs font-bold text-success">
+                  約{waitTimeReport.minutes}分待ち · {waitTimeReport.minutesAgo}分前に報告
+                </p>
+              ) : (
+                <p role="status" className="text-xs text-muted-foreground">未報告</p>
+              )}
+              <p className="text-[11px] text-muted-foreground">待ち時間なしを報告する場合は「0分」を選んでください。</p>
+            </div>
+            <div className="flex w-full items-center gap-2 sm:w-auto">
+              <Label htmlFor="wait-time-minutes" className="sr-only">待ち時間</Label>
+              <select
+                id="wait-time-minutes"
+                aria-label="待ち時間"
+                value={waitMinutes}
+                onChange={(event) => setWaitMinutes(event.target.value)}
+                className="h-10 min-w-0 flex-1 border-thick border-border bg-background px-3 text-xs sm:flex-initial"
+              >
+                {Array.from({ length: 25 }, (_, index) => index * 10).map((minutes) => (
+                  <option key={minutes} value={minutes}>{minutes === 0 ? "待ち時間なし" : `${minutes}分待ち`}</option>
+                ))}
+              </select>
+              <Button
+                onClick={() => reportWaitTime.mutate()}
+                disabled={reportWaitTime.isPending}
+                className="h-10 shrink-0 whitespace-nowrap text-xs"
+              >
+                {reportWaitTime.isPending ? "報告中…" : "報告"}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
         {/*
           運用設定 (注文モード + 拡張機能 + 支払い方法)
           2026-07-16: circleApi.updateSettings は circle.settings カラムを丸ごと上書きする1本のAPIで、
@@ -479,6 +559,28 @@ function CircleSettingsContent() {
                   onToggle={() => setMobileOrderEnabled((value) => !value)}
                 />
               </div>
+            </div>
+
+            {/* 2026-10-25: 注文前に入場登録状態と情報不足を確認し、例外注文はサークルごとに明示許可する。 */}
+            <div className="space-y-3 border-t-thin border-border pt-4">
+              <div>
+                <h3 className="text-xs font-bold uppercase tracking-wider">入場登録前のリストバンド</h3>
+                <p className="mt-1 text-[11px] text-muted-foreground">入場登録前のバンドを読み取ったときのレジ表示と注文受付を設定します。</p>
+              </div>
+              <ExtensionToggle
+                icon={UserCheck}
+                label="未登録バンドの警告を表示する"
+                description="有効にすると、入場登録前のバンドを読み取ったときにアレルギー情報と注文番号を確認できない旨を表示します。"
+                enabled={warnOnUnregisteredWristband}
+                onToggle={() => setWarnOnUnregisteredWristband((value) => !value)}
+              />
+              <ExtensionToggle
+                icon={ShoppingCart}
+                label="警告画面から注文を受け付ける"
+                description="有効にすると、警告の下に担当者が確認して注文を続けるボタンを表示します。"
+                enabled={allowUnregisteredWristbandOrder}
+                onToggle={() => setAllowUnregisteredWristbandOrder((value) => !value)}
+              />
             </div>
 
             {/* 2026-09-27: 商品在庫管理は組み込みのため商品フォームから個別に設定する。 */}

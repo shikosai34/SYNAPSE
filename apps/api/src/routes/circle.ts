@@ -243,6 +243,9 @@ circleRoutes.post(
         extensions: z.object({ stock: z.boolean().optional(), staff: z.boolean().optional() }).optional(),
         acceptedPayments: z.array(z.string().trim().min(1).max(30)).max(20).optional(),
         storeAreaId: z.string().nullable().optional(),
+        // 2026-10-25: 新規サークルの未登録バンド警告と例外注文も作成時に保存する。
+        warnOnUnregisteredWristband: z.boolean().optional(),
+        allowUnregisteredWristbandOrder: z.boolean().optional(),
       }).optional(),
       // 2026-07-12 (SaaS): サークル作成は「そのイベントの event_manager」か
       // 「サークルホスト招待 (circle_host)」のどちらかが必要。招待経由の場合はここに token を渡す。
@@ -368,6 +371,9 @@ circleRoutes.post(
       },
       acceptedPayments,
       storeAreaId: selectedAreaId,
+      // 2026-10-25: 新規サークルも未登録警告を既定表示し、注文許可は明示設定にする。
+      warnOnUnregisteredWristband: input.settings?.warnOnUnregisteredWristband ?? true,
+      allowUnregisteredWristbandOrder: input.settings?.allowUnregisteredWristbandOrder ?? false,
     });
     const statements = [];
     if (hostInvite && inviteUseGuardId) {
@@ -582,6 +588,19 @@ circleRoutes.patch(
       typeof settings.preOrderEnabled !== "boolean"
     ) {
       apiError("BAD_REQUEST", "事前注文の設定が正しくありません");
+    }
+    // 2026-10-25: 警告と例外注文は真偽値だけ保存し、壊れた JSON 設定をレジ判定へ流さない。
+    if (
+      Object.prototype.hasOwnProperty.call(settings, "warnOnUnregisteredWristband") &&
+      typeof settings.warnOnUnregisteredWristband !== "boolean"
+    ) {
+      apiError("BAD_REQUEST", "未登録バンド警告の設定が正しくありません");
+    }
+    if (
+      Object.prototype.hasOwnProperty.call(settings, "allowUnregisteredWristbandOrder") &&
+      typeof settings.allowUnregisteredWristbandOrder !== "boolean"
+    ) {
+      apiError("BAD_REQUEST", "未登録バンド注文の設定が正しくありません");
     }
 
     if (Object.prototype.hasOwnProperty.call(settings, "orderNumberDisplay")) {

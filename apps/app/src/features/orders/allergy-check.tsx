@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { parseJapaneseAllergens, type JapaneseAllergen } from "@fesflow/config/allergens";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/Modal";
+import { ArrowUpRight } from "lucide-react";
 import type { CartLine } from "./cart";
 
 type AllergenTopping = { id: string; name: string; allergens: string | null };
@@ -54,66 +55,50 @@ export function getCartAllergyWarnings(
 
 export function OrderAllergyWarning({
   warnings,
-  familyAllergies,
   enabled,
 }: {
   warnings: CartAllergyWarning[];
-  familyAllergies: JapaneseAllergen[] | null;
   enabled: boolean;
 }) {
-  const [dismissedMenuMatchSignature, setDismissedMenuMatchSignature] = useState("");
-  const menuMatches = warnings.filter((warning) => warning.menuMatches.length > 0);
-  const toppingMatches = warnings.filter((warning) => warning.toppingMatches.length > 0);
-  const unregistered = [...new Set(warnings.flatMap((warning) => warning.unregistered))];
-  const profileMissing = familyAllergies === null;
-  const menuMatchSignature = menuMatches
-    .map((warning) => `${warning.lineId}:${warning.menuMatches.join(",")}`)
-    .join("|");
-  useEffect(() => {
-    if (!enabled || menuMatchSignature === "") setDismissedMenuMatchSignature("");
-  }, [enabled, menuMatchSignature]);
+  const [isDetailsOpen, setIsDetailsOpen] = useState(false);
+  const matches = warnings.filter((warning) => warning.menuMatches.length > 0 || warning.toppingMatches.length > 0);
   if (!enabled) return null;
-  const showMenuMatchDialog = menuMatchSignature !== "" && menuMatchSignature !== dismissedMenuMatchSignature;
-  if (!profileMissing && toppingMatches.length === 0 && unregistered.length === 0 && !showMenuMatchDialog) return null;
+  if (matches.length === 0) return null;
 
   return (
     <>
-      {(profileMissing || toppingMatches.length > 0 || unregistered.length > 0) && (
-        <div role="alert" className="border-thick border-warning bg-warning/10 p-3 text-xs space-y-1.5">
-          <p className="font-black">アレルギー情報を確認してください</p>
-          {profileMissing && <p>家族アレルギーが未登録です。マイページで申告してください。</p>}
-          {toppingMatches.map((warning) => (
-            <p key={warning.lineId}>
-              {warning.menuName}: 登録したアレルギーとトッピングが一致（{warning.toppingMatches.join("・")}）
-            </p>
-          ))}
-          {unregistered.length > 0 && (
-            <p>アレルゲン情報未登録: {unregistered.join("・")}。提供元に確認してください。</p>
-          )}
-        </div>
-      )}
-      {/* 2026-10-21: 主メニュー本体の一致は見落としにくい赤いモーダルで伝え、確認後に注文内容へ戻れるようにする。 */}
+      {/* 2026-10-25: 来場者状態の注意と重複する説明をなくし、一致商品がある場合だけ要約と詳細導線を出す。 */}
+      <div role="alert" className="flex flex-wrap items-center justify-between gap-2 border-thick border-destructive bg-destructive/10 p-3 text-xs">
+        <p className="font-bold">登録済みのアレルギーに該当する商品があります。</p>
+        <Button type="button" variant="outline" className="min-h-9 gap-1 border-thick border-destructive px-2 text-xs" onClick={() => setIsDetailsOpen(true)}>
+          詳しくはこちら <ArrowUpRight aria-hidden="true" className="h-3.5 w-3.5" />
+        </Button>
+      </div>
       <Modal
-        isOpen={showMenuMatchDialog}
-        onClose={() => setDismissedMenuMatchSignature(menuMatchSignature)}
+        isOpen={isDetailsOpen}
+        onClose={() => setIsDetailsOpen(false)}
         title="[アレルギー警告]"
         maxWidth="md"
       >
-        <div role="alert" className="space-y-3 border-thick border-destructive bg-destructive p-4 text-sm font-bold text-white">
-          <p>メニューに登録したアレルギーが含まれています。注文前に内容を確認してください。</p>
-          {menuMatches.map((warning) => (
-            <p key={warning.lineId}>
-              {warning.menuName}: {warning.menuMatches.join("・")}
-            </p>
-          ))}
+        <div role="alert" className="space-y-3 border-thick border-destructive bg-destructive/10 p-4 text-sm">
+          <p className="font-bold">登録済みのアレルギーに該当する商品があります。注文前に内容を確認してください。</p>
+          <ul className="space-y-2">
+            {matches.map((warning) => (
+              <li key={warning.lineId} className="border-t border-destructive/30 pt-2">
+                <p className="font-bold">{warning.menuName}</p>
+                {warning.menuMatches.length > 0 && <p>メニュー本体: {warning.menuMatches.join("・")}</p>}
+                {warning.toppingMatches.length > 0 && <p>トッピング: {warning.toppingMatches.join("・")}</p>}
+              </li>
+            ))}
+          </ul>
         </div>
         <Button
           type="button"
-          variant="destructive"
+          variant="outline"
           className="w-full min-h-11"
-          onClick={() => setDismissedMenuMatchSignature(menuMatchSignature)}
+          onClick={() => setIsDetailsOpen(false)}
         >
-          確認しました
+          閉じる
         </Button>
       </Modal>
     </>

@@ -23,6 +23,8 @@ interface QrScannerModalProps {
   onOrderClaimed?: (orderNumber: string) => void;
   mode?: "pre_order" | "customer";
   onCustomerScanned?: (userId: string, wristbandId: string | null, familyBandCount: number, allergies: string | null, wristbandStatus?: string | null) => void;
+  // 2026-10-25: レジのカートなど別のモーダルより前に出す必要がある呼び出し元だけ重なり順を調整する。
+  zIndexClassName?: string;
 }
 
 export function QrScannerModal({
@@ -32,6 +34,7 @@ export function QrScannerModal({
   onOrderClaimed,
   mode = "pre_order",
   onCustomerScanned,
+  zIndexClassName = "z-[80]",
 }: QrScannerModalProps) {
   useBodyScrollLock(isOpen);
   const [scannedCode, setScannedCode] = useState("");
@@ -167,7 +170,7 @@ export function QrScannerModal({
     },
     onSuccess: (data) => {
       if (data.user) {
-        toast.success(`顧客を特定しました: ${data.wristband?.id || data.user.id}`);
+        // 2026-10-25: 読取後はレジ画面の来場者状態に反映されるため、ID付き成功通知は重ねない。
         if (onCustomerScanned) {
           onCustomerScanned(data.user.id, data.wristband?.id || null, data.familyBandCount ?? 0, data.user.allergies ?? null, data.wristband?.status ?? null);
         }
@@ -240,7 +243,7 @@ export function QrScannerModal({
   // 2026-10-21: カメラ付きスキャナーも親の overflow/stacking context から独立させる。
   return createPortal((
     // 2026-10-20: 新しい登録フォームからも使うため、スキャナーを読み上げ可能なモーダルとして明示する。
-    <div role="dialog" aria-modal="true" aria-labelledby="qr-scanner-title" className="viewport-safe-area fixed inset-0 z-[80] flex items-center justify-center overflow-y-auto bg-foreground/80 backdrop-blur-sm">
+    <div role="dialog" aria-modal="true" aria-labelledby="qr-scanner-title" className={`viewport-safe-area fixed inset-0 ${zIndexClassName} flex items-center justify-center overflow-y-auto bg-foreground/80 backdrop-blur-sm`}>
       {/* RawBlock モーダルコンテナ */}
       <div className="relative max-h-full w-full min-w-0 max-w-2xl overflow-y-auto overscroll-contain border-heavy border-border bg-background p-3 shadow-none sm:p-6">
         {/* ヘッダー */}
