@@ -1121,22 +1121,26 @@ function RegisterPageContent() {
 
   return (
     <div className="relative">
+      {/* 2026-10-25: カートパネル (z-80) 上で読取画面を操作し、読取後の警告をさらに前面へ表示する。 */}
       <QrScannerModal
         circleId={circleId}
         isOpen={isCustomerQrModalOpen}
         onClose={() => setIsCustomerQrModalOpen(false)}
         mode="customer"
+        zIndexClassName="z-[90]"
         onCustomerScanned={(userId, wristbandId) => {
           // 2026-10-25: カメラ読取も手入力と同じ照会・未登録警告を通し、バンド状態を再確認する。
           lookupCustomer.mutate(wristbandId || userId);
         }}
       />
+      {/* 2026-10-25: 未登録警告を、読取画面とカートパネルの両方より前に表示する。 */}
       <Modal
         isOpen={!!pendingUnregisteredCustomer}
         title="[入場登録されていません]"
         subtitle="このリストバンドは入場登録が完了していません。"
         onClose={() => setPendingUnregisteredCustomer(null)}
         maxWidth="md"
+        zIndexClassName="z-[100]"
       >
         <div role="alert" aria-live="assertive" className="space-y-3 border-heavy border-error bg-error/10 p-4 text-error">
           <div className="flex items-start gap-3">
