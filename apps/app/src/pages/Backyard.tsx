@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { ToggleSwitch } from "@/components/ui/ToggleSwitch";
 import { toast } from "sonner";
 import { ChevronDown, Monitor } from "lucide-react";
 import { SwipeableOrderStack, type SwipeableOrder } from "@/components/pos/SwipeableOrderStack";
@@ -310,6 +311,11 @@ function BackyardPageContent() {
       <div className="flex flex-row items-center justify-between gap-2 border-b-thick border-border pb-3">
         <h1 className="whitespace-nowrap text-lg font-headline uppercase tracking-tight sm:text-3xl">厨房管理</h1>
         <div className="flex shrink-0 gap-1 sm:gap-2">
+          {/* 2026-10-25: 会計確認の切替を番号表示の横に置き、厨房一覧のどの状態でもすぐ操作できるようにする。 */}
+          <div className="flex h-10 shrink-0 items-center gap-1 px-1 font-mono text-[10px] font-bold sm:gap-2 sm:px-2 sm:text-xs">
+            <span>未決済のみ</span>
+            <ToggleSwitch checked={showUnpaidOnly} onChange={setShowUnpaidOnly} label="未決済注文のみ表示" />
+          </div>
           <Button
             onClick={openOrderNumberDisplay}
             variant="outline"
@@ -377,14 +383,6 @@ function BackyardPageContent() {
             </DropdownMenuRadioGroup>
           </DropdownMenuContent>
         </DropdownMenu>
-        <Button
-          variant={showUnpaidOnly ? "default" : "outline"}
-          aria-pressed={showUnpaidOnly}
-          onClick={() => setShowUnpaidOnly((value) => !value)}
-          className="border-thick border-warning rounded-none font-mono uppercase text-xs sm:text-sm"
-        >
-          未決済のみ
-        </Button>
       </div>
 
       {/* 注文一覧 */}
