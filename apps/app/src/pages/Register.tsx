@@ -3,7 +3,7 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { CircleAuthGuard, getAuthInfo, useAuth } from "@/hooks/useCircleAuth";
-import { menuApi, toppingApi, orderApi, circleApi, eventApi, wristbandApi, preOrderApi, couponApi, discountApi, bundleDiscountApi, parseCircleSettings, parseEventPaymentMethods, activeWaitTimeReport, type MenuWithToppings, type Topping, type OrderWithItems, type RegisterDiscountOption, type RegisterDisplaySession, type WristbandLookupResult } from "@/lib/api";
+import { menuApi, toppingApi, orderApi, circleApi, eventApi, wristbandApi, preOrderApi, couponApi, discountApi, bundleDiscountApi, parseCircleSettings, parseEventPaymentMethods, type MenuWithToppings, type Topping, type OrderWithItems, type RegisterDiscountOption, type RegisterDisplaySession, type WristbandLookupResult } from "@/lib/api";
 import { extractIdFromCode, cn } from "@/lib/utils";
 import { undoableAction } from "@/lib/toast-undo";
 import { ModSandbox } from "@/components/ModSandbox";
@@ -595,19 +595,6 @@ function RegisterPageContent() {
     refetchInterval: 60_000,
   });
   const registerSettings = parseCircleSettings(circle?.settings);
-  // 2026-10-21: レジを離れて厨房へ移動しても、報告前の待ち時間入力を同じサークル内で保つ。
-  const [waitMinutes, setWaitMinutes] = useSessionState<string>(`${registerStateKey}:wait-minutes`, "10");
-  const waitTimeReport = activeWaitTimeReport(circle?.settings);
-  const reportWaitTime = useMutation({
-    mutationFn: () => circleApi.reportWaitTime(circleId, Number(waitMinutes)),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["circle", circleId] });
-      queryClient.invalidateQueries({ queryKey: ["circles", circle?.eventId] });
-      toast.success("待ち時間を報告しました");
-    },
-    onError: (error: any) => toast.error(error.message || "待ち時間を報告できませんでした"),
-  });
-
   // 支払い方法 (2026-07-12): サークルの対応方法 ∩ イベントの方法。
   // サークルが未指定ならイベントの全方法。1つだけならレジで選択させず自動採用する。
   const { data: registerEvent } = useQuery({
@@ -1290,39 +1277,6 @@ function RegisterPageContent() {
               </Button>
             </div>
           </div>
-
-          {/* 2026-10-17: レジでは現在値と更新操作だけを短く示し、有効期限の説明を重ねない。 */}
-          <section className="mb-4 border-b-thin border-border pb-3 font-mono">
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-              <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                <h2 className="text-xs font-black uppercase tracking-wider">待ち時間</h2>
-                {waitTimeReport ? (
-                  <p role="status" className="text-xs text-success">約{waitTimeReport.minutes}分待ち · {waitTimeReport.minutesAgo}分前</p>
-                ) : (
-                  <p role="status" className="text-xs text-muted-foreground">未報告</p>
-                )}
-              </div>
-              <div className="flex w-full items-center gap-2 sm:w-auto">
-                <select
-                  aria-label="待ち時間"
-                  value={waitMinutes}
-                  onChange={(event) => setWaitMinutes(event.target.value)}
-                  className="h-10 min-w-0 flex-1 border-thick border-border bg-background px-3 text-xs sm:flex-initial"
-                >
-                  {Array.from({ length: 25 }, (_, index) => index * 10).map((minutes) => (
-                    <option key={minutes} value={minutes}>{minutes === 0 ? "待ち時間なし" : `${minutes}分待ち`}</option>
-                  ))}
-                </select>
-                <Button
-                  onClick={() => reportWaitTime.mutate()}
-                  disabled={reportWaitTime.isPending}
-                  className="h-10 shrink-0 whitespace-nowrap text-xs"
-                >
-                  {reportWaitTime.isPending ? "報告中…" : "報告"}
-                </Button>
-              </div>
-            </div>
-          </section>
 
           {/* 2026-10-17: 来場者の確認操作を一か所に集約し、状態説明は主ボタンへ置き換える。 */}
           {!activeCustomer ? (

@@ -8,6 +8,7 @@ import {
   parseCircleSettings,
   parseEventPaymentMethods,
   parseStoreAreas,
+  activeWaitTimeReport,
   type CircleReviewPublicationSettings,
   type OrderFlowMode,
 } from "@/lib/api";
@@ -92,6 +93,13 @@ function CircleSettingsContent() {
   // 対応する支払い方法 (2026-07-12)。イベントの paymentMethods の部分集合。
   const [acceptedPayments, setAcceptedPayments] = useState<string[]>([]);
   const [storeAreaId, setStoreAreaId] = useState<string | null>(null);
+  // 2026-10-25: 待ち時間報告をレジから設定画面へ移し、保存済み設定とは独立して即時報告する。
+  const [waitMinutes, setWaitMinutes] = useState("10");
+  const [lastWaitTimeReport, setLastWaitTimeReport] = useState<{
+    circleId: string;
+    minutes: number;
+    reportedAt: string;
+  } | null>(null);
   // 2026-10-25: 未登録バンドはアレルギーと既存注文を確認できないため、警告と注文許可を個別設定する。
   const [warnOnUnregisteredWristband, setWarnOnUnregisteredWristband] = useState(true);
   const [allowUnregisteredWristbandOrder, setAllowUnregisteredWristbandOrder] = useState(false);
@@ -191,6 +199,21 @@ function CircleSettingsContent() {
   });
   const eventPayments = parseEventPaymentMethods(eventData?.paymentMethods);
   const eventStoreAreas = parseStoreAreas(eventData?.storeAreas);
+  const waitTimeReport = lastWaitTimeReport?.circleId === circleId
+    ? activeWaitTimeReport(JSON.stringify({ waitTimeReport: lastWaitTimeReport }))
+    : activeWaitTimeReport(circle?.settings);
+
+  // 2026-10-25: 報告は運用設定の下書きを再取得で消さないよう、サークル詳細を無効化せず
+  // 来場者向け一覧だけ更新する。現在画面の報告値はAPI応答で即時反映する。
+  const reportWaitTime = useMutation({
+    mutationFn: () => circleApi.reportWaitTime(circleId, Number(waitMinutes)),
+    onSuccess: (result) => {
+      setLastWaitTimeReport({ circleId, ...result.waitTimeReport });
+      queryClient.invalidateQueries({ queryKey: ["circles", circle?.eventId] });
+      toast.success("待ち時間を報告しました");
+    },
+    onError: (error: any) => toast.error(error.message || "待ち時間を報告できませんでした"),
+  });
 
   const updateCircle = useMutation({
     mutationFn: async (input: {
@@ -430,6 +453,49 @@ function CircleSettingsContent() {
               >
                 <Save className="mr-2 h-4 w-4" />
                 {updateCircle.isPending ? "保存中..." : "変更を保存"}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* 2026-10-25: 待ち時間は営業中に設定画面から随時報告する。保存済み設定の一括保存とは分離する。 */}
+        <Card className="rounded-none shadow-none">
+          <CardHeader className="pb-3 border-b-thick border-border">
+            <CardTitle className="text-sm font-bold uppercase">待ち時間報告</CardTitle>
+            <CardDescription className="text-xs text-muted-foreground">
+              来場者に表示する現在の待ち時間を報告します。報告は30分間、現在値として表示されます。
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-4 pt-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="space-y-1">
+              {waitTimeReport ? (
+                <p role="status" className="text-xs font-bold text-success">
+                  約{waitTimeReport.minutes}分待ち · {waitTimeReport.minutesAgo}分前に報告
+                </p>
+              ) : (
+                <p role="status" className="text-xs text-muted-foreground">未報告</p>
+              )}
+              <p className="text-[11px] text-muted-foreground">待ち時間なしを報告する場合は「0分」を選んでください。</p>
+            </div>
+            <div className="flex w-full items-center gap-2 sm:w-auto">
+              <Label htmlFor="wait-time-minutes" className="sr-only">待ち時間</Label>
+              <select
+                id="wait-time-minutes"
+                aria-label="待ち時間"
+                value={waitMinutes}
+                onChange={(event) => setWaitMinutes(event.target.value)}
+                className="h-10 min-w-0 flex-1 border-thick border-border bg-background px-3 text-xs sm:flex-initial"
+              >
+                {Array.from({ length: 25 }, (_, index) => index * 10).map((minutes) => (
+                  <option key={minutes} value={minutes}>{minutes === 0 ? "待ち時間なし" : `${minutes}分待ち`}</option>
+                ))}
+              </select>
+              <Button
+                onClick={() => reportWaitTime.mutate()}
+                disabled={reportWaitTime.isPending}
+                className="h-10 shrink-0 whitespace-nowrap text-xs"
+              >
+                {reportWaitTime.isPending ? "報告中…" : "報告"}
               </Button>
             </div>
           </CardContent>
