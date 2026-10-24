@@ -126,6 +126,7 @@ function KitchenOrderCard({
 }) {
   const actionTimer = useRef<number | null>(null);
   const [exitDirection, setExitDirection] = useState<"up" | "down" | null>(null);
+  const [elapsedClock, setElapsedClock] = useState(() => Date.now());
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState(order.paymentMethod ?? "");
   const orderPaymentMethod = order.paymentMethod && paymentMethods.includes(order.paymentMethod) ? order.paymentMethod : "";
   const selectedMethod = orderPaymentMethod || (paymentMethods.includes(selectedPaymentMethod) ? selectedPaymentMethod : "") || (paymentMethods.length === 1 ? paymentMethods[0]! : "");
@@ -138,6 +139,17 @@ function KitchenOrderCard({
       : statusBadge(order.status);
   // 2026-10-22: APIと同じく受け取り待ちでも取消を選べるようにし、会計済みなら返金確認を通す。
   const canCancel = order.status === "pending" || order.status === "preparing" || order.status === "ready";
+  const tracksElapsedTime = order.status === "pending" || order.status === "preparing";
+  // 2026-10-25: 厨房作業への注意をそらさないよう、未着手・調理中の経過秒数を10秒ごとにだけ更新する。
+  useEffect(() => {
+    if (!tracksElapsedTime) return;
+    const timer = window.setInterval(() => setElapsedClock(Date.now()), 10_000);
+    return () => window.clearInterval(timer);
+  }, [tracksElapsedTime]);
+  const createdAtMs = order.createdAt ? new Date(order.createdAt).getTime() : Number.NaN;
+  const elapsedSeconds = tracksElapsedTime && Number.isFinite(createdAtMs)
+    ? Math.floor(Math.max(0, elapsedClock - createdAtMs) / 10_000) * 10
+    : null;
 
   const performAction = async () => {
     try {
@@ -186,7 +198,14 @@ function KitchenOrderCard({
                 <span>{order.items.length}品目</span>
               </CardDescription>
             </div>
-            <Badge variant={badge.variant} className="shrink-0">{badge.label}</Badge>
+            <div className="flex shrink-0 items-center gap-2">
+              {elapsedSeconds !== null && (
+                <span className="font-mono text-xs font-bold tabular-nums text-muted-foreground sm:text-sm" aria-label={`注文受付から${elapsedSeconds}秒`}>
+                  {elapsedSeconds}秒
+                </span>
+              )}
+              <Badge variant={badge.variant} className="shrink-0">{badge.label}</Badge>
+            </div>
           </div>
       </CardHeader>
 
