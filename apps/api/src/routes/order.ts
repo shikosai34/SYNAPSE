@@ -29,6 +29,7 @@ import { validateToppingCategorySelection } from "../utils/topping-wizard";
 import { calculateDiscount } from "../utils/discount";
 import { calculateBundleDiscounts, type AppliedBundle } from "@fesflow/config/bundle-discount";
 import { loadActiveBundleRules } from "../utils/bundle-discount";
+import { isEventDateExpired } from "../utils/event-date";
 import type { AppEnv } from "../types";
 import { registerDisplaySnapshotSchema } from "@fesflow/config/register-display-contract";
 import { notifyCircleLowStock, notifyVisitorOrderComplete } from "../services/web-push";
@@ -614,7 +615,7 @@ const handleCreateOrder = async (
       }
       // 期間(endDate)超過は自動締切のセーフティネット (状態を live のままにしていても止まる)。
       const eventEnd = eventRow.endDate;
-      if (eventEnd && eventEnd.getTime() < Date.now()) {
+      if (isEventDateExpired(eventEnd)) {
         apiError("BAD_REQUEST", "このイベントは開催期間を終了しているため注文を受け付けていません");
       }
 

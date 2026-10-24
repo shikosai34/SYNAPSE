@@ -30,6 +30,7 @@ import {
 } from "../utils/coupon";
 import type { AppEnv } from "../types";
 import { validateToppingCategorySelection } from "../utils/topping-wizard";
+import { isEventDateExpired } from "../utils/event-date";
 
 const preOrderRoutes = new Hono<AppEnv>();
 
@@ -103,7 +104,7 @@ preOrderRoutes.post(
       }
       // 期間(endDate)超過は自動締切のセーフティネット。
       const eventEnd = eventRows[0]!.endDate;
-      if (eventEnd && eventEnd.getTime() < Date.now()) {
+      if (isEventDateExpired(eventEnd)) {
         apiError("BAD_REQUEST", "このイベントは開催期間を終了しているため注文を受け付けていません");
       }
 
