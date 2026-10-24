@@ -21,7 +21,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { Modal } from "@/components/ui/Modal";
 import { toast } from "sonner";
-import { Minus, Plus, ShoppingCart, Trash2, QrCode, X, ScanLine, Monitor, Copy, Receipt, RefreshCw, TriangleAlert } from "lucide-react";
+import { Minus, Plus, ShoppingCart, Trash2, X, ScanLine, Monitor, Copy, Receipt, RefreshCw, TriangleAlert } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { ApiError } from "@/lib/api-error";
 import { resolveAssetUrl } from "@/lib/asset-url";
@@ -540,7 +540,6 @@ function RegisterPageContent() {
   const [selectedMenuCategory, setSelectedMenuCategory] = useSessionState<string | null>(`${registerStateKey}:category`, null);
   const [cart, setCart] = useSessionState<CartLine[]>(`${registerStateKey}:cart`, []);
   const [peopleCount, setPeopleCount] = useSessionState(`${registerStateKey}:people`, 1);
-  const [isQrModalOpen, setIsQrModalOpen] = useState(false);
   const [isCustomerQrModalOpen, setIsCustomerQrModalOpen] = useState(false);
   const [isCustomerDisplayModalOpen, setIsCustomerDisplayModalOpen] = useState(false);
   const [customerDisplayShare, setCustomerDisplayShare] = useState<CustomerDisplayShare | null>(null);
@@ -858,14 +857,6 @@ function RegisterPageContent() {
     },
   });
 
-  const isPreOrderEnabled = () => {
-    if (!circle?.mods) return false;
-    try {
-      const parsed = JSON.parse(circle.mods);
-      return parsed.installed?.["circle-pre-order-cod"]?.enabled ?? false;
-    } catch { return false; }
-  };
-
   const getActiveMods = () => {
     if (!circle?.mods) return [];
     try {
@@ -1163,11 +1154,8 @@ function RegisterPageContent() {
     );
   }
 
-  const preOrderActive = isPreOrderEnabled();
-
   return (
     <div className="relative">
-      <QrScannerModal circleId={circleId} isOpen={isQrModalOpen} onClose={() => setIsQrModalOpen(false)} />
       <QrScannerModal
         circleId={circleId}
         isOpen={isCustomerQrModalOpen}
@@ -1266,27 +1254,10 @@ function RegisterPageContent() {
         {/* 2026-10-16: モバイルの固定会計バーが商品ボタンを覆わないよう、バーと安全領域分の余白を予約する。 */}
         <div className="flex-1 min-w-0 p-3 pb-[calc(10rem+env(safe-area-inset-bottom))] sm:p-4 sm:pb-[calc(11rem+env(safe-area-inset-bottom))] xl:pb-4">
           {/* ヘッダーバー */}
-          <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 bg-primary p-3 sm:p-4 text-primary-foreground border-thick border-border mb-4">
-            <h1 className="font-mono text-lg sm:text-2xl font-black uppercase tracking-wider">[レジ]</h1>
-            <div className="flex gap-2 flex-wrap">
-              {preOrderActive && (
-                <Button
-                  variant="outline"
-                  onClick={() => setIsQrModalOpen(true)}
-                  className="h-10 sm:h-12 text-xs sm:text-sm uppercase tracking-wider bg-background text-foreground"
-                >
-                  <QrCode className="mr-1 sm:mr-2 h-4 w-4 sm:h-5 sm:w-5" />
-                  [QR受取 (事前注文)]
-                </Button>
-              )}
-              <Button
-                variant="outline"
-                onClick={openCustomerDisplay}
-                className="h-10 bg-background text-xs uppercase tracking-wider text-foreground sm:h-12 sm:text-sm"
-              >
-                <Monitor className="mr-1 h-4 w-4 sm:mr-2 sm:h-5 sm:w-5" />
-                [お客さま画面]
-              </Button>
+          {/* 2026-10-25: 来場者確認後の通常会計で事前注文も確定できるため、重複する専用QR受取導線を省く。 */}
+          <div className="mb-4 flex items-center justify-between gap-3 border-thick border-border bg-primary p-3 text-primary-foreground sm:p-4">
+            <h1 className="shrink-0 font-mono text-lg font-black uppercase tracking-wider sm:text-2xl">[レジ]</h1>
+            <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
               {getActiveMods().map((mod: any) => {
                 const hook = mod.manifest?.hooks?.registerAction;
                 if (!hook) return null;
@@ -1309,6 +1280,14 @@ function RegisterPageContent() {
                   </div>
                 );
               })}
+              <Button
+                variant="outline"
+                onClick={openCustomerDisplay}
+                className="h-10 shrink-0 whitespace-nowrap bg-background text-xs uppercase tracking-wider text-foreground sm:h-12 sm:text-sm"
+              >
+                <Monitor className="mr-1 h-4 w-4 sm:mr-2 sm:h-5 sm:w-5" />
+                [お客さま画面]
+              </Button>
             </div>
           </div>
 
