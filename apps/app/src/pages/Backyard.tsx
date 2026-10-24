@@ -8,10 +8,18 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { toast } from "sonner";
-import { Monitor } from "lucide-react";
+import { ChevronDown, Monitor } from "lucide-react";
 import { SwipeableOrderStack, type SwipeableOrder } from "@/components/pos/SwipeableOrderStack";
 import { useSessionState } from "@/hooks/useSessionState";
 import { queryCachePolicy } from "@/lib/query-cache-policy";
+import { undoableAction } from "@/lib/toast-undo";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 function BackyardPageContent() {
   // 2026-07-16: circleId を useState+useEffect(mount時一度きり) で固定していると、
@@ -22,14 +30,18 @@ function BackyardPageContent() {
   const orderNumberDisplayWindow = useRef<Window | null>(null);
   // 2026-10-25: 厨房は未着手から表示し、旧「対応中」保存値も未着手へ読み替える。
   const [selectedStatus, setSelectedStatus] = useSessionState<string>(`fesflow:backyard:${circleId || "unselected"}:status`, "pending");
-  const activeStatus = ["pending", "preparing", "pickup", "other"].includes(selectedStatus) ? selectedStatus : "pending";
+  // 2026-10-25: 以前の「その他」選択は一覧全体へ読み替え、隠れていた状態を個別選択できるようにする。
+  const activeStatus = ["pending", "preparing", "pickup", "all", "received", "cancelled"].includes(selectedStatus)
+    ? selectedStatus
+    : selectedStatus === "other" ? "all" : "pending";
   const [showUnpaidOnly, setShowUnpaidOnly] = useSessionState<boolean>(`fesflow:backyard:${circleId || "unselected"}:unpaid-only`, false);
   // 注文キャンセルの確認ダイアログ用
-  const [pendingCancel, setPendingCancel] = useState<Pick<SwipeableOrder, "id" | "orderNumber" | "totalPrice" | "paymentStatus" | "paymentMethod"> | null>(
+  const [pendingCancel, setPendingCancel] = useState<Pick<SwipeableOrder, "id" | "orderNumber" | "totalPrice" | "status" | "paymentStatus" | "paymentMethod"> | null>(
     null
   );
   const [cancelAnimationOrderId, setCancelAnimationOrderId] = useState<string | null>(null);
   const [pendingSettlement, setPendingSettlement] = useState<{ id: string; orderNumber: string; totalPrice?: number; paymentMethod: string } | null>(null);
+  const [pendingUndoActions, setPendingUndoActions] = useState(0);
   const queryClient = useQueryClient();
 
   const {
@@ -43,7 +55,8 @@ function BackyardPageContent() {
     // 2026-10-25: 「その他」と未決済の絞り込みを状態に関係なく組み合わせられるよう全件を取得する。
     queryFn: () => orderApi.list(circleId),
     enabled: !!circleId,
-    refetchInterval: 5000, // 5秒ごとに自動更新
+    // 2026-10-25: 取り消し猶予中にポーリングで楽観表示を戻さないよう、確定後に再開する。
+    refetchInterval: pendingUndoActions > 0 ? false : 5000,
     ...queryCachePolicy.live,
   });
 
@@ -78,11 +91,12 @@ function BackyardPageContent() {
       id: string;
       status: "pending" | "preparing" | "ready" | "completed" | "cancelled";
       refundConfirmed?: boolean;
+      silent?: boolean;
     }) => {
       return await orderApi.updateStatus(input.id, input.status, { refundConfirmed: input.refundConfirmed });
     },
     onSuccess: (_result, input) => {
-      toast.success(input.refundConfirmed ? "全額返金を記録し、注文を取り消しました" : "注文ステータスを更新しました");
+      if (!input.silent) toast.success(input.refundConfirmed ? "全額返金を記録し、注文を取り消しました" : "注文ステータスを更新しました");
       queryClient.invalidateQueries({ queryKey: ["orders"] });
     },
     onError: (error: any) => {
@@ -92,11 +106,11 @@ function BackyardPageContent() {
   });
 
   const completeOrder = useMutation({
-    mutationFn: async (input: { id: string }) => {
+    mutationFn: async (input: { id: string; silent?: boolean }) => {
       return await orderApi.complete(input.id);
     },
-    onSuccess: () => {
-      toast.success("注文を完了しました!");
+    onSuccess: (_result, input) => {
+      if (!input.silent) toast.success("注文を完了しました!");
       queryClient.invalidateQueries({ queryKey: ["orders"] });
     },
     onError: (error: any) => {
@@ -105,9 +119,9 @@ function BackyardPageContent() {
   });
 
   const markReceived = useMutation({
-    mutationFn: (input: { id: string }) => orderApi.markReceived(input.id),
-    onSuccess: () => {
-      toast.success("受け渡し済みにしました");
+    mutationFn: (input: { id: string; silent?: boolean }) => orderApi.markReceived(input.id),
+    onSuccess: (_result, input) => {
+      if (!input.silent) toast.success("受け渡し済みにしました");
       queryClient.invalidateQueries({ queryKey: ["orders"] });
       queryClient.invalidateQueries({ queryKey: ["projector-orders"] });
       queryClient.invalidateQueries({ queryKey: ["myOrders"] });
@@ -128,8 +142,47 @@ function BackyardPageContent() {
     },
   });
 
+  const runUndoableStatusChange = (input: {
+    id: string;
+    orderNumber: string;
+    message: string;
+    optimistic: Partial<SwipeableOrder>;
+    previous: Partial<SwipeableOrder>;
+    commit: () => Promise<unknown>;
+  }) => {
+    const patchOrder = (patch: Partial<SwipeableOrder>) => {
+      queryClient.setQueryData<SwipeableOrder[]>(["orders", circleId], (current) =>
+        current?.map((order) => order.id === input.id ? { ...order, ...patch } : order),
+      );
+    };
+    undoableAction({
+      message: `${input.message}（5秒以内なら元に戻せます）`,
+      duration: 5000,
+      optimistic: () => {
+        setPendingUndoActions((count) => count + 1);
+        patchOrder(input.optimistic);
+      },
+      rollback: () => patchOrder(input.previous),
+      commit: async () => {
+        await input.commit();
+      },
+      onSettled: () => setPendingUndoActions((count) => Math.max(0, count - 1)),
+      errorMessage: `注文 #${input.orderNumber} の状態を更新できませんでした`,
+    });
+  };
+
   const handleStartPreparing = (orderId: string) => {
-    return updateStatus.mutateAsync({ id: orderId, status: "preparing" });
+    const order = (orders ?? []).find((candidate) => candidate.id === orderId);
+    if (!order) return Promise.resolve();
+    runUndoableStatusChange({
+      id: order.id,
+      orderNumber: order.orderNumber,
+      message: `注文 #${order.orderNumber} を調理中にしました`,
+      optimistic: { status: "preparing" },
+      previous: { status: order.status },
+      commit: () => updateStatus.mutateAsync({ id: order.id, status: "preparing", silent: true }),
+    });
+    return Promise.resolve();
   };
 
   const openOrderNumberDisplay = () => {
@@ -148,7 +201,31 @@ function BackyardPageContent() {
   };
 
   const handleComplete = (orderId: string) => {
-    return completeOrder.mutateAsync({ id: orderId });
+    const order = (orders ?? []).find((candidate) => candidate.id === orderId);
+    if (!order) return Promise.resolve();
+    runUndoableStatusChange({
+      id: order.id,
+      orderNumber: order.orderNumber,
+      message: `注文 #${order.orderNumber} を完成にしました`,
+      optimistic: { status: "completed" },
+      previous: { status: order.status },
+      commit: () => completeOrder.mutateAsync({ id: order.id, silent: true }),
+    });
+    return Promise.resolve();
+  };
+
+  const handleMarkReceived = (orderId: string) => {
+    const order = (orders ?? []).find((candidate) => candidate.id === orderId);
+    if (!order) return Promise.resolve();
+    runUndoableStatusChange({
+      id: order.id,
+      orderNumber: order.orderNumber,
+      message: `注文 #${order.orderNumber} を受け渡し済みにしました`,
+      optimistic: { receivedAt: new Date().toISOString() },
+      previous: { receivedAt: order.receivedAt ?? null },
+      commit: () => markReceived.mutateAsync({ id: order.id, silent: true }),
+    });
+    return Promise.resolve();
   };
 
   const handleCancel = () => {
@@ -157,10 +234,24 @@ function BackyardPageContent() {
     const refundConfirmed = pendingCancel.paymentStatus === "paid";
     setCancelAnimationOrderId(orderId);
     setPendingCancel(null);
-    window.setTimeout(() => updateStatus.mutate(
-      { id: orderId, status: "cancelled", ...(refundConfirmed ? { refundConfirmed: true } : {}) },
-      { onSettled: () => setCancelAnimationOrderId(null) }
-    ), 300);
+    window.setTimeout(() => {
+      if (refundConfirmed) {
+        updateStatus.mutate(
+          { id: orderId, status: "cancelled", refundConfirmed: true },
+          { onSettled: () => setCancelAnimationOrderId(null) },
+        );
+      } else {
+        runUndoableStatusChange({
+          id: orderId,
+          orderNumber: pendingCancel.orderNumber,
+          message: `注文 #${pendingCancel.orderNumber} をキャンセルしました`,
+          optimistic: { status: "cancelled" },
+          previous: { status: pendingCancel.status },
+          commit: () => updateStatus.mutateAsync({ id: orderId, status: "cancelled", silent: true }),
+        });
+        setCancelAnimationOrderId(null);
+      }
+    }, 300);
   };
 
   const toppingDetails = new Map((toppings ?? []).map((topping) => [topping.id, topping]));
@@ -183,7 +274,11 @@ function BackyardPageContent() {
         ? order.status === "preparing"
         : activeStatus === "pickup"
           ? awaitingPickup
-          : order.status !== "pending" && order.status !== "preparing" && !awaitingPickup;
+          : activeStatus === "received"
+            ? !!order.receivedAt
+            : activeStatus === "cancelled"
+              ? order.status === "cancelled"
+              : true;
     const matchesPayment = !showUnpaidOnly || (order.paymentStatus === "unpaid" && order.status !== "cancelled");
     return matchesStatus && matchesPayment;
   });
@@ -262,14 +357,26 @@ function BackyardPageContent() {
         >
           受け取り待ち
         </Button>
-        <Button
-          variant={activeStatus === "other" ? "default" : "outline"}
-          aria-pressed={activeStatus === "other"}
-          onClick={() => setSelectedStatus("other")}
-          className="border-thick border-border rounded-none font-mono uppercase text-xs sm:text-sm"
-        >
-          その他
-        </Button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant={["all", "received", "cancelled"].includes(activeStatus) ? "default" : "outline"}
+              aria-label={`その他の注文フィルター: ${activeStatus === "all" ? "すべて" : activeStatus === "received" ? "受け渡し済み" : activeStatus === "cancelled" ? "キャンセル" : "選択"}`}
+              className="border-thick border-border rounded-none font-mono uppercase text-xs sm:text-sm"
+            >
+              {activeStatus === "all" ? "その他: すべて" : activeStatus === "received" ? "その他: 受け渡し済み" : activeStatus === "cancelled" ? "その他: キャンセル" : "その他"}
+              <ChevronDown className="ml-1 h-4 w-4" aria-hidden="true" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" aria-label="その他の注文フィルター">
+            {/* 2026-10-25: 主な状態を表示中は「すべて」を選択済みと誤認させない。 */}
+            <DropdownMenuRadioGroup value={["all", "received", "cancelled"].includes(activeStatus) ? activeStatus : ""} onValueChange={setSelectedStatus}>
+              <DropdownMenuRadioItem value="all">すべての注文</DropdownMenuRadioItem>
+              <DropdownMenuRadioItem value="received">受け渡し済み</DropdownMenuRadioItem>
+              <DropdownMenuRadioItem value="cancelled">キャンセル</DropdownMenuRadioItem>
+            </DropdownMenuRadioGroup>
+          </DropdownMenuContent>
+        </DropdownMenu>
         <Button
           variant={showUnpaidOnly ? "default" : "outline"}
           aria-pressed={showUnpaidOnly}
@@ -284,10 +391,10 @@ function BackyardPageContent() {
       <SwipeableOrderStack
         orders={visibleOrders}
         scrollStateKey={`fesflow:backyard:${circleId || "unselected"}:horizontal-scroll`}
-        openAtLatest={activeStatus === "other"}
+        openAtLatest={activeStatus === "all"}
         onStart={handleStartPreparing}
         onComplete={handleComplete}
-        onMarkReceived={(id) => markReceived.mutateAsync({ id })}
+        onMarkReceived={handleMarkReceived}
         onSettleRequest={(order, paymentMethod) => setPendingSettlement({
           id: order.id,
           orderNumber: order.orderNumber,
@@ -300,11 +407,12 @@ function BackyardPageContent() {
           id: order.id,
           orderNumber: order.orderNumber,
           totalPrice: order.totalPrice,
+          status: order.status,
           paymentStatus: order.paymentStatus,
           paymentMethod: order.paymentMethod,
         })}
         cancelAnimationOrderId={cancelAnimationOrderId}
-        isUpdating={updateStatus.isPending || completeOrder.isPending || markReceived.isPending || settleOrder.isPending}
+        isUpdating={pendingUndoActions > 0 || updateStatus.isPending || completeOrder.isPending || markReceived.isPending || settleOrder.isPending}
       />
 
       <ConfirmDialog
@@ -328,7 +436,7 @@ function BackyardPageContent() {
         title={pendingCancel?.paymentStatus === "paid" ? "[返金を記録してキャンセル]" : "[注文のキャンセル]"}
         description={pendingCancel?.paymentStatus === "paid"
           ? `注文 #${pendingCancel.orderNumber} の全額 ¥${(pendingCancel.totalPrice ?? 0).toLocaleString()} を返金記録に残して取り消します。FesFlowは送金しません。実際に返金を済ませてから確定してください。元の決済方法: ${pendingCancel.paymentMethod ?? "未記録"}。`
-          : `注文 #${pendingCancel?.orderNumber ?? ""} をキャンセルしますか？この操作は元に戻せません。`}
+          : `注文 #${pendingCancel?.orderNumber ?? ""} をキャンセルしますか？確定後5秒以内なら元に戻せます。`}
         confirmLabel={pendingCancel?.paymentStatus === "paid" ? "全額返金を記録して取り消す" : "注文を取り消す"}
         cancelLabel="戻る"
         onConfirm={handleCancel}

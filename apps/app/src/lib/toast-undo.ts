@@ -32,6 +32,8 @@ export interface UndoableActionOptions {
   undoLabel?: string;
   /** commit 失敗時の文言 */
   errorMessage?: string;
+  /** 確定・取り消し・失敗のいずれかで呼ぶライフサイクル通知 */
+  onSettled?: (outcome: "undone" | "committed" | "failed") => void;
 }
 
 export function undoableAction({
@@ -42,20 +44,29 @@ export function undoableAction({
   duration = 5000,
   undoLabel = "元に戻す",
   errorMessage = "操作に失敗しました",
+  onSettled,
 }: UndoableActionOptions) {
   optimistic?.();
 
   let undone = false;
   let committed = false;
+  let settled = false;
+  const settle = (outcome: "undone" | "committed" | "failed") => {
+    if (settled) return;
+    settled = true;
+    onSettled?.(outcome);
+  };
 
   const doCommit = async () => {
     if (undone || committed) return;
     committed = true;
     try {
       await commit();
+      settle("committed");
     } catch (e: any) {
       // commit 失敗時は巻き戻してエラー表示
       rollback?.();
+      settle("failed");
       toast.error(e?.message || errorMessage);
     }
   };
@@ -67,6 +78,7 @@ export function undoableAction({
       onClick: () => {
         undone = true;
         rollback?.();
+        settle("undone");
       },
     },
     // 時間切れ (自動クローズ) で確定
