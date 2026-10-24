@@ -92,6 +92,9 @@ function CircleSettingsContent() {
   // 対応する支払い方法 (2026-07-12)。イベントの paymentMethods の部分集合。
   const [acceptedPayments, setAcceptedPayments] = useState<string[]>([]);
   const [storeAreaId, setStoreAreaId] = useState<string | null>(null);
+  // 2026-10-25: 未登録バンドはアレルギーと既存注文を確認できないため、警告と注文許可を個別設定する。
+  const [warnOnUnregisteredWristband, setWarnOnUnregisteredWristband] = useState(true);
+  const [allowUnregisteredWristbandOrder, setAllowUnregisteredWristbandOrder] = useState(false);
   const [reviewPublication, setReviewPublication] = useState<CircleReviewPublicationSettings>({
     publishReviews: false,
     showAverageRating: false,
@@ -108,6 +111,8 @@ function CircleSettingsContent() {
     staffEnabled: false,
     acceptedPayments: [] as string[],
     storeAreaId: null as string | null,
+    warnOnUnregisteredWristband: true,
+    allowUnregisteredWristbandOrder: false,
     reviewPublication: {
       publishReviews: false,
       showAverageRating: false,
@@ -160,6 +165,8 @@ function CircleSettingsContent() {
       setStaffEnabled(s.extensions.staff);
       setAcceptedPayments(s.acceptedPayments);
       setStoreAreaId(s.storeAreaId);
+      setWarnOnUnregisteredWristband(s.warnOnUnregisteredWristband);
+      setAllowUnregisteredWristbandOrder(s.allowUnregisteredWristbandOrder);
       setReviewPublication(s.reviewPublication);
       setSettingsSnapshot({
         orderFlowMode: s.orderFlowMode,
@@ -169,6 +176,8 @@ function CircleSettingsContent() {
         staffEnabled: s.extensions.staff,
         acceptedPayments: s.acceptedPayments,
         storeAreaId: s.storeAreaId,
+        warnOnUnregisteredWristband: s.warnOnUnregisteredWristband,
+        allowUnregisteredWristbandOrder: s.allowUnregisteredWristbandOrder,
         reviewPublication: s.reviewPublication,
       });
     }
@@ -213,7 +222,8 @@ function CircleSettingsContent() {
 
   // 「運用設定」の保存。circleApi.updateSettings は settings カラムを丸ごと上書きするため、
   // 注文モード・拡張機能・支払い方法・レビュー公開設定を常にまとめて送る。旧stock値も後方互換用に保持する。
-  const settingsDraft = { orderFlowMode, preOrderEnabled, mobileOrderEnabled, stockEnabled, staffEnabled, acceptedPayments, storeAreaId, reviewPublication };
+  // 2026-10-25: JSON.stringify による dirty 判定を使うため、snapshot とキー順を一致させる。
+  const settingsDraft = { orderFlowMode, preOrderEnabled, mobileOrderEnabled, stockEnabled, staffEnabled, acceptedPayments, storeAreaId, warnOnUnregisteredWristband, allowUnregisteredWristbandOrder, reviewPublication };
   const updateSettings = useMutation({
     mutationFn: async (draft: typeof settingsDraft) =>
       circleApi.updateSettings(circleId, {
@@ -225,6 +235,8 @@ function CircleSettingsContent() {
         acceptedPayments: draft.acceptedPayments.filter((p) => eventPayments.includes(p)),
         storeAreaId: draft.storeAreaId,
         reviewPublication: draft.reviewPublication,
+        warnOnUnregisteredWristband: draft.warnOnUnregisteredWristband,
+        allowUnregisteredWristbandOrder: draft.allowUnregisteredWristbandOrder,
       }),
     onSuccess: (_result, draft) => {
       toast.success("運用設定を保存しました");
@@ -307,6 +319,8 @@ function CircleSettingsContent() {
       setAcceptedPayments(settingsSnapshot.acceptedPayments);
       setStoreAreaId(settingsSnapshot.storeAreaId);
       setReviewPublication(settingsSnapshot.reviewPublication);
+      setWarnOnUnregisteredWristband(settingsSnapshot.warnOnUnregisteredWristband);
+      setAllowUnregisteredWristbandOrder(settingsSnapshot.allowUnregisteredWristbandOrder);
     },
   });
 
@@ -479,6 +493,28 @@ function CircleSettingsContent() {
                   onToggle={() => setMobileOrderEnabled((value) => !value)}
                 />
               </div>
+            </div>
+
+            {/* 2026-10-25: 注文前に入場登録状態と情報不足を確認し、例外注文はサークルごとに明示許可する。 */}
+            <div className="space-y-3 border-t-thin border-border pt-4">
+              <div>
+                <h3 className="text-xs font-bold uppercase tracking-wider">入場登録前のリストバンド</h3>
+                <p className="mt-1 text-[11px] text-muted-foreground">入場登録前のバンドを読み取ったときのレジ表示と注文受付を設定します。</p>
+              </div>
+              <ExtensionToggle
+                icon={UserCheck}
+                label="未登録バンドの警告を表示する"
+                description="有効にすると、入場登録前のバンドを読み取ったときにアレルギー情報と注文番号を確認できない旨を表示します。"
+                enabled={warnOnUnregisteredWristband}
+                onToggle={() => setWarnOnUnregisteredWristband((value) => !value)}
+              />
+              <ExtensionToggle
+                icon={ShoppingCart}
+                label="警告画面から注文を受け付ける"
+                description="有効にすると、警告の下に担当者が確認して注文を続けるボタンを表示します。"
+                enabled={allowUnregisteredWristbandOrder}
+                onToggle={() => setAllowUnregisteredWristbandOrder((value) => !value)}
+              />
             </div>
 
             {/* 2026-09-27: 商品在庫管理は組み込みのため商品フォームから個別に設定する。 */}

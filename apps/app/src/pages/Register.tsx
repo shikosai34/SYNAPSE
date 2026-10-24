@@ -3,7 +3,7 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { CircleAuthGuard, getAuthInfo, useAuth } from "@/hooks/useCircleAuth";
-import { menuApi, toppingApi, orderApi, circleApi, eventApi, wristbandApi, preOrderApi, couponApi, discountApi, bundleDiscountApi, parseCircleSettings, parseEventPaymentMethods, activeWaitTimeReport, type MenuWithToppings, type Topping, type OrderWithItems, type RegisterDiscountOption, type RegisterDisplaySession } from "@/lib/api";
+import { menuApi, toppingApi, orderApi, circleApi, eventApi, wristbandApi, preOrderApi, couponApi, discountApi, bundleDiscountApi, parseCircleSettings, parseEventPaymentMethods, activeWaitTimeReport, type MenuWithToppings, type Topping, type OrderWithItems, type RegisterDiscountOption, type RegisterDisplaySession, type WristbandLookupResult } from "@/lib/api";
 import { extractIdFromCode, cn } from "@/lib/utils";
 import { undoableAction } from "@/lib/toast-undo";
 import { ModSandbox } from "@/components/ModSandbox";
@@ -21,7 +21,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { Modal } from "@/components/ui/Modal";
 import { toast } from "sonner";
-import { Minus, Plus, ShoppingCart, Trash2, QrCode, X, ScanLine, Monitor, Copy, Receipt, RefreshCw } from "lucide-react";
+import { Minus, Plus, ShoppingCart, Trash2, QrCode, X, ScanLine, Monitor, Copy, Receipt, RefreshCw, TriangleAlert } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { ApiError } from "@/lib/api-error";
 import { resolveAssetUrl } from "@/lib/asset-url";
@@ -245,7 +245,7 @@ function CartBody({
   idPrefix: "desktop" | "mobile";
   menuMap: Map<string, MenuWithToppings>;
   peopleCount: number;
-  activeCustomer: { userId: string; wristbandId: string | null; familyBandCount: number; allergies: JapaneseAllergen[] | null } | null;
+  activeCustomer: { userId: string; wristbandId: string | null; familyBandCount: number; allergies: JapaneseAllergen[] | null; isUnregistered?: boolean } | null;
   submitting: boolean;
   onToggleTopping: (lineId: string, topping: Topping) => void;
   onUpdateQuantity: (lineId: string, delta: number) => void;
@@ -489,6 +489,7 @@ function CartBody({
           <div className="border-thick border-border bg-muted/20 p-2 text-xs font-mono">
             <div>来場者: {activeCustomer.wristbandId ?? activeCustomer.userId}</div>
             <div className="mt-1 font-bold">登録バンド {activeCustomer.familyBandCount}本</div>
+            {activeCustomer.isUnregistered && <div className="mt-1 font-bold text-error" role="status">入場登録前・アレルギー情報未確認</div>}
           </div>
         )}
         <OrderAllergyWarning
@@ -559,7 +560,8 @@ function RegisterPageContent() {
     return () => window.removeEventListener("resize", closeOnWideViewport);
   }, [isCartPanelOpen]);
   const [scannedCode, setScannedCode] = useState("");
-  const [activeCustomer, setActiveCustomer] = useSessionState<{ userId: string; wristbandId: string | null; familyBandCount: number; allergies: JapaneseAllergen[] | null } | null>(`${registerStateKey}:customer`, null);
+  const [activeCustomer, setActiveCustomer] = useSessionState<{ userId: string; wristbandId: string | null; familyBandCount: number; allergies: JapaneseAllergen[] | null; isUnregistered?: boolean } | null>(`${registerStateKey}:customer`, null);
+  const [pendingUnregisteredCustomer, setPendingUnregisteredCustomer] = useState<WristbandLookupResult | null>(null);
   const [mobilePaymentMethods, setMobilePaymentMethods] = useState<Record<string, string>>({});
   const [activePreOrderId, setActivePreOrderId] = useSessionState<string | null>(`${registerStateKey}:preorder`, null);
   const [activePreOrderTotalPrice, setActivePreOrderTotalPrice] = useSessionState<number | null>(`${registerStateKey}:preorder-total`, null);
@@ -593,6 +595,7 @@ function RegisterPageContent() {
     // 2026-10-07 (#9): レジ担当にも報告後30分の期限切れを画面上で反映する。
     refetchInterval: 60_000,
   });
+  const registerSettings = parseCircleSettings(circle?.settings);
   // 2026-10-21: レジを離れて厨房へ移動しても、報告前の待ち時間入力を同じサークル内で保つ。
   const [waitMinutes, setWaitMinutes] = useSessionState<string>(`${registerStateKey}:wait-minutes`, "10");
   const waitTimeReport = activeWaitTimeReport(circle?.settings);
@@ -676,6 +679,19 @@ function RegisterPageContent() {
   // カート内トッピング編集用に menuId → メニュー(許可トッピング付き)を引けるようにする
   const menuMap = new Map((menus ?? []).map((m) => [m.id, m]));
 
+  const activateLookupCustomer = (data: WristbandLookupResult, isUnregistered = false) => {
+    setSubmittedCustomerDisplaySnapshot(null);
+    // 2026-10-25: 警告を了承した担当者の操作を経てから顧客を注文フローへ渡す。
+    setActiveCustomer({
+      userId: data.user.id,
+      wristbandId: data.wristband?.id || null,
+      familyBandCount: data.familyBandCount ?? 0,
+      allergies: parseJapaneseAllergens(data.user.allergies),
+      isUnregistered,
+    });
+    setScannedCode("");
+  };
+
   const lookupCustomer = useMutation({
     mutationFn: async (code: string) => {
       const parsedCode = extractIdFromCode(code);
@@ -683,17 +699,15 @@ function RegisterPageContent() {
     },
     onSuccess: (data) => {
       if (data.user) {
-        setSubmittedCustomerDisplaySnapshot(null);
-        // 顧客を特定するだけ。事前オーダーのロードは activeCustomer の変化を監視する
-        // useEffect 側で行う (カメラスキャン経由でも確実に走らせるための共通化)。
-        setActiveCustomer({
-          userId: data.user.id,
-          wristbandId: data.wristband?.id || null,
-          familyBandCount: data.familyBandCount ?? 0,
-          allergies: parseJapaneseAllergens(data.user.allergies),
-        });
+        // 2026-10-25: バンド単位の onboardedAt を見て、登録前の注文に進む前に情報不足を知らせる。
+        const isUnregistered = !data.user.onboardedAt || !data.wristband?.onboardedAt;
+        if (isUnregistered && registerSettings.warnOnUnregisteredWristband) {
+          setPendingUnregisteredCustomer(data);
+          setScannedCode("");
+          return;
+        }
+        activateLookupCustomer(data);
         toast.success("来場者を確認しました");
-        setScannedCode("");
       } else {
         toast.error("ユーザーが見つかりませんでした");
       }
@@ -1159,11 +1173,47 @@ function RegisterPageContent() {
         isOpen={isCustomerQrModalOpen}
         onClose={() => setIsCustomerQrModalOpen(false)}
         mode="customer"
-        onCustomerScanned={(userId, wristbandId, familyBandCount, allergies) => {
-          setSubmittedCustomerDisplaySnapshot(null);
-          setActiveCustomer({ userId, wristbandId, familyBandCount, allergies: parseJapaneseAllergens(allergies) });
+        onCustomerScanned={(userId, wristbandId) => {
+          // 2026-10-25: カメラ読取も手入力と同じ照会・未登録警告を通し、バンド状態を再確認する。
+          lookupCustomer.mutate(wristbandId || userId);
         }}
       />
+      <Modal
+        isOpen={!!pendingUnregisteredCustomer}
+        title="[入場登録されていません]"
+        subtitle="このリストバンドは入場登録が完了していません。"
+        onClose={() => setPendingUnregisteredCustomer(null)}
+        maxWidth="md"
+      >
+        <div role="alert" aria-live="assertive" className="space-y-3 border-heavy border-error bg-error/10 p-4 text-error">
+          <div className="flex items-start gap-3">
+            <TriangleAlert className="mt-0.5 h-6 w-6 shrink-0" aria-hidden="true" />
+            <div className="space-y-2">
+              <p className="font-headline text-base font-black">入場登録されていないリストバンドです</p>
+              <p className="text-sm font-bold leading-relaxed">アレルギー登録がされていないため、アレルギー情報を確認できません。既存の注文番号も確認できません。</p>
+              <p className="text-xs leading-relaxed">注文を受けるときは、内容を確認してから担当者の判断で続行してください。</p>
+            </div>
+          </div>
+        </div>
+        <div className="mt-4 flex flex-col-reverse gap-2 border-t-thick border-border pt-4 sm:flex-row sm:justify-end">
+          <Button type="button" variant="outline" onClick={() => setPendingUnregisteredCustomer(null)}>
+            閉じる
+          </Button>
+          {registerSettings.allowUnregisteredWristbandOrder && pendingUnregisteredCustomer && (
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={() => {
+                activateLookupCustomer(pendingUnregisteredCustomer, true);
+                setPendingUnregisteredCustomer(null);
+                toast.warning("入場登録前のリストバンドで注文を受け付けます");
+              }}
+            >
+              入場登録していないリストバンドで注文を受ける
+            </Button>
+          )}
+        </div>
+      </Modal>
       <Modal
         isOpen={isCustomerDisplayModalOpen}
         title="[お客さま用カート表示]"
@@ -1334,9 +1384,9 @@ function RegisterPageContent() {
           ) : (
             <Card className="mb-4 bg-muted/40">
               <CardContent className="flex flex-col gap-3 p-3 font-mono sm:flex-row sm:items-center sm:justify-between">
-                <div className="flex items-center gap-2 text-xs font-black text-success sm:text-sm">
-                  <span className="h-2.5 w-2.5 shrink-0 bg-success" />
-                  来場者確認済み
+                <div className={`flex items-center gap-2 text-xs font-black sm:text-sm ${activeCustomer.isUnregistered ? "text-error" : "text-success"}`}>
+                  <span className={`h-2.5 w-2.5 shrink-0 ${activeCustomer.isUnregistered ? "bg-error" : "bg-success"}`} />
+                  {activeCustomer.isUnregistered ? "入場登録前のバンドで注文を受付中" : "来場者確認済み"}
                 </div>
                 <div className="flex shrink-0 items-center gap-2 self-end sm:self-auto">
                   <Button

@@ -1174,6 +1174,9 @@ export interface CircleSettings {
   // このサークルが対応する支払い方法 (2026-07-12)。イベントの paymentMethods の部分集合。
   // 空=イベントの全方法に対応とみなす。1つだけならレジで選択させず自動採用する。
   acceptedPayments: string[];
+  // 2026-10-25: 入場登録前のバンドは情報不足をレジで明示し、注文を受ける場合だけ担当者に選ばせる。
+  warnOnUnregisteredWristband: boolean;
+  allowUnregisteredWristbandOrder: boolean;
   // 2026-10-16 (#126): event.storeAreas のどの位置に出店するかを参照するID。
   storeAreaId: string | null;
   reviewPublication: CircleReviewPublicationSettings;
@@ -1189,6 +1192,9 @@ export function parseCircleSettings(raw?: string | null): CircleSettings {
     mobileOrderEnabled: false,
     extensions: { stock: false, staff: false },
     acceptedPayments: [],
+    // 2026-10-25: 既存サークルにも未登録警告を適用し、注文許可は明示的に選ぶまで無効にする。
+    warnOnUnregisteredWristband: true,
+    allowUnregisteredWristbandOrder: false,
     storeAreaId: null,
     reviewPublication: {
       publishReviews: false,
@@ -1222,6 +1228,8 @@ export function parseCircleSettings(raw?: string | null): CircleSettings {
       acceptedPayments: Array.isArray(parsed?.acceptedPayments)
         ? parsed.acceptedPayments.filter((x: unknown) => typeof x === "string")
         : [],
+      warnOnUnregisteredWristband: parsed?.warnOnUnregisteredWristband !== false,
+      allowUnregisteredWristbandOrder: parsed?.allowUnregisteredWristbandOrder === true,
       storeAreaId: typeof parsed?.storeAreaId === "string" ? parsed.storeAreaId : null,
       // 2026-10-21: 既存店舗はレビューを未公開として扱い、明示的な公開設定なしに文章や評価を配信しない。
       reviewPublication: {
