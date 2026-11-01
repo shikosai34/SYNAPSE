@@ -60,6 +60,8 @@ export const order = sqliteTable(
   {
     id: text("id").primaryKey().$defaultFn(() => ulid()),
     userId: text("user_id"), // ゲストの匿名ID (スタンプラリー用)
+    // 2026-11-01: 来場者プロフィール削除後も購入年代を分析できるよう、注文確定時の代表者年代を保存する。
+    ageGroup: text("age_group"),
     circleId: text("circle_id")
       .notNull()
       .references(() => circle.id, { onDelete: "cascade" }),
