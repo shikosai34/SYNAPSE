@@ -530,7 +530,8 @@ eventRoutes.put(
     await db
       .update(event)
       .set({ lifecycleStatus: nextStatus })
-      .where(eq(event.id, eventId));
+      .where(and(eq(event.id, eventId),
+        nextStatus === "live" || nextStatus === "upcoming" ? isNull(event.privacyScrubbedAt) : undefined));
     return c.json({ success: true });
   }
 );
@@ -1060,10 +1061,15 @@ eventRoutes.post("/:id/scrub-visitor-profiles", async (c) => {
       )
       WHERE age_group IS NULL AND user_id IS NOT NULL
         AND circle_id IN (SELECT id FROM circle WHERE event_id = ?)
-    `).bind(eventId),
+        AND EXISTS (SELECT 1 FROM event WHERE id=? AND lifecycle_status IN ('ended','archived') AND privacy_scrubbed_at IS NULL)
+    `).bind(eventId, eventId),
     c.env.DB.prepare(`UPDATE wristband SET nickname=NULL, age_group=NULL
-      WHERE user_id IN (SELECT id FROM event_user WHERE event_id=?)`).bind(eventId),
-    c.env.DB.prepare(`UPDATE event_user SET nickname=NULL, age_group=NULL WHERE event_id=?`).bind(eventId),
+      WHERE user_id IN (SELECT id FROM event_user WHERE event_id=?)
+        AND EXISTS (SELECT 1 FROM event WHERE id=? AND lifecycle_status IN ('ended','archived') AND privacy_scrubbed_at IS NULL)
+    `).bind(eventId, eventId),
+    c.env.DB.prepare(`UPDATE event_user SET nickname=NULL, age_group=NULL WHERE event_id=?
+      AND EXISTS (SELECT 1 FROM event WHERE id=? AND lifecycle_status IN ('ended','archived') AND privacy_scrubbed_at IS NULL)
+    `).bind(eventId, eventId),
     // イベント終了状態は同じトランザクション内で再確認する。再実行や属性の復活を防ぐ状態フラグ。
     c.env.DB.prepare(`UPDATE event SET privacy_scrubbed_at=?
       WHERE id=? AND lifecycle_status IN ('ended','archived') AND privacy_scrubbed_at IS NULL`).bind(now, eventId),

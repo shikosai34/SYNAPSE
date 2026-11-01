@@ -52,7 +52,7 @@ export function SettingsTab({ eventId, event }: SettingsTabProps) {
       setScrubDialogOpen(false);
       toast.success(result.alreadyScrubbed ? "来場者属性は削除済みです" : "年代別集計を保存し、年代とニックネームを削除しました");
       void queryClient.invalidateQueries({ queryKey: ["event", eventId] });
-      void queryClient.invalidateQueries({ queryKey: ["eventAnalytics", eventId] });
+      void queryClient.invalidateQueries({ queryKey: ["event-analytics", eventId] });
       void queryClient.invalidateQueries({ queryKey: ["analytics", eventId] });
     },
     onError: (error: Error) => toast.error(error.message || "来場者属性の削除に失敗しました"),
