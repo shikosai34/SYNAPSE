@@ -35,6 +35,8 @@ export const event = sqliteTable("event", {
   // 既存イベントを壊さないよう既定は live。日付(startDate/endDate)は自動遷移の判断材料だが、
   // 主催者が明示的に切り替えられるよう「状態」を正本として持つ。
   lifecycleStatus: text("lifecycle_status").default("live").notNull(),
+  // 2026-11-01: 統計の固定後にプロフィールを一括匿名化した時刻。再実行と再開を防止する。
+  privacyScrubbedAt: integer("privacy_scrubbed_at", { mode: "timestamp_ms" }),
 
   // ── SaaS テナント/課金 (2026-07-12) ───────────────────────────────
   // イベント=テナント(契約単位)。イベント作成はセルフサービス化され、既定は無料枠。
@@ -105,6 +107,15 @@ export const event = sqliteTable("event", {
     .notNull(),
 });
 
+
+// 2026-11-01: 来場者の年代・ニックネームを消す前に年代構成だけをイベント単位で固定する。
+// 個人やリストバンドを参照せず、集計値だけを保存する。
+export const eventAgeSnapshot = sqliteTable("event_age_snapshot", {
+  eventId: text("event_id").primaryKey().references(() => event.id, { onDelete: "cascade" }).notNull(),
+  profileCount: integer("profile_count").notNull(),
+  ageCounts: text("age_counts").notNull(),
+  capturedAt: integer("captured_at", { mode: "timestamp_ms" }).notNull(),
+});
 
 // 契約入金履歴 (2026-07-15)。銀行振込等の手動入金を1件ずつ記録し、契約管理画面で参照する。
 // Stripe 連携までの手動運用における「いつ・いくら・どの方法で入金があったか」の台帳。
