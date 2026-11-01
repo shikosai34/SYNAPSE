@@ -121,11 +121,13 @@ export async function commitOrder(db: D1, command: OrderCommand, input: CommitOr
       ON CONFLICT(scope) DO UPDATE SET value=value+1`)
       .bind(scope, orderNumberPrefix, input.circleId, orderNumberPrefix, `${orderNumberPrefix}:`,
         dayStart, dayStart + 24 * 60 * 60 * 1000),
-    db.prepare(`INSERT INTO orders (id,circle_id,user_id,cashier_id,source,order_number,people_count,total_price,status,payment_method,payment_status,paid_at,completed,completed_at)
-      SELECT ?,?,?,?,?,? || printf('%03d',daily.value),?,?,?,?,?,?,?,?
+    // 2026-11-01: プロフィールの年代はクライアントから受け取らず、注文確定トランザクション内で代表者から複製する。
+    // 家族のバンドごとの購入者は特定できないので、注文の年代は event_user の代表者年代と定義する。
+    db.prepare(`INSERT INTO orders (id,circle_id,user_id,age_group,cashier_id,source,order_number,people_count,total_price,status,payment_method,payment_status,paid_at,completed,completed_at)
+      SELECT ?,?,?,(SELECT age_group FROM event_user WHERE id=?),?,?,? || printf('%03d',daily.value),?,?,?,?,?,?,?,?
       FROM order_sequence daily WHERE daily.scope=?
       RETURNING id,order_number AS orderNumber`)
-      .bind(input.id, input.circleId, input.userId, input.cashierId ?? null, source, orderNumberPrefix,
+      .bind(input.id, input.circleId, input.userId, input.userId, input.cashierId ?? null, source, orderNumberPrefix,
         input.peopleCount, input.totalPrice, input.status, input.paymentMethod ?? null, paymentStatus, paidAt,
         input.status === "completed" ? 1 : 0, input.status === "completed" ? now : null, scope),
     db.prepare(`INSERT INTO order_item (id,order_id,menu_id,menu_name,menu_price,quantity)

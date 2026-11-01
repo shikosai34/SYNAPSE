@@ -95,6 +95,27 @@ describe("atomic order commits", () => {
     expect(await env.DB.prepare("SELECT status FROM orders WHERE id=?").bind(first.id).first("status")).toBe("cancelled");
   });
 
+  // 2026-11-01: 来場者属性の削除・変更後も注文の購入時年代は変わらず、クライアントが年代を偽装できない。
+  it("snapshots the account representative's age at each order, independent of later profile removal", async () => {
+    const f = await seed();
+    const db = testDb();
+    await db.update(eventUser).set({ ageGroup: "20s", nickname: "代表者" }).where(eq(eventUser.id, f.userId));
+
+    const firstResponse = await postJson("/api/orders", { ...f.body, ageGroup: "90s_plus" }, headers);
+    expect(firstResponse.status).toBe(201);
+    const first = await firstResponse.json() as { id: string };
+    expect((await db.select({ ageGroup: order.ageGroup }).from(order).where(eq(order.id, first.id)))[0]?.ageGroup).toBe("20s");
+
+    await db.update(eventUser).set({ ageGroup: "30s" }).where(eq(eventUser.id, f.userId));
+    const secondResponse = await postJson("/api/orders", f.body, headers);
+    expect(secondResponse.status).toBe(201);
+    const second = await secondResponse.json() as { id: string };
+
+    await db.update(eventUser).set({ ageGroup: null, nickname: null }).where(eq(eventUser.id, f.userId));
+    expect((await db.select({ ageGroup: order.ageGroup }).from(order).where(eq(order.id, first.id)))[0]?.ageGroup).toBe("20s");
+    expect((await db.select({ ageGroup: order.ageGroup }).from(order).where(eq(order.id, second.id)))[0]?.ageGroup).toBe("30s");
+  });
+
   // 2026-10-03: 在庫管理を無効にした商品は注文時に残数を書き換えない。
   it("does not change stock for a menu without inventory management", async () => {
     const f = await seed(7, false);
