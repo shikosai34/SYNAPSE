@@ -17,6 +17,7 @@ import {
   userStamp,
   contractPayment,
   eventAnnouncement,
+  eventAgeSnapshot,
 } from "@fesflow/db";
 import { eq, and, inArray, isNull, isNotNull, desc, gte, lt } from "drizzle-orm";
 import { ulid } from "ulidx";
@@ -518,9 +519,16 @@ eventRoutes.put(
     if (!(await hasPermission(c, null, "event:write", eventId, { allowWhenClosed: true }))) {
       apiError("FORBIDDEN", "イベントの状態を変更する権限がありません");
     }
+    // 2026-11-01: 属性消去後に受付を再開すると年代情報が再収集されるため、再開を禁止する。
+    const nextStatus = c.req.valid("json").status;
+    const [current] = await db.select({ privacyScrubbedAt: event.privacyScrubbedAt })
+      .from(event).where(eq(event.id, eventId)).limit(1);
+    if (current?.privacyScrubbedAt && (nextStatus === "live" || nextStatus === "upcoming")) {
+      apiError("CONFLICT", "来場者情報の削除が済んだイベントは再開できません");
+    }
     await db
       .update(event)
-      .set({ lifecycleStatus: c.req.valid("json").status })
+      .set({ lifecycleStatus: nextStatus })
       .where(eq(event.id, eventId));
     return c.json({ success: true });
   }
@@ -1001,6 +1009,82 @@ eventRoutes.get("/:id/visitors", async (c) => {
   return c.json(visitors);
 });
 
+// 2026-11-01: 年代別統計の保持とプロフィール属性の消去をD1の1トランザクションにまとめる。
+// イベントが閉じていることをサーバーで確認し、集計保存が失敗した場合は属性を削除しない。
+eventRoutes.post("/:id/scrub-visitor-profiles", async (c) => {
+  const eventId = c.req.param("id");
+  if (!(await hasPermission(c, null, "event:write", eventId, { allowWhenClosed: true }))) {
+    apiError("FORBIDDEN", "来場者情報の削除にはイベント管理権限が必要です");
+  }
+  const db = c.get("db");
+  const [current] = await db.select({
+    lifecycleStatus: event.lifecycleStatus,
+    privacyScrubbedAt: event.privacyScrubbedAt,
+    deletedAt: event.deletedAt,
+  }).from(event).where(eq(event.id, eventId)).limit(1);
+  if (!current || current.deletedAt) apiError("NOT_FOUND", "イベントが見つかりません");
+  if (!["ended", "archived"].includes(current.lifecycleStatus)) {
+    apiError("CONFLICT", "開催終了後のイベントでのみ来場者属性を削除できます");
+  }
+  if (current.privacyScrubbedAt) {
+    return c.json({ success: true, alreadyScrubbed: true, scrubbedAt: current.privacyScrubbedAt });
+  }
+
+  const now = Date.now();
+  const statements = [
+    // 現行の年代構成と同じ母集団: 入場済みの有効バンド、または有効バンドを持たない入場済みアカウント。
+    // 未回答は空文字として合算し、年代別集計からは除外する。ユーザーIDは保存しない。
+    c.env.DB.prepare(`
+      WITH profiles AS (
+        SELECT COALESCE(w.age_group, '') AS age_group
+        FROM wristband w JOIN event_user u ON w.user_id = u.id
+        WHERE u.event_id = ? AND u.onboarded_at IS NOT NULL AND w.status IN ('active', 'smartphone')
+        UNION ALL
+        SELECT COALESCE(u.age_group, '') AS age_group
+        FROM event_user u WHERE u.event_id = ? AND u.onboarded_at IS NOT NULL
+          AND NOT EXISTS (SELECT 1 FROM wristband w WHERE w.user_id = u.id AND w.status IN ('active', 'smartphone'))
+      ), grouped AS (
+        SELECT age_group, COUNT(*) AS count FROM profiles GROUP BY age_group
+      )
+      INSERT INTO event_age_snapshot (event_id, profile_count, age_counts, captured_at)
+      SELECT ?, COALESCE((SELECT SUM(count) FROM grouped),0),
+        COALESCE((SELECT json_group_array(json_object('age_group',age_group,'count',count)) FROM grouped),'[]'), ?
+      WHERE EXISTS (SELECT 1 FROM event WHERE id=? AND lifecycle_status IN ('ended','archived') AND privacy_scrubbed_at IS NULL)
+      ON CONFLICT(event_id) DO NOTHING
+    `).bind(eventId, eventId, eventId, now, eventId),
+    // 既存データ補完: 購入者は家族代表アカウント単位。既に記録した注文時の年代は上書きしない。
+    c.env.DB.prepare(`
+      UPDATE orders SET age_group = (
+        SELECT u.age_group FROM event_user u WHERE u.id = orders.user_id
+      )
+      WHERE age_group IS NULL AND user_id IS NOT NULL
+        AND circle_id IN (SELECT id FROM circle WHERE event_id = ?)
+    `).bind(eventId),
+    c.env.DB.prepare(`UPDATE wristband SET nickname=NULL, age_group=NULL
+      WHERE user_id IN (SELECT id FROM event_user WHERE event_id=?)`).bind(eventId),
+    c.env.DB.prepare(`UPDATE event_user SET nickname=NULL, age_group=NULL WHERE event_id=?`).bind(eventId),
+    // イベント終了状態は同じトランザクション内で再確認する。再実行や属性の復活を防ぐ状態フラグ。
+    c.env.DB.prepare(`UPDATE event SET privacy_scrubbed_at=?
+      WHERE id=? AND lifecycle_status IN ('ended','archived') AND privacy_scrubbed_at IS NULL`).bind(now, eventId),
+  ];
+  const results = await c.env.DB.batch(statements);
+  if (results[0]?.meta.changes !== 1 || results[4]?.meta.changes !== 1) {
+    // 事前チェック後に別実行が処理した場合。各SQLは再実行しても削除済み情報を復元しない。
+    const [latest] = await db.select({ scrubbedAt: event.privacyScrubbedAt })
+      .from(event).where(eq(event.id, eventId)).limit(1);
+    if (!latest?.scrubbedAt) apiError("CONFLICT", "削除の準備が整っていません。再試行してください");
+    return c.json({ success: true, alreadyScrubbed: true, scrubbedAt: latest.scrubbedAt });
+  }
+  return c.json({
+    success: true,
+    alreadyScrubbed: false,
+    scrubbedAt: new Date(now),
+    ordersBackfilled: results[1]!.meta.changes,
+    wristbandsScrubbed: results[2]!.meta.changes,
+    visitorAccountsScrubbed: results[3]!.meta.changes,
+  });
+});
+
 // イベント統計・分析 (2026-07-12)
 // 2026-10-25: 全期間レポートは大規模イベントでもWorkerに全行を載せないよう、D1側で集計する。
 // event_manager (sales:read) 権限が必要。
@@ -1027,6 +1111,8 @@ eventRoutes.get("/:id/analytics", async (c) => {
   const orderHour = "CAST((COALESCE(o.paid_at, o.created_at) + 32400000) / 3600000 AS INTEGER) % 24";
   const refundHour = "CAST((r.refunded_at + 32400000) / 3600000 AS INTEGER) % 24";
   const visitorHour = "CAST((u.onboarded_at + 32400000) / 3600000 AS INTEGER) % 24";
+  const [savedAgeSnapshot] = await db.select().from(eventAgeSnapshot)
+    .where(eq(eventAgeSnapshot.eventId, eventId)).limit(1);
   const [circles, orders, refunds, reviews, visitors, visitorHours, bandAges, fallbackAges, visits, menus] =
     await Promise.all([
       query<CircleRow>("SELECT id, name FROM circle WHERE event_id = ? AND deleted_at IS NULL"),
@@ -1150,10 +1236,14 @@ eventRoutes.get("/:id/analytics", async (c) => {
   }
   // 家族単位の年齢 fallback は、有効なバンドが1本もない入場済みアカウントだけに適用する。
   const ageCounts = new Map<string, number>();
-  let visitorProfiles = 0;
-  for (const row of [...bandAges, ...fallbackAges]) {
+  // 2026-11-01: 消去後はイベント単位の匿名集計を正本にする。未回答も母数には含む。
+  const ageRows = savedAgeSnapshot
+    ? JSON.parse(savedAgeSnapshot.ageCounts) as Age[]
+    : [...bandAges, ...fallbackAges];
+  let visitorProfiles = savedAgeSnapshot?.profileCount ?? 0;
+  for (const row of ageRows) {
     const count = asNumber(row.count);
-    visitorProfiles += count;
+    if (!savedAgeSnapshot) visitorProfiles += count;
     const label = VISITOR_AGE_GROUPS.find((group) => group.value === row.age_group)?.label;
     if (label) ageCounts.set(label, (ageCounts.get(label) || 0) + count);
   }
