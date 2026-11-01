@@ -1057,7 +1057,9 @@ eventRoutes.post("/:id/scrub-visitor-profiles", async (c) => {
     // 既存データ補完: 購入者は家族代表アカウント単位。既に記録した注文時の年代は上書きしない。
     c.env.DB.prepare(`
       UPDATE orders SET age_group = (
-        SELECT u.age_group FROM event_user u WHERE u.id = orders.user_id
+        SELECT u.age_group FROM event_user u
+        JOIN circle c ON c.id = orders.circle_id AND c.event_id = u.event_id
+        WHERE u.id = orders.user_id
       )
       WHERE age_group IS NULL AND user_id IS NOT NULL
         AND circle_id IN (SELECT id FROM circle WHERE event_id = ?)
