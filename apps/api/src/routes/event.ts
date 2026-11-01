@@ -128,6 +128,7 @@ eventRoutes.get("/:id", async (c) => {
       endDate: event.endDate,
       storeAreas: event.storeAreas,
       lifecycleStatus: event.lifecycleStatus,
+      privacyScrubbedAt: event.privacyScrubbedAt,
       paymentMethods: event.paymentMethods,
       stampRallySettings: event.stampRallySettings,
       lotteryEnabled: event.lotteryEnabled,

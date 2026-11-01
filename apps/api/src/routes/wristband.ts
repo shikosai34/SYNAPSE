@@ -483,6 +483,9 @@ wristbandRoutes.put(
 
     const [user] = await db.select().from(eventUser).where(eq(eventUser.id, userId));
     if (!user || user.eventId !== eventId) apiError("NOT_FOUND", "イベント内の来場者が見つかりません");
+    const [privacyState] = await db.select({ scrubbedAt: event.privacyScrubbedAt })
+      .from(event).where(eq(event.id, eventId)).limit(1);
+    if (privacyState?.scrubbedAt) apiError("CONFLICT", "このイベントの来場者属性は削除済みです");
     if (profile.favoriteDate && Number.isNaN(Date.parse(`${profile.favoriteDate}T00:00:00Z`))) {
       apiError("BAD_REQUEST", "お好きな日付を確認してください");
     }
@@ -604,6 +607,9 @@ wristbandRoutes.post(
     const { userId, wristbandId, nickname, ageGroup } = c.req.valid("json");
     const [account] = await db.select().from(eventUser).where(eq(eventUser.id, userId));
     if (!account) apiError("NOT_FOUND", "家族を追加するアカウントが見つかりません");
+    const [privacyState] = await db.select({ scrubbedAt: event.privacyScrubbedAt })
+      .from(event).where(eq(event.id, account.eventId)).limit(1);
+    if (privacyState?.scrubbedAt) apiError("CONFLICT", "このイベントの来場者属性は削除済みです");
     if (!account.onboardedAt || account.status !== "available") {
       apiError("CONFLICT", "代表者の入場登録完了後に家族を追加できます");
     }
@@ -687,6 +693,9 @@ wristbandRoutes.patch(
     const { userId, nickname, ageGroup } = c.req.valid("json");
     const [account] = await db.select().from(eventUser).where(eq(eventUser.id, userId));
     if (!account) apiError("NOT_FOUND", "代表者が見つかりません");
+    const [privacyState] = await db.select({ scrubbedAt: event.privacyScrubbedAt })
+      .from(event).where(eq(event.id, account.eventId)).limit(1);
+    if (privacyState?.scrubbedAt) apiError("CONFLICT", "このイベントの来場者属性は削除済みです");
     if (!account.onboardedAt || account.status !== "available") {
       apiError("CONFLICT", "代表者の入場登録完了後に家族情報を編集できます");
     }
@@ -996,6 +1005,9 @@ wristbandRoutes.post(
       apiError("NOT_FOUND", "ユーザーが見つかりません");
     }
     const u = users[0]!;
+    const [privacyState] = await db.select({ scrubbedAt: event.privacyScrubbedAt })
+      .from(event).where(eq(event.id, u.eventId)).limit(1);
+    if (privacyState?.scrubbedAt) apiError("CONFLICT", "このイベントの来場者属性は削除済みです");
 
     // 日付は保存前に形式検証する (マイページのセルフ編集からも入ってくるため)。
     if (favoriteDate && !/^\d{4}-\d{2}-\d{2}$/.test(favoriteDate)) {

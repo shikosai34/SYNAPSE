@@ -116,6 +116,11 @@ export const eventApi = {
   get: (id: string) => fetchApi<Event>(`/api/festivals/${id}`),
   // イベント統計・分析 (2026-07-12)。event_manager (sales:read) 権限が必要。
   analytics: (id: string) => fetchApi<EventAnalytics>(`/api/festivals/${id}/analytics`),
+  // 2026-11-01: 統計固定を完了してから属性を削除する管理者限定操作。
+  scrubVisitorProfiles: (id: string) =>
+    fetchApi<{ success: boolean; alreadyScrubbed: boolean; ordersBackfilled?: number; visitorAccountsScrubbed?: number; wristbandsScrubbed?: number }>(
+      `/api/festivals/${id}/scrub-visitor-profiles`, { method: "POST" },
+    ),
   // 来場者行動・混雑・スタッフ分析 (2026-07-14)
   behavior: (id: string) => fetchApi<EventBehavior>(`/api/festivals/${id}/behavior`),
   // 日次締め (指定日 JST の売上を支払い方法別/サークル別に集計)。event_manager sales:read。
