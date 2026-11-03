@@ -12,6 +12,7 @@ import { resolveAssetUrl } from "@/lib/asset-url";
 import { useUnsavedChanges } from "@/components/UnsavedNavigationGuard";
 import { CircleSettingsMatrix } from "@/components/event/CircleSettingsMatrix";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { reauthWithPasskey } from "@/lib/sudo";
 
 // 開催状態の選択肢 (主催者が切り替えられるのは upcoming/live/ended。archived は保持期間としてシステム側概念)。
 const LIFECYCLE_OPTIONS: { value: EventLifecycleStatus; label: string; desc: string }[] = [
@@ -45,12 +46,16 @@ const FONT_OPTIONS = [
 export function SettingsTab({ eventId, event }: SettingsTabProps) {
   const queryClient = useQueryClient();
   const [scrubDialogOpen, setScrubDialogOpen] = useState(false);
-  // 2026-11-01: イベント終了後の個人属性削除は、年代別集計を保持する一括API以外から実行させない。
+  // 2026-11-03: 手動削除と開催後7日Cronを同じ集計保全処理に通す。
   const scrubProfiles = useMutation({
-    mutationFn: () => eventApi.scrubVisitorProfiles(eventId),
+    // 2026-11-03: 手動の来場者情報消去も、確定ごとにパスキー再認証を要求する。
+    mutationFn: async () => {
+      await reauthWithPasskey();
+      return eventApi.scrubVisitorProfiles(eventId);
+    },
     onSuccess: (result) => {
       setScrubDialogOpen(false);
-      toast.success(result.alreadyScrubbed ? "来場者属性は削除済みです" : "年代別集計を保存し、年代とニックネームを削除しました");
+      toast.success(result.alreadyScrubbed ? "来場者情報は削除済みです" : "年代別集計を保存し、来場者情報を削除しました");
       void queryClient.invalidateQueries({ queryKey: ["event", eventId] });
       void queryClient.invalidateQueries({ queryKey: ["event-analytics", eventId] });
       void queryClient.invalidateQueries({ queryKey: ["analytics", eventId] });
@@ -345,7 +350,7 @@ export function SettingsTab({ eventId, event }: SettingsTabProps) {
         </CardContent>
       </Card>
 
-      {/* 2026-11-01: 年代別統計のスナップショットを保存し終わるまでは個人属性を削除しない。 */}
+      {/* 2026-11-03: 7日後の自動消去に加え、主催者もこの画面から先行実行できる。 */}
       <Card className="rounded-none bg-background shadow-none">
         <CardContent className="pt-6 space-y-3">
           <div className="flex items-center gap-2 border-b-thin border-border pb-2">
@@ -353,8 +358,8 @@ export function SettingsTab({ eventId, event }: SettingsTabProps) {
             <h3 className="text-xs font-bold uppercase tracking-wider">開催後の来場者情報削除</h3>
           </div>
           <p className="text-[11px] text-muted-foreground leading-relaxed">
-            年代別の来場者構成と既存注文の年代を保存した後、来場者アカウントと全リストバンドの年代・ニックネームを消去します。
-            削除後も注文は代表者の年代で分析できます。家族の個別購入者は判定できません。
+            開催終了から原則7日後に年代・ニックネーム・アレルギー情報を自動消去します。自動消去前でもこの画面から実行できます。
+            年代別の来場者構成と既存注文の年代を保存してから消去するため、注文分析は代表者の年代で続けられます。家族の個別購入者は判定できません。
           </p>
           {event?.privacyScrubbedAt ? (
             <p className="text-xs font-bold">削除済み（{new Date(event.privacyScrubbedAt).toLocaleString("ja-JP")}）</p>
@@ -364,7 +369,7 @@ export function SettingsTab({ eventId, event }: SettingsTabProps) {
               disabled={!["ended", "archived"].includes(event?.lifecycleStatus) || scrubProfiles.isPending}
               onClick={() => setScrubDialogOpen(true)}
             >
-              年代とニックネームを削除
+              来場者の年代・ニックネーム・アレルギー情報を削除
             </Button>
           )}
           {!["ended", "archived"].includes(event?.lifecycleStatus) && (
@@ -373,7 +378,7 @@ export function SettingsTab({ eventId, event }: SettingsTabProps) {
           <ConfirmDialog
             isOpen={scrubDialogOpen}
             title="来場者情報を削除しますか？"
-            description="来場者アカウントとリストバンドの年代・ニックネームを元に戻せない形で削除します。年代構成と注文年代の保全に失敗した場合、削除は実行されません。削除後はイベントを再開できません。"
+            description="来場者アカウントと全リストバンドの年代・ニックネーム、およびアレルギー情報を元に戻せない形で削除します。年代構成と注文年代を保存できなければ削除しません。削除後はイベントを再開できません。"
             confirmLabel="統計を保全して削除する"
             isPending={scrubProfiles.isPending}
             onConfirm={() => scrubProfiles.mutate()}

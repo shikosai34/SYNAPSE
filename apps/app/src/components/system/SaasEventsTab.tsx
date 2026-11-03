@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { adminApi, type AdminEvent, type BillingStatus } from "@/lib/api";
-import { ensureSudo } from "@/lib/sudo";
+import { ensureSudo, ensureSudoWithPasskey } from "@/lib/sudo";
 import { getAuthInfo, saveAuthInfo } from "@/hooks/useCircleAuth";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -112,7 +112,11 @@ export function SaasEventsTab() {
   });
 
   const del = useMutation({
-    mutationFn: (id: string) => adminApi.deleteEvent(id),
+    // 2026-11-03: 取り消し可能な論理削除でも、イベント撤去は毎回パスキーで再認証する。
+    mutationFn: async (id: string) => {
+      await ensureSudoWithPasskey();
+      return adminApi.deleteEvent(id);
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["adminEvents"] });
       queryClient.invalidateQueries({ queryKey: ["adminOverview"] });

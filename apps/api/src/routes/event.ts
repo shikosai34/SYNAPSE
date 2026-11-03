@@ -25,6 +25,8 @@ import { getAdminSession, getSession, hasPermission } from "../utils/auth";
 import type { AppEnv } from "../types";
 import { VISITOR_AGE_GROUPS } from "@fesflow/config/visitor-profile";
 import { notifyVisitors, sendPushToTargets } from "../services/web-push";
+import { scrubVisitorProfilesForEvent } from "../services/cleanup";
+import { isFreshlyAuthenticated } from "../utils/sudo";
 
 const eventRoutes = new Hono<AppEnv>();
 
@@ -1018,6 +1020,10 @@ eventRoutes.post("/:id/scrub-visitor-profiles", async (c) => {
   if (!(await hasPermission(c, null, "event:write", eventId, { allowWhenClosed: true }))) {
     apiError("FORBIDDEN", "来場者情報の削除にはイベント管理権限が必要です");
   }
+  const session = await getSession(c);
+  if (!session || !isFreshlyAuthenticated(session, Date.now())) {
+    apiError("REAUTH_REQUIRED", "来場者情報の削除にはパスキーでの再認証が必要です");
+  }
   const db = c.get("db");
   const [current] = await db.select({
     lifecycleStatus: event.lifecycleStatus,
@@ -1033,52 +1039,9 @@ eventRoutes.post("/:id/scrub-visitor-profiles", async (c) => {
   }
 
   const now = Date.now();
-  const statements = [
-    // 現行の年代構成と同じ母集団: 入場済みの有効バンド、または有効バンドを持たない入場済みアカウント。
-    // 未回答は空文字として合算し、年代別集計からは除外する。ユーザーIDは保存しない。
-    c.env.DB.prepare(`
-      WITH profiles AS (
-        SELECT COALESCE(w.age_group, '') AS age_group
-        FROM wristband w JOIN event_user u ON w.user_id = u.id
-        WHERE u.event_id = ? AND u.onboarded_at IS NOT NULL AND w.status IN ('active', 'smartphone')
-        UNION ALL
-        SELECT COALESCE(u.age_group, '') AS age_group
-        FROM event_user u WHERE u.event_id = ? AND u.onboarded_at IS NOT NULL
-          AND NOT EXISTS (SELECT 1 FROM wristband w WHERE w.user_id = u.id AND w.status IN ('active', 'smartphone'))
-      ), grouped AS (
-        SELECT age_group, COUNT(*) AS count FROM profiles GROUP BY age_group
-      )
-      INSERT INTO event_age_snapshot (event_id, profile_count, age_counts, captured_at)
-      SELECT ?, COALESCE((SELECT SUM(count) FROM grouped),0),
-        COALESCE((SELECT json_group_array(json_object('age_group',age_group,'count',count)) FROM grouped),'[]'), ?
-      WHERE EXISTS (SELECT 1 FROM event WHERE id=? AND lifecycle_status IN ('ended','archived') AND privacy_scrubbed_at IS NULL)
-      ON CONFLICT(event_id) DO NOTHING
-    `).bind(eventId, eventId, eventId, now, eventId),
-    // 既存データ補完: 購入者は家族代表アカウント単位。既に記録した注文時の年代は上書きしない。
-    c.env.DB.prepare(`
-      UPDATE orders SET age_group = (
-        SELECT u.age_group FROM event_user u
-        JOIN circle c ON c.id = orders.circle_id AND c.event_id = u.event_id
-        WHERE u.id = orders.user_id
-      )
-      WHERE age_group IS NULL AND user_id IS NOT NULL
-        AND circle_id IN (SELECT id FROM circle WHERE event_id = ?)
-        AND EXISTS (SELECT 1 FROM event WHERE id=? AND lifecycle_status IN ('ended','archived') AND privacy_scrubbed_at IS NULL)
-    `).bind(eventId, eventId),
-    c.env.DB.prepare(`UPDATE wristband SET nickname=NULL, age_group=NULL
-      WHERE user_id IN (SELECT id FROM event_user WHERE event_id=?)
-        AND EXISTS (SELECT 1 FROM event WHERE id=? AND lifecycle_status IN ('ended','archived') AND privacy_scrubbed_at IS NULL)
-    `).bind(eventId, eventId),
-    c.env.DB.prepare(`UPDATE event_user SET nickname=NULL, age_group=NULL WHERE event_id=?
-      AND EXISTS (SELECT 1 FROM event WHERE id=? AND lifecycle_status IN ('ended','archived') AND privacy_scrubbed_at IS NULL)
-    `).bind(eventId, eventId),
-    // イベント終了状態は同じトランザクション内で再確認する。再実行や属性の復活を防ぐ状態フラグ。
-    c.env.DB.prepare(`UPDATE event SET privacy_scrubbed_at=?
-      WHERE id=? AND lifecycle_status IN ('ended','archived') AND privacy_scrubbed_at IS NULL`).bind(now, eventId),
-  ];
-  const results = await c.env.DB.batch(statements);
-  if (results[0]?.meta.changes !== 1 || results[4]?.meta.changes !== 1) {
-    // 事前チェック後に別実行が処理した場合。各SQLは再実行しても削除済み情報を復元しない。
+  const outcome = await scrubVisitorProfilesForEvent(c.env.DB, eventId, now);
+  if (!outcome.scrubbed) {
+    // 事前チェック後にCronや別管理者が先に処理した場合は、完了状態を返す。
     const [latest] = await db.select({ scrubbedAt: event.privacyScrubbedAt })
       .from(event).where(eq(event.id, eventId)).limit(1);
     if (!latest?.scrubbedAt) apiError("CONFLICT", "削除の準備が整っていません。再試行してください");
@@ -1088,9 +1051,9 @@ eventRoutes.post("/:id/scrub-visitor-profiles", async (c) => {
     success: true,
     alreadyScrubbed: false,
     scrubbedAt: new Date(now),
-    ordersBackfilled: results[1]!.meta.changes,
-    wristbandsScrubbed: results[2]!.meta.changes,
-    visitorAccountsScrubbed: results[3]!.meta.changes,
+    ordersBackfilled: outcome.ordersBackfilled,
+    wristbandsScrubbed: outcome.wristbandsScrubbed,
+    visitorAccountsScrubbed: outcome.visitorAccountsScrubbed,
   });
 });
 
