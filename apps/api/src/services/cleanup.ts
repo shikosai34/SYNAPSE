@@ -9,6 +9,7 @@ export const RETENTION_SETTING_KEY = "cleanup_retention";
 const DAY_MS = 24 * 60 * 60 * 1000;
 export const RETENTION_MS = DEFAULT_RETENTION_DAYS * DAY_MS;
 const MAX_EVENTS_PER_RUN = 20;
+const VISITOR_PROFILE_RETENTION_DAYS = 7;
 const CIRCLE_TABLES = ["orders", "pre_order", "circle_visit", "numbered_ticket", "review", "user_stamp"] as const;
 const EVENT_TABLES = ["event_user", "lottery"] as const;
 const TABLES = [...CIRCLE_TABLES, ...EVENT_TABLES] as const;
@@ -97,5 +98,111 @@ export async function runCleanup(
     console.error(JSON.stringify({ event: "retention_cleanup", runId, cutoff, ...result, outcome: "failed" }));
     // 生のD1例外にはSQL/bindingsがあるため、Cron側に伝える例外も汎用化する。
     throw new Error(`Retention cleanup failed (${runId})`);
+  }
+}
+
+export type VisitorProfileCleanupResult = {
+  dryRun: boolean;
+  candidateEvents: number;
+  processedEvents: number;
+  changes: { eventUser: number; wristband: number };
+};
+
+/** Event 管理画面とCronの両方が使う、集計保全とプロフィール消去の一括処理。 */
+export async function scrubVisitorProfilesForEvent(
+  db: WorkerEnv["DB"],
+  eventId: string,
+  now: number,
+) {
+  const activeEvent = "EXISTS (SELECT 1 FROM event WHERE id = ? AND lifecycle_status IN ('ended', 'archived') AND privacy_scrubbed_at IS NULL)";
+  const outcomes = await db.batch([
+    // 年代構成は個人・リストバンドを参照しないイベント単位の集計として残す。
+    db.prepare(`
+      WITH profiles AS (
+        SELECT COALESCE(w.age_group, '') AS age_group
+        FROM wristband w JOIN event_user u ON w.user_id = u.id
+        WHERE u.event_id = ? AND u.onboarded_at IS NOT NULL AND w.status IN ('active', 'smartphone')
+        UNION ALL
+        SELECT COALESCE(u.age_group, '') AS age_group
+        FROM event_user u WHERE u.event_id = ? AND u.onboarded_at IS NOT NULL
+          AND NOT EXISTS (SELECT 1 FROM wristband w WHERE w.user_id = u.id AND w.status IN ('active', 'smartphone'))
+      ), grouped AS (
+        SELECT age_group, COUNT(*) AS count FROM profiles GROUP BY age_group
+      )
+      INSERT INTO event_age_snapshot (event_id, profile_count, age_counts, captured_at)
+      SELECT ?, COALESCE((SELECT SUM(count) FROM grouped),0),
+        COALESCE((SELECT json_group_array(json_object('age_group',age_group,'count',count)) FROM grouped),'[]'), ?
+      WHERE ${activeEvent}
+      ON CONFLICT(event_id) DO NOTHING
+    `).bind(eventId, eventId, eventId, now, eventId),
+    // 注文の年代スナップショットを先に補完し、後続の分析で個人プロフィールを参照させない。
+    db.prepare(`
+      UPDATE orders SET age_group = (
+        SELECT u.age_group FROM event_user u
+        JOIN circle c ON c.id = orders.circle_id AND c.event_id = u.event_id
+        WHERE u.id = orders.user_id
+      )
+      WHERE age_group IS NULL AND user_id IS NOT NULL
+        AND circle_id IN (SELECT id FROM circle WHERE event_id = ?)
+        AND ${activeEvent}
+    `).bind(eventId, eventId),
+    db.prepare(`UPDATE wristband SET nickname=NULL, age_group=NULL
+      WHERE user_id IN (SELECT id FROM event_user WHERE event_id=?) AND ${activeEvent}
+    `).bind(eventId, eventId),
+    db.prepare(`UPDATE event_user SET nickname=NULL, age_group=NULL, allergies=NULL
+      WHERE event_id=? AND ${activeEvent}
+    `).bind(eventId, eventId),
+    db.prepare(`UPDATE event SET privacy_scrubbed_at=?
+      WHERE id=? AND lifecycle_status IN ('ended','archived') AND privacy_scrubbed_at IS NULL`).bind(now, eventId),
+  ]);
+  return {
+    scrubbed: (outcomes[4]?.meta.changes ?? 0) === 1,
+    ordersBackfilled: outcomes[1]?.meta.changes ?? 0,
+    wristbandsScrubbed: outcomes[2]?.meta.changes ?? 0,
+    visitorAccountsScrubbed: outcomes[3]?.meta.changes ?? 0,
+  };
+}
+
+/**
+ * 開催終了から7日を過ぎた来場者のプロフィール情報を消去する。
+ * 年代・ニックネームは event_user と wristband に複製され、アレルギー情報は event_user に保存される。
+ */
+export async function runVisitorProfileCleanup(
+  db: WorkerEnv["DB"],
+  options: { now?: number; dryRun?: boolean } = {},
+): Promise<VisitorProfileCleanupResult> {
+  const runId = crypto.randomUUID();
+  const cutoff = (options.now ?? Date.now()) - VISITOR_PROFILE_RETENTION_DAYS * DAY_MS;
+  const dryRun = options.dryRun ?? false;
+  const result: VisitorProfileCleanupResult = {
+    dryRun,
+    candidateEvents: 0,
+    processedEvents: 0,
+    changes: { eventUser: 0, wristband: 0 },
+  };
+
+  try {
+    const candidates = await db.prepare(`SELECT id FROM event WHERE
+      lifecycle_status IN ('ended', 'archived') AND end_date <= ? AND privacy_scrubbed_at IS NULL
+      ORDER BY end_date, id LIMIT ?`).bind(cutoff, MAX_EVENTS_PER_RUN).all<{ id: string }>();
+    result.candidateEvents = candidates.results.length;
+
+    for (const { id } of candidates.results) {
+      if (dryRun) {
+        result.processedEvents++;
+        continue;
+      }
+      const outcome = await scrubVisitorProfilesForEvent(db, id, options.now ?? Date.now());
+      if (!outcome.scrubbed) continue;
+      result.changes.eventUser += outcome.visitorAccountsScrubbed;
+      result.changes.wristband += outcome.wristbandsScrubbed;
+      result.processedEvents++;
+    }
+
+    console.info(JSON.stringify({ event: "visitor_profile_cleanup", runId, cutoff, ...result, outcome: "completed" }));
+    return result;
+  } catch {
+    console.error(JSON.stringify({ event: "visitor_profile_cleanup", runId, cutoff, ...result, outcome: "failed" }));
+    throw new Error(`Visitor profile cleanup failed (${runId})`);
   }
 }

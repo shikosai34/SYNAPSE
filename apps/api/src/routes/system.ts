@@ -633,9 +633,15 @@ adminRoutes.patch(
   },
 );
 
-// イベントの論理削除 (運営判断での停止・撤去)。
-adminRoutes.delete("/events/:id", async (c) => {
+// 2026-11-03: テナントを運営画面から停止する操作は、sudo昇格を必須にする。
+// フロントのパスキー案内だけに頼らず、APIへ直接送られた削除も同じ認可で拒否する。
+adminRoutes.delete("/events/:id", requireSudo, async (c) => {
   const db = c.get("db");
+  // 2026-11-03: 15分のsudo状態だけでは足りないため、削除リクエスト自体も
+  // パスキー再認証から5分以内のセッションに限定する。
+  if (!isFreshlyAuthenticated(c.get("session")!, Date.now())) {
+    apiError("REAUTH_REQUIRED", "イベント削除にはパスキーでの再認証が必要です");
+  }
   const id = c.req.param("id");
   const existing = await db
     .select({ deletedAt: event.deletedAt })

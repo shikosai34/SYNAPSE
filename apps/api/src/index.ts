@@ -43,7 +43,7 @@ import {
 import { apiError, registerErrorHandlers } from "./http-error";
 import type { AppEnv } from "./types";
 import { requestObservability } from "./middleware/observability";
-import { cleanupMustDryRun, runCleanup } from "./services/cleanup";
+import { cleanupMustDryRun, runCleanup, runVisitorProfileCleanup } from "./services/cleanup";
 import { sendEndedEventReviewReminders } from "./services/review-reminders";
 
 // Hono REST ルート
@@ -378,6 +378,9 @@ export default {
   async scheduled(_eventInfo: unknown, env: WorkerEnv, ctx: { waitUntil: (promise: Promise<void>) => void }) {
     // 2026-10-03 (#83): 規程確認後に明示的に有効化されるまで、scheduledでは候補確認だけを行う。
     ctx.waitUntil(runCleanup(env.DB, { dryRun: cleanupMustDryRun(env) }).then(() => undefined));
+    // 2026-11-03: 公開済みの取扱い案内に合わせ、終了7日後に年代・ニックネームの複製を消去する。
+    // この限定消去は長期のイベント履歴削除とは別ポリシーとして実行し、明示的なDRY_RUNだけ尊重する。
+    ctx.waitUntil(runVisitorProfileCleanup(env.DB, { dryRun: env.CLEANUP_DRY_RUN === "true" }).then(() => undefined));
     // 2026-10-21: 終了イベントごとの送信済み印を使い、受取済み来場者へレビュー依頼を一度だけ送る。
     ctx.waitUntil(sendEndedEventReviewReminders(env).catch(() => console.warn("review_reminder_job_failed")));
   }

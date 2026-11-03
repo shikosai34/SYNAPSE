@@ -26,6 +26,7 @@ export function VisitorDataUseNoticeContent() {
       </dl>
 
       <p>取得した情報は、上記の目的に必要な範囲で利用します。</p>
+      {/* 2026-11-03: 自動消去はこの案内で取得を明記したプロフィール・アレルギー情報を対象にする。 */}
       <p className="font-bold">これらの情報は、開催終了後、原則として1週間を目処に削除します。</p>
     </div>
   );

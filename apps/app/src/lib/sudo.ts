@@ -29,8 +29,18 @@ export async function ensureSudo(): Promise<boolean> {
   }
 }
 
+/**
+ * 2026-11-03: イベント削除の直前に必ずパスキーを求める。既存の15分昇格状態を
+ * 再利用せず、認証直後の新セッションからサーバー側のsudo昇格を取り直す。
+ */
+export async function ensureSudoWithPasskey(): Promise<void> {
+  await reauthWithPasskey();
+  const res = await adminApi.elevate();
+  if (!res.elevated) throw new Error("パスキー認証後の昇格に失敗しました");
+}
+
 // パスキーで再認証する (新しいセッションを張り直す)。パスキー未登録なら例外。
-async function reauthWithPasskey(): Promise<void> {
+export async function reauthWithPasskey(): Promise<void> {
   const result = await authClient.signIn.passkey();
   // better-auth のクライアントはエラーを result.error に載せる場合がある
   const err = (result as { error?: { message?: string } } | undefined)?.error;
