@@ -11,6 +11,7 @@ import { toast } from "sonner";
 import { resolveAssetUrl } from "@/lib/asset-url";
 import { useUnsavedChanges } from "@/components/UnsavedNavigationGuard";
 import { CircleSettingsMatrix } from "@/components/event/CircleSettingsMatrix";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 
 // 開催状態の選択肢 (主催者が切り替えられるのは upcoming/live/ended。archived は保持期間としてシステム側概念)。
 const LIFECYCLE_OPTIONS: { value: EventLifecycleStatus; label: string; desc: string }[] = [
@@ -43,6 +44,19 @@ const FONT_OPTIONS = [
 
 export function SettingsTab({ eventId, event }: SettingsTabProps) {
   const queryClient = useQueryClient();
+  const [scrubDialogOpen, setScrubDialogOpen] = useState(false);
+  // 2026-11-01: イベント終了後の個人属性削除は、年代別集計を保持する一括API以外から実行させない。
+  const scrubProfiles = useMutation({
+    mutationFn: () => eventApi.scrubVisitorProfiles(eventId),
+    onSuccess: (result) => {
+      setScrubDialogOpen(false);
+      toast.success(result.alreadyScrubbed ? "来場者属性は削除済みです" : "年代別集計を保存し、年代とニックネームを削除しました");
+      void queryClient.invalidateQueries({ queryKey: ["event", eventId] });
+      void queryClient.invalidateQueries({ queryKey: ["event-analytics", eventId] });
+      void queryClient.invalidateQueries({ queryKey: ["analytics", eventId] });
+    },
+    onError: (error: Error) => toast.error(error.message || "来場者属性の削除に失敗しました"),
+  });
 
   // 支払い方法 (2026-07-12): テーマ保存とは独立して管理・保存する。
   const [payments, setPayments] = useState<string[]>([]);
@@ -328,6 +342,43 @@ export function SettingsTab({ eventId, event }: SettingsTabProps) {
               );
             })}
           </div>
+        </CardContent>
+      </Card>
+
+      {/* 2026-11-01: 年代別統計のスナップショットを保存し終わるまでは個人属性を削除しない。 */}
+      <Card className="rounded-none bg-background shadow-none">
+        <CardContent className="pt-6 space-y-3">
+          <div className="flex items-center gap-2 border-b-thin border-border pb-2">
+            <Shield className="h-4 w-4" />
+            <h3 className="text-xs font-bold uppercase tracking-wider">開催後の来場者情報削除</h3>
+          </div>
+          <p className="text-[11px] text-muted-foreground leading-relaxed">
+            年代別の来場者構成と既存注文の年代を保存した後、来場者アカウントと全リストバンドの年代・ニックネームを消去します。
+            削除後も注文は代表者の年代で分析できます。家族の個別購入者は判定できません。
+          </p>
+          {event?.privacyScrubbedAt ? (
+            <p className="text-xs font-bold">削除済み（{new Date(event.privacyScrubbedAt).toLocaleString("ja-JP")}）</p>
+          ) : (
+            <Button
+              variant="destructive"
+              disabled={!["ended", "archived"].includes(event?.lifecycleStatus) || scrubProfiles.isPending}
+              onClick={() => setScrubDialogOpen(true)}
+            >
+              年代とニックネームを削除
+            </Button>
+          )}
+          {!["ended", "archived"].includes(event?.lifecycleStatus) && (
+            <p className="text-xs text-muted-foreground">イベントを「終了」に変更すると実行できます。</p>
+          )}
+          <ConfirmDialog
+            isOpen={scrubDialogOpen}
+            title="来場者情報を削除しますか？"
+            description="来場者アカウントとリストバンドの年代・ニックネームを元に戻せない形で削除します。年代構成と注文年代の保全に失敗した場合、削除は実行されません。削除後はイベントを再開できません。"
+            confirmLabel="統計を保全して削除する"
+            isPending={scrubProfiles.isPending}
+            onConfirm={() => scrubProfiles.mutate()}
+            onCancel={() => setScrubDialogOpen(false)}
+          />
         </CardContent>
       </Card>
 
