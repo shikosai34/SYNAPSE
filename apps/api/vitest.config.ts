@@ -1,7 +1,7 @@
 /**
  * API Worker の統合テスト設定 (2026-07-07 リファクタリング Phase7: テスト基盤導入)
  *
- * @cloudflare/vitest-pool-workers により、テストを Node ではなく workerd 上で実行する。
+ * @cloudflare/vitest-plugin により、テストを Node ではなく workerd 上で実行する。
  * dev==prod (@cloudflare/vite-plugin) と同じ思想で test==prod を保つのが狙い。
  * wrangler.jsonc から D1/R2 バインディングと compatibility_flags (nodejs_compat = ALS)
  * をそのまま読み込むため、本番と同一の実行環境・バインディング構成でテストできる。
@@ -19,7 +19,7 @@ import { fileURLToPath } from "node:url";
 import {
 	cloudflareTest,
 	readD1Migrations,
-} from "@cloudflare/vitest-pool-workers";
+} from "@cloudflare/vitest-plugin";
 import { defineConfig } from "vitest/config";
 
 export default defineConfig(async () => {
