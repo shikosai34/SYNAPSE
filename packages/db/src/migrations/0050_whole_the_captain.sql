@@ -1,0 +1,1 @@
+ALTER TABLE `event` ADD `allow_wristbandless_order` integer DEFAULT false NOT NULL;

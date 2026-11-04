@@ -153,6 +153,8 @@ export function SettingsTab({ eventId, event }: SettingsTabProps) {
     logoUrl: "",
     hasPhysicalWristband: true,
     allowSelfIssue: true,
+    // 2026-11-04: 既存の基本設定スナップショットで未保存変更も保護する。
+    allowWristbandlessOrder: false,
   });
   // 直近保存済みの値のスナップショット。現在値と比較して「未保存の変更」があるかを判定する。
   const [basicSnapshot, setBasicSnapshot] = useState(basicForm);
@@ -172,6 +174,7 @@ export function SettingsTab({ eventId, event }: SettingsTabProps) {
         logoUrl: event.logoUrl || "",
         hasPhysicalWristband: event.hasPhysicalWristband !== undefined ? event.hasPhysicalWristband : true,
         allowSelfIssue: event.allowSelfIssue !== false,
+        allowWristbandlessOrder: event.allowWristbandlessOrder === true,
       };
       setBasicForm(nextBasic);
       setBasicSnapshot(nextBasic);
@@ -207,9 +210,13 @@ export function SettingsTab({ eventId, event }: SettingsTabProps) {
         logoUrl: data.logoUrl || null,
         hasPhysicalWristband: data.hasPhysicalWristband,
         allowSelfIssue: data.allowSelfIssue,
+        allowWristbandlessOrder: data.allowWristbandlessOrder,
       }),
     onSuccess: (_res, variables) => {
       queryClient.invalidateQueries({ queryKey: ["event", eventId] });
+      // 2026-11-04: イベントOFFで書き戻されたサークル設定を編集画面にも反映する。
+      queryClient.invalidateQueries({ queryKey: ["circles", eventId] });
+      queryClient.invalidateQueries({ queryKey: ["circle"] });
       // 再取得を待たずにスナップショットを更新し、即座に「未保存」表示を消す。
       setBasicSnapshot(variables);
       toast.success("基本情報・ロゴを保存しました");
@@ -566,6 +573,14 @@ export function SettingsTab({ eventId, event }: SettingsTabProps) {
                     OFFにすると、物理バンドの発行手順がスキップされ、来場者はスマホのデジタルQRのみで入場・注文ができます。
                   </p>
                 </div>
+              </div>
+              {/* 2026-11-04: OFF時の配下サークルへの影響を保存前に明示する。 */}
+              <div className="space-y-2">
+                <label className="flex items-center gap-3 text-xs font-bold">
+                  <input type="checkbox" checked={basicForm.allowWristbandlessOrder} onChange={(e) => setBasicForm({ ...basicForm, allowWristbandlessOrder: e.target.checked })} disabled={updateBasicMutation.isPending} />
+                  リストバンドなしでの注文を許可する
+                </label>
+                <p className="text-[10px] text-muted-foreground">OFF にすると配下サークルのリストバンドなし注文の受付設定も OFF に戻ります。</p>
               </div>
               {/* 2026-10-17: セルフ発行はイベント側の明示設定を正本にし、APIでも同じ値を強制する。 */}
               <div className="flex items-center gap-3 border-thick border-border p-3 bg-muted/10">

@@ -39,6 +39,19 @@ export function saveVisitor(s: VisitorSession) {
   window.dispatchEvent(new Event(EVT));
 }
 
+// 2026-11-04: 両側opt-inの事前注文だけが呼ぶ。発行や入場完了を偽装せず、既存のベアラー保存を再利用する。
+// 既存セッションは別イベントも含め上書きしない。サーバーが初回注文時にevent_userを作成する。
+export function ensureWristbandlessVisitor(eventId: string): VisitorSession {
+  const current = getVisitor();
+  if (current?.userId) return current;
+  const next: VisitorSession = {
+    userId: crypto.randomUUID(), eventId, wristbandId: null,
+    displayId: null, nickname: null, onboarded: false,
+  };
+  saveVisitor(next);
+  return next;
+}
+
 export function clearVisitor() {
   if (typeof window === "undefined") return;
   localStorage.removeItem(KEY);

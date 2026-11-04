@@ -18,6 +18,8 @@ export function EventCreateWizard({ onBack, onComplete }: { onBack: () => void; 
   const [logoUrl, setLogoUrl] = useState("");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
+  // 2026-11-04: 発行必須を既定にし、未発行注文は明示的に許可する。
+  const [allowWristbandlessOrder, setAllowWristbandlessOrder] = useState(false);
   const [hasPhysicalWristband, setHasPhysicalWristband] = useState(true);
   const [fontFamily, setFontFamily] = useState<"mono" | "sans" | "serif">("mono");
   const [primaryColor, setPrimaryColor] = useState("#000000");
@@ -97,6 +99,7 @@ export function EventCreateWizard({ onBack, onComplete }: { onBack: () => void; 
         startDate: startDate || undefined,
         endDate: endDate || undefined,
         hasPhysicalWristband,
+        allowWristbandlessOrder,
         fontFamily,
         primaryColor,
         accentColor,
@@ -133,7 +136,7 @@ export function EventCreateWizard({ onBack, onComplete }: { onBack: () => void; 
   useUnsavedChanges({
     isDirty: () => !createdEventRef.current && (
       !!eventName.trim() || !!description.trim() || !!officialWebsiteUrl.trim() || !!logoUrl || uploadingLogo ||
-      !!startDate || !!endDate || !hasPhysicalWristband || fontFamily !== "mono" ||
+      !!startDate || !!endDate || !hasPhysicalWristband || allowWristbandlessOrder || fontFamily !== "mono" ||
       primaryColor !== "#000000" || accentColor !== "#0000FF" || backgroundColor !== "#FFFFFF" ||
       JSON.stringify(paymentMethods) !== JSON.stringify(["現金"]) || !!newPayment.trim() ||
       storeAreas.length > 0 || !!newArea.trim()
@@ -202,6 +205,11 @@ export function EventCreateWizard({ onBack, onComplete }: { onBack: () => void; 
           <input type="checkbox" checked={hasPhysicalWristband} onChange={(e) => setHasPhysicalWristband(e.target.checked)} />
           物理リストバンドを使用する
         </label>
+        {/* 2026-11-04: サークル側で個別に受付を選ぶためのイベント全体の許可。 */}
+        <label className="flex items-center gap-3 text-sm font-bold">
+          <input type="checkbox" checked={allowWristbandlessOrder} onChange={(e) => setAllowWristbandlessOrder(e.target.checked)} />
+          リストバンドなしでの注文を許可する
+        </label>
         <p className="text-xs text-muted-foreground">使用する場合、作成後にリストバンドIDを一括作成する画面へ進みます。</p>
       </div>}
 
@@ -236,6 +244,7 @@ export function EventCreateWizard({ onBack, onComplete }: { onBack: () => void; 
         <h2 className="font-headline text-lg">イベント作成内容</h2>
         <p><strong>イベント名:</strong> {eventName}</p><p><strong>説明:</strong> {description || "未設定"}</p>
         <p><strong>公式サイト:</strong> {officialWebsiteUrl || "未設定"}</p><p><strong>開催日:</strong> {startDate || "未設定"} ～ {endDate || "未設定"}</p>
+        <p><strong>リストバンドなし注文:</strong> {allowWristbandlessOrder ? "許可する" : "許可しない"}</p>
         <p><strong>物理リストバンド:</strong> {hasPhysicalWristband ? "使用する" : "使用しない"}</p>
         <p><strong>支払い方法:</strong> {paymentMethods.join("、")}</p><p><strong>店舗エリア:</strong> {storeAreas.map((area) => area.name).join("、") || "未設定"}</p>
       </div>}

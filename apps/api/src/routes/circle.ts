@@ -14,7 +14,7 @@ import {
   circleVisit,
   menu,
 } from "@fesflow/db";
-import { eq, and, isNull, isNotNull, gte, inArray } from "drizzle-orm";
+import { eq, and, isNull, isNotNull, gte, inArray, sql } from "drizzle-orm";
 import { ulid } from "ulidx";
 import { hasPermission, isCircleOwner } from "../utils/auth";
 import { requireAuth } from "../middleware/auth";
@@ -246,6 +246,8 @@ circleRoutes.post(
         // 2026-10-25: 新規サークルの未登録バンド警告と例外注文も作成時に保存する。
         warnOnUnregisteredWristband: z.boolean().optional(),
         allowUnregisteredWristbandOrder: z.boolean().optional(),
+        // 2026-11-04: 未登録の物理バンドと未発行来場者の注文許可を区別する。
+        allowWristbandlessOrder: z.boolean().optional(),
       }).optional(),
       // 2026-07-12 (SaaS): サークル作成は「そのイベントの event_manager」か
       // 「サークルホスト招待 (circle_host)」のどちらかが必要。招待経由の場合はここに token を渡す。
@@ -334,6 +336,11 @@ circleRoutes.post(
       apiError("FORBIDDEN", "このイベントは現在停止中です。主催者にお問い合わせください。");
     }
 
+    // 2026-11-04: 親イベントの不許可は黙って補正せず、管理者へ理由を返す。
+    if (input.settings?.allowWristbandlessOrder === true && !targetEvent.allowWristbandlessOrder) {
+      apiError("BAD_REQUEST", "イベント側で許可されていないためリストバンドなし注文を有効化できません");
+    }
+
     // 2026-07-12 (SaaS): プランのサークル数上限を超えないか確認する。
     // 無料枠は maxCircles=1。上限に達している場合はプランのアップグレードが必要。
     const existingForEvent = await db
@@ -374,8 +381,16 @@ circleRoutes.post(
       // 2026-10-25: 新規サークルも未登録警告を既定表示し、注文許可は明示設定にする。
       warnOnUnregisteredWristband: input.settings?.warnOnUnregisteredWristband ?? true,
       allowUnregisteredWristbandOrder: input.settings?.allowUnregisteredWristbandOrder ?? false,
+      allowWristbandlessOrder: input.settings?.allowWristbandlessOrder ?? false,
     });
     const statements = [];
+    // 2026-11-04: 検証後に親がOFFになる競合もD1 batch内の制約で拒否し、依存関係を保つ。
+    const wristbandlessGuardId = input.settings?.allowWristbandlessOrder ? ulid() : null;
+    if (wristbandlessGuardId) {
+      statements.push(c.env.DB.prepare(`INSERT INTO order_write_guard (id, valid)
+        SELECT ?, CASE WHEN EXISTS (SELECT 1 FROM event WHERE id=? AND allow_wristbandless_order=1) THEN 1 ELSE 0 END`)
+        .bind(wristbandlessGuardId, input.eventId));
+    }
     if (hostInvite && inviteUseGuardId) {
       // 2026-10-17: D1 batch を単一トランザクションとして使い、招待消費・サークル・
       // 代表者メンバーシップを一緒に確定する。失敗時は三つともrollbackされる。
@@ -397,11 +412,18 @@ circleRoutes.post(
     if (inviteUseGuardId) {
       statements.push(c.env.DB.prepare("DELETE FROM order_write_guard WHERE id=?").bind(inviteUseGuardId));
     }
+    if (wristbandlessGuardId) {
+      statements.push(c.env.DB.prepare("DELETE FROM order_write_guard WHERE id=?").bind(wristbandlessGuardId));
+    }
     try {
       await c.env.DB.batch(statements);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       if (message.includes("order_write_guard_valid")) {
+        const [parent] = await db.select().from(event).where(eq(event.id, input.eventId));
+        if (wristbandlessGuardId && !parent?.allowWristbandlessOrder) {
+          apiError("BAD_REQUEST", "イベント側で許可されていないためリストバンドなし注文を有効化できません");
+        }
         apiError("BAD_REQUEST", "招待の使用回数上限に達したか、有効期限が切れています");
       }
       throw error;
@@ -603,6 +625,17 @@ circleRoutes.patch(
       apiError("BAD_REQUEST", "未登録バンド注文の設定が正しくありません");
     }
 
+    // 2026-11-04: 型と親イベントの許可を検証し、未設定はfalseのまま維持する。
+    if (Object.prototype.hasOwnProperty.call(settings, "allowWristbandlessOrder")) {
+      if (typeof settings.allowWristbandlessOrder !== "boolean") {
+        apiError("BAD_REQUEST", "リストバンドなし注文の設定が正しくありません");
+      }
+      const [parent] = await db.select().from(event).where(eq(event.id, existingCircle[0]!.eventId));
+      if (settings.allowWristbandlessOrder && !parent?.allowWristbandlessOrder) {
+        apiError("BAD_REQUEST", "イベント側で許可されていないためリストバンドなし注文を有効化できません");
+      }
+    }
+
     if (Object.prototype.hasOwnProperty.call(settings, "orderNumberDisplay")) {
       const display = settings.orderNumberDisplay;
       if (!display || typeof display !== "object" || Array.isArray(display)) {
@@ -653,10 +686,15 @@ circleRoutes.patch(
       };
     }
 
-    await db
-      .update(circle)
-      .set({ settings: JSON.stringify({ ...oldSettings, ...settings }) })
-      .where(eq(circle.id, id));
+    // 2026-11-04: 親OFFとの競合時も古いJSONから真を書き戻さず、既存の浅いマージ・null保存を維持する。
+    const nextSettings = JSON.stringify({ ...oldSettings, ...settings });
+    const updated = await db.update(circle).set({ settings: nextSettings }).where(and(
+      eq(circle.id, id),
+      sql`(json_extract(${nextSettings}, '$.allowWristbandlessOrder') IS NOT 1 OR EXISTS (SELECT 1 FROM event WHERE id=${circle.eventId} AND allow_wristbandless_order=1))`,
+    )).returning({ id: circle.id });
+    if (!updated.length) {
+      apiError("BAD_REQUEST", "イベント側で許可されていないためリストバンドなし注文を有効化できません");
+    }
 
     return c.json({ success: true });
   }
@@ -689,12 +727,10 @@ circleRoutes.patch(
     const reportedAt = new Date().toISOString();
     const previous = Array.isArray(settings.waitTimeReports) ? settings.waitTimeReports : [];
     await db.update(circle).set({
-      settings: JSON.stringify({
-        ...settings,
-        waitTimeReport: { minutes: waitMinutes, reportedAt },
-        // 直近500件を残し、将来の混雑推移分析に使えるよう報告ログを保持する。
-        waitTimeReports: [...previous, { minutes: waitMinutes, reportedAt }].slice(-500),
-      }),
+      // 2026-11-04: 待ち時間の更新で、同時にOFFへ戻された未発行注文設定を古いJSONから復活させない。
+      settings: sql`json_set(CASE WHEN json_valid(${circle.settings}) AND json_type(${circle.settings}) = 'object' THEN ${circle.settings} ELSE '{}' END,
+        '$.waitTimeReport', json(${JSON.stringify({ minutes: waitMinutes, reportedAt })}),
+        '$.waitTimeReports', json(${JSON.stringify([...previous, { minutes: waitMinutes, reportedAt }].slice(-500))}))`,
     }).where(eq(circle.id, id));
     return c.json({ success: true, waitTimeReport: { minutes: waitMinutes, reportedAt } });
   }

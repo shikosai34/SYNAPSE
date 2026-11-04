@@ -31,6 +31,8 @@ import {
 import type { AppEnv } from "../types";
 import { validateToppingCategorySelection } from "../utils/topping-wizard";
 
+import { allocateDisplayIds } from "../utils/visitor-display-id";
+
 const preOrderRoutes = new Hono<AppEnv>();
 
 // 事前オーダー作成 (ユーザー端末側)
@@ -107,19 +109,30 @@ preOrderRoutes.post(
         apiError("BAD_REQUEST", "このイベントは開催期間を終了しているため注文を受け付けていません");
       }
 
-      const existingUser = await db
-        .select()
-        .from(eventUser)
-        .where(eq(eventUser.id, userId));
-
+      let existingUser = await db.select().from(eventUser).where(eq(eventUser.id, userId));
       if (existingUser.length === 0) {
-        // 2026-07-06: 「発行しないと使えない」方針。任意の userId から eventUser を
-        // 自動作成する自己発行の抜け穴を撤去。未発行の userId での事前オーダーは拒否する。
-        apiError(
-          "FORBIDDEN",
-          "リストバンドが発行されていません。受付でリストバンドの発行を受けてください。",
-        );
-      } else if (existingUser[0]!.status === "banned") {
+        // 2026-11-04: 2026-07-06の「発行必須」は既定で維持し、双方のopt-in時のみ自動作成を復活する。
+        // userIdは認証のないベアラー値であり、同一イベント内のなりすまし・複数ID発行は防げない残存リスク。
+        // 物理/スマホバンドや入場完了状態は作らず、この注文例外を入場許可として扱わない。
+        let circleAllows = false;
+        try { circleAllows = JSON.parse(circles[0]!.settings || "{}").allowWristbandlessOrder === true; } catch { /* 壊れた設定は不許可 */ }
+        if (!eventRows[0]!.allowWristbandlessOrder || !circleAllows) {
+          apiError("FORBIDDEN", "リストバンドが発行されていません。受付でリストバンドの発行を受けてください。");
+        }
+        const displayId = await allocateDisplayIds(db, eventId, 1);
+        // 同じ端末の並行autosaveでは既存IDを上書きせず、再読込してBAN/別イベントの検証を適用する。
+        // 設定読取後に運営がOFFへ切り替えた場合も、挿入時点の実効条件で止める。
+        await db.$client.prepare(`INSERT INTO event_user (id, event_id, display_id)
+          SELECT ?, c.event_id, ? FROM circle c JOIN event e ON e.id=c.event_id
+          WHERE c.id=? AND e.allow_wristbandless_order=1
+            AND CASE WHEN json_valid(c.settings) THEN json_type(c.settings, '$.allowWristbandlessOrder')='true' ELSE 0 END
+          ON CONFLICT(id) DO NOTHING`).bind(userId, displayId, circleId).run();
+        existingUser = await db.select().from(eventUser).where(eq(eventUser.id, userId));
+        if (!existingUser.length) {
+          apiError("FORBIDDEN", "リストバンドなし注文の受付が終了しました。受付でリストバンドの発行を受けてください。");
+        }
+      }
+      if (existingUser[0]!.status === "banned") {
         // 2026-07-15: BAN された来場者の事前オーダーを拒否する。
         apiError("FORBIDDEN", "このリストバンドは利用できません。受付・本部にお問い合わせください。");
       } else if (existingUser[0]!.eventId !== eventId) {

@@ -19,6 +19,7 @@ type CreatedCircleSettings = {
   // 2026-10-25: 新規サークルでも未登録バンドを警告し、例外注文は明示設定にする。
   warnOnUnregisteredWristband: boolean;
   allowUnregisteredWristbandOrder: boolean;
+  allowWristbandlessOrder: boolean;
   // 2026-10-21: 新規店舗のレビューは、運用設定で明示されるまで非公開にする。
   reviewPublication: { publishReviews: boolean; showAverageRating: boolean; showStars: boolean; showComments: boolean };
   // 2026-10-21: 新規店舗には作成中・受取待ちの両番号を既定表示し、媒体は空で始める。
@@ -48,6 +49,8 @@ export function CircleCreateWizard({
   const [acceptedPayments, setAcceptedPayments] = useState<string[]>(() => parseEventPaymentMethods(event.paymentMethods));
   const [storeAreaId, setStoreAreaId] = useState("");
   const [warnOnUnregisteredWristband, setWarnOnUnregisteredWristband] = useState(true);
+  // 2026-11-04: 親イベントが許可した場合だけ未発行注文を選べる。
+  const [allowWristbandlessOrder, setAllowWristbandlessOrder] = useState(false);
   const [allowUnregisteredWristbandOrder, setAllowUnregisteredWristbandOrder] = useState(false);
   const [creating, setCreating] = useState(false);
   const hasCreatedRef = useRef(false);
@@ -90,6 +93,7 @@ export function CircleCreateWizard({
       storeAreaId: storeAreaId || null,
       warnOnUnregisteredWristband,
       allowUnregisteredWristbandOrder,
+      allowWristbandlessOrder,
       reviewPublication: { publishReviews: false, showAverageRating: false, showStars: false, showComments: false },
       orderNumberDisplay: { showPreparingNumbers: true, showPickupNumbers: true, overflowPriority: "latest", mediaPercent: 35, media: [] },
     };
@@ -119,7 +123,7 @@ export function CircleCreateWizard({
     isDirty: () => !hasCreatedRef.current && (
       !!name.trim() || !!description.trim() || !!iconImagePath || !!backgroundImagePath ||
       orderFlowMode !== "pending" || stockEnabled || staffEnabled ||
-      !warnOnUnregisteredWristband || allowUnregisteredWristbandOrder ||
+      !warnOnUnregisteredWristband || allowUnregisteredWristbandOrder || allowWristbandlessOrder ||
       JSON.stringify(acceptedPayments) !== JSON.stringify(parseEventPaymentMethods(event.paymentMethods)) || !!storeAreaId
     ),
     onSave: create,
@@ -166,6 +170,13 @@ export function CircleCreateWizard({
             <input type="checkbox" checked={allowUnregisteredWristbandOrder} onChange={(e) => setAllowUnregisteredWristbandOrder(e.target.checked)} />
             <span>警告画面から注文を受け付けるボタンを表示する</span>
           </label>
+          {/* 2026-11-04: 入場登録前の物理バンドとは別に、未発行の来場者を受け付ける。 */}
+          <label className="flex items-center gap-3 text-sm">
+            <input type="checkbox" checked={allowWristbandlessOrder} disabled={!event.allowWristbandlessOrder} onChange={(e) => setAllowWristbandlessOrder(e.target.checked)} />
+            リストバンドなし注文を受け付ける
+          </label>
+          {!event.allowWristbandlessOrder && <p className="text-xs text-muted-foreground">イベント側で許可されていないため有効化できません</p>}
+
         </fieldset>
         <div className="space-y-2"><Label htmlFor="storeArea">店舗エリア</Label><select id="storeArea" className="w-full border-thick border-border bg-input p-3 font-mono" value={storeAreaId} onChange={(e) => setStoreAreaId(e.target.value)}><option value="">未設定</option>{storeAreas.map((area) => <option value={area.id} key={area.id}>{area.name}</option>)}</select><p className="text-[10px] text-muted-foreground">イベントが登録したエリアから選ぶと、来場者の出店一覧にも場所が表示されます。</p></div>
       </div>}
@@ -177,6 +188,7 @@ export function CircleCreateWizard({
         <p><strong>オプション:</strong> {[stockEnabled && "在庫管理", staffEnabled && "スタッフ管理"].filter(Boolean).join("、") || "なし"}</p>
         <p><strong>支払い方法:</strong> {acceptedPayments.join("、") || "未選択"}</p>
         <p><strong>店舗エリア:</strong> {storeAreas.find((area) => area.id === storeAreaId)?.name || "未設定"}</p>
+        <p><strong>リストバンドなし注文:</strong> {allowWristbandlessOrder ? "受け付ける" : "受け付けない"}</p>
         <p><strong>未登録バンド:</strong> {warnOnUnregisteredWristband ? "警告を表示" : "警告なし"} / 注文ボタン {allowUnregisteredWristbandOrder ? "表示" : "非表示"}</p>
       </div>}
 
