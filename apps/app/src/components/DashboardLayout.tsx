@@ -1,4 +1,4 @@
-import { createContext, ReactNode, Suspense, useContext, useEffect, useRef, useState } from "react";
+import { createContext, ReactNode, Suspense, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Link, Outlet, useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
@@ -161,6 +161,50 @@ function DashboardLayoutFrame({
   const { circleId: authCircleId, isCircleOwner, checkPermission, isLoading: authLoading } = useAuth();
   const circleId = type === "circle" ? (authCircleId ?? "") : "";
   const sidebarScrollRef = useRef<HTMLElement>(null);
+  // 2026-11-04: タイトル下から sticky 位置までの移動中も下余白を1remに保つため、
+  // 実測した上端を max-height に使う。height は固定せず、短いメニューは内容高に任せる。
+  // 枠内は overflow-anchor を無効にし、位置保持をブラウザー任せにせず下記の規則に統一する。
+  // リサイズ時も変更前の高さで端を判定できるようpxで適用し、既存の1remの余白を実測換算する。
+  useLayoutEffect(() => {
+    const sidebar = sidebarScrollRef.current;
+    if (!sidebar) return;
+    let frame: number | undefined;
+    const fitSidebar = () => {
+      frame = undefined;
+      if (!sidebar.getClientRects().length) return;
+      const bottomGap = parseFloat(getComputedStyle(document.documentElement).fontSize);
+      const maxHeight = `${Math.max(0, window.innerHeight - sidebar.getBoundingClientRect().top - bottomGap)}px`;
+      if (sidebar.style.maxHeight === maxHeight) return;
+
+      // 2026-11-04: 高さ変更によるブラウザーのクランプより先に端を判定する。
+      // 丸め誤差は1pxまで許容し、内容が収まる場合は上端を優先する。
+      const previousTop = sidebar.scrollTop;
+      const atBottom = previousTop > 0 &&
+        sidebar.scrollHeight - sidebar.clientHeight - previousTop <= 1;
+      sidebar.style.maxHeight = maxHeight;
+      sidebar.scrollTop = atBottom ? sidebar.scrollHeight - sidebar.clientHeight : previousTop;
+    };
+    const scheduleFit = () => {
+      if (frame === undefined) frame = requestAnimationFrame(fitSidebar);
+    };
+    // 2026-11-04: 初回は描画前に反映し、以後は1フレームに集約する。
+    // ヘッダー・タイトル・メニューの非同期更新や画面幅変更も再計測の対象にする。
+    fitSidebar();
+    window.addEventListener("scroll", scheduleFit, { passive: true });
+    window.addEventListener("resize", scheduleFit);
+    const observer = new ResizeObserver(scheduleFit);
+    observer.observe(document.documentElement);
+    if (sidebar.parentElement) observer.observe(sidebar.parentElement);
+    if (sidebar.firstElementChild) observer.observe(sidebar.firstElementChild);
+    return () => {
+      window.removeEventListener("scroll", scheduleFit);
+      window.removeEventListener("resize", scheduleFit);
+      observer.disconnect();
+      if (frame !== undefined) cancelAnimationFrame(frame);
+      sidebar.style.removeProperty("max-height");
+    };
+  }, []);
+
   const sidebarScrollKey = `fesflow:dashboard-sidebar:${type}:${circleId || eventId || "default"}`;
 
   useEffect(() => {
@@ -522,7 +566,7 @@ function DashboardLayoutFrame({
             親の下端に押し上げられてヘッダーへ重ならないよう、sticky枠と外側の下余白を合計16pxに揃える。 */}
         <aside
           ref={sidebarScrollRef}
-          className="sticky top-[calc(var(--app-chrome-height,4rem)+1rem)] hidden w-full shrink-0 overflow-y-auto overscroll-contain border-thick border-border bg-background p-2 pb-5 shadow-none md:block md:max-h-[calc(100dvh-var(--app-chrome-height,4rem)-2rem)] md:w-64 md:self-start"
+          className="sticky top-[calc(var(--app-chrome-height,4rem)+1rem)] hidden w-full shrink-0 overflow-y-auto overscroll-contain [overflow-anchor:none] border-thick border-border bg-background p-2 pb-5 shadow-none md:block md:max-h-[calc(100dvh-var(--app-chrome-height,4rem)-2rem)] md:w-64 md:self-start"
         >
           <nav className="flex md:flex-col gap-1">
             {renderMenuGroups(false)}
