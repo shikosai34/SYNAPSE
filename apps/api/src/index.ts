@@ -49,6 +49,7 @@ import { sendEndedEventReviewReminders } from "./services/review-reminders";
 // Hono REST ルート
 import {
   eventRoutes,
+  billingRoutes,
   circleRoutes,
   menuRoutes,
   toppingRoutes,
@@ -242,6 +243,8 @@ app.on(["POST", "GET"], "/api/auth/*", async (c) => {
 // 2026-07-04: /api/events は広告ブロック機能(uBlock, Brave Shield等)に telemetry 送信と誤認され
 // net::ERR_BLOCKED_BY_CLIENT で遮断されるため、恒久回避策として /api/festivals に改名。
 app.route("/api/festivals", eventRoutes);
+// 2026-11-04: Webhook は Stripe から直接届くため、ログイン不要の専用ルートに分離する。
+app.route("/api/billing", billingRoutes);
 app.route("/api/circles", circleRoutes);
 app.route("/api/menus", menuRoutes);
 app.route("/api/toppings", toppingRoutes);

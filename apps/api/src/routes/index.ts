@@ -1,4 +1,5 @@
 import eventRoutes from "./event";
+import billingRoutes from "./billing";
 import circleRoutes from "./circle";
 import menuRoutes from "./menu";
 import toppingRoutes from "./topping";
@@ -18,6 +19,7 @@ import notificationRoutes from "./notification";
 
 export {
   eventRoutes,
+  billingRoutes,
   circleRoutes,
   menuRoutes,
   toppingRoutes,

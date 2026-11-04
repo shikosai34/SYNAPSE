@@ -66,10 +66,10 @@ export const event = sqliteTable("event", {
   advancedPermissions: integer("advanced_permissions", { mode: "boolean" }).default(false).notNull(),
   // ownerEmail: 作成者=主たる event_manager。課金・連絡の主体。
   ownerEmail: text("owner_email"),
-  // Stripe 連携用 (将来フェーズ。現状は未使用の予約カラム)。
+  // 2026-11-04: Checkout完了後の顧客IDを保持する。サブスクリプションIDは将来の継続課金用に予約。
   stripeCustomerId: text("stripe_customer_id"),
   stripeSubscriptionId: text("stripe_subscription_id"),
-  // 有効化/停止の時刻 (手動有効化・銀行振込対応の監査用)。
+  // 有効化/停止の時刻 (手動入金・Stripe決済を含む契約状態の確認用)。
   activatedAt: integer("activated_at", { mode: "timestamp_ms" }),
   suspendedAt: integer("suspended_at", { mode: "timestamp_ms" }),
   // 契約管理(手動運用)の補助フィールド (2026-07-15)。銀行振込ベースの契約を管理画面で
@@ -117,6 +117,15 @@ export const eventAgeSnapshot = sqliteTable("event_age_snapshot", {
   profileCount: integer("profile_count").notNull(),
   ageCounts: text("age_counts").notNull(),
   capturedAt: integer("captured_at", { mode: "timestamp_ms" }).notNull(),
+});
+
+// 2026-11-04: Stripe webhook の再送で契約台帳と有効化を重複処理しないため、受信済みIDを保持する。
+export const stripeWebhookEvent = sqliteTable("stripe_webhook_event", {
+  id: text("id").primaryKey(),
+  eventType: text("event_type").notNull(),
+  processedAt: integer("processed_at", { mode: "timestamp_ms" })
+    .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+    .notNull(),
 });
 
 // 契約入金履歴 (2026-07-15)。銀行振込等の手動入金を1件ずつ記録し、契約管理画面で参照する。

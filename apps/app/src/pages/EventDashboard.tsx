@@ -207,8 +207,8 @@ export default function EventDashboard() {
         eventId={eventId}
       >
         <div className="space-y-6">
-          {/* TAB: 契約状況 (オーナー向け・参照専用) */}
-          {activeTab === "contract" && <ContractTab eventId={eventId} />}
+          {/* 2026-11-04: 契約状況は閲覧可能ロールを維持し、Stripe導線だけをイベント管理者に渡す。 */}
+          {activeTab === "contract" && <ContractTab eventId={eventId} canManageBilling={isEventManager} />}
 
           {/* TAB: 統計・分析 */}
           {activeTab === "analytics" && <AnalyticsTab eventId={eventId} eventName={eventName} />}

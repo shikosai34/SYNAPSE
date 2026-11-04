@@ -51,6 +51,8 @@ Vite はルート `.env` を読み込みます（`apps/app/vite.config.ts` の `
 - `VITE_ENABLE_LOCAL_AUTH=true`（Vite 開発画面のメール/パスワード認証 UI）
 - `INITIAL_SUPER_ADMIN_EMAIL`（初期システム管理者のローカル設定。デモメンバーシップには使われません）
 
+Stripe Checkout のローカル動作確認では `STRIPE_SECRET_KEY`、`STRIPE_WEBHOOK_SECRET`、`STRIPE_PRICE_EVENT` を設定します。サークル枠の追加を表示するには `STRIPE_PRICE_CIRCLES_2` / `_5` / `_10` のうち必要な Price ID も設定します。Price は Stripe Dashboard で one-time / JPY として作成してください。実キーがない場合も型・統合テストは実 Stripe API に接続しません。
+
 開発時の来場者向けリンクは、Vite が実際に起動したオリジンを使います。3000番ポートが使用中でアプリが3001番などへ移動しても、リンク先は現在のアプリに追従します。別ホストへ分けて配信する環境では `VITE_VISITOR_URL` を設定してください。
 
 ローカル `.env` を変更したら Vite と Wrangler を再起動してください。
