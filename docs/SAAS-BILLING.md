@@ -1,8 +1,7 @@
-# SaaS 課金設計 (Phase F — 未実装・予約)
+# SaaS 課金設計 (Phase F — Stripe Checkout)
 
 FesFlow の SaaS 化 Phase A〜E(テナントモデル/招待オンボーディング/運営コンソール/
-sudo・なりすまし)は実装済み。本書は **後続フェーズの Stripe 決済**の設計メモ。
-現状はカラム予約 + 手動有効化のみで、決済コードは未実装。
+sudo・なりすまし)に続き、2026-11-04 に Stripe Checkout の基本フローを追加した。
 
 ## 現状(実装済みの土台)
 
@@ -22,19 +21,17 @@ sudo・なりすまし)は実装済み。本書は **後続フェーズの Strip
 - **サークル枠の追加**: `maxCircles` を段階課金で拡張。
 - **銀行振込**: super_admin の手動有効化(実装済み)でカード必須を回避。
 
-## 実装予定(Stripe)
+## Stripe 実装 (2026-11-04)
 
-1. `stripe` npm パッケージ(Workers 上で動作)。秘密鍵は `wrangler secret put STRIPE_SECRET_KEY`。
-2. **`POST /api/billing/checkout`**: Hono で Stripe Checkout セッションを作成し
-   `success_url`/`cancel_url` を返す。自前カードフォームを持たず PCI-DSS 準拠を容易にする。
-   `stripeCustomerId` を event に保存。
-3. **`POST /api/billing/webhook`**: `STRIPE_WEBHOOK_SECRET` で署名検証 →
-   `checkout.session.completed` 等で `event.billingStatus`/`plan`/`maxCircles` を更新。
-   冪等性のため処理済みイベントIDを記録。
-4. フロント: 運営コンソール Billing タブに Stripe 導線 + プラン別集計(overview は実装済み)。
-5. プロモコード/100%割引: Stripe Coupon か、既存の手動有効化を継続利用。
+1. `POST /api/billing/checkout` は Stripe REST API で Checkout Session を作る。カード情報は扱わず、戻り先は `CORS_ORIGIN` から組み立てる。
+2. **価格は Stripe Dashboard が正本**。API は `STRIPE_PRICE_EVENT` と任意の段階 Price ID (`STRIPE_PRICE_CIRCLES_2` / `_5` / `_10`) を使い、金額をコードへ固定しない。段階 Price は基本 Price に加算する one-time / JPY Price とする。
+3. Webhook は `POST /api/billing/webhook`。Workers WebCrypto の HMAC-SHA256 と300秒の時刻許容差で署名を検証する。`checkout.session.completed` と遅延決済成功イベントを処理し、受信済みIDを `stripe_webhook_event` に記録して重複を防ぐ。
+4. 支払い成功時は `event.billingStatus` / `plan` / `maxCircles` / `activatedAt` / `stripeCustomerId` を更新し、`contract_payment` に Stripe 入金を記録する。既存の super_admin 手動有効化は維持する。
+5. イベント契約タブにイベント管理者向け Checkout 導線を追加した。
+
+Stripe アカウントと価格が未設定のため、本番・実 Stripe API 接続確認は未実施。設定手順は [DEPLOY.md](DEPLOY.md) を参照する。
 
 ## 注意
 
 - 本番 migration は additive(baseline 再生成禁止。既存データ保護)。
-- 認証は Google + パスキー一本化済み。決済者の本人性はログインアカウント(ownerEmail)で担保。
+- 認証は Google + パスキー一本化済み。決済開始権限はイベント管理者に限定し、決済者の本人性はログインアカウント(ownerEmail)で担保。

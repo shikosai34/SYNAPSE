@@ -47,6 +47,13 @@ export default defineConfig(async () => {
 						// 認可境界テストは sign-up/email でセッションを発行して検証するため、
 						// テスト環境でのみ better-auth の emailAndPassword を有効化する。
 						ENABLE_EMAIL_PASSWORD: "true",
+						// 2026-11-04: Stripe接続テストは固定ダミー値とfetchスタブを使い、実APIへ接続しない。
+						STRIPE_SECRET_KEY: "sk_test_mock",
+						STRIPE_WEBHOOK_SECRET: "whsec_test_mock",
+						STRIPE_PRICE_EVENT: "price_event_mock",
+						STRIPE_PRICE_CIRCLES_2: "price_circles_2_mock",
+						STRIPE_PRICE_CIRCLES_5: "price_circles_5_mock",
+						STRIPE_PRICE_CIRCLES_10: "price_circles_10_mock",
 					},
 				},
 			}),

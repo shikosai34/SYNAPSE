@@ -139,6 +139,10 @@ export const eventApi = {
     fetchApi<{ success: boolean }>(`/api/festivals/${id}/lifecycle-status`, { method: "PUT", body: { status } }),
   // 契約状況の照会 (オーナー向け・読み取り専用)。
   contract: (id: string) => fetchApi<EventContract>(`/api/festivals/${id}/contract`),
+  // 2026-11-04: Stripe で設定済みのサークル枠だけ表示し、価格 ID はサーバ側に留める。
+  billingTiers: (id: string) => fetchApi<{ maxCircles: number[] }>(`/api/billing/tiers/${id}`),
+  checkout: (eventId: string, maxCircles: number) =>
+    fetchApi<{ url: string }>("/api/billing/checkout", { method: "POST", body: { eventId, maxCircles } }),
   // 支払い方法の設定 (event_manager event:write 権限)。
   setPaymentMethods: (id: string, paymentMethods: string[]) =>
     fetchApi<{ success: boolean; paymentMethods: string[] }>(`/api/festivals/${id}/payment-methods`, {

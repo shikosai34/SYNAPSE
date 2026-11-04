@@ -1,9 +1,11 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { eventApi, type BillingStatus } from "@/lib/api";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { CreditCard, Coins, Info } from "lucide-react";
+import { useState } from "react";
+import { Button } from "@/components/ui/button";
 
 /**
  * 契約状況 (オーナー向け) (2026-07-16)。
@@ -25,7 +27,14 @@ const yen = (n: number) => `¥${(n ?? 0).toLocaleString()}`;
 const day = (iso: string | null) =>
   iso ? new Date(iso).toLocaleDateString("ja-JP", { year: "numeric", month: "2-digit", day: "2-digit" }) : "—";
 
-export function ContractTab({ eventId }: { eventId: string }) {
+// 2026-11-04: 支払導線はイベント管理者に限定し、画面からカード情報を扱わずStripe Checkoutへ委譲する。
+export function ContractTab({ eventId, canManageBilling = true }: { eventId: string; canManageBilling?: boolean }) {
+  const [selectedTier, setSelectedTier] = useState(1);
+  const tiers = useQuery({ queryKey: ["billingTiers", eventId], queryFn: () => eventApi.billingTiers(eventId), enabled: !!eventId && canManageBilling });
+  const checkout = useMutation({
+    mutationFn: () => eventApi.checkout(eventId, selectedTier),
+    onSuccess: ({ url }) => window.location.assign(url),
+  });
   const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["eventContract", eventId],
     queryFn: () => eventApi.contract(eventId),
@@ -81,6 +90,34 @@ export function ContractTab({ eventId }: { eventId: string }) {
       </div>
 
       {/* 契約明細 */}
+      {canManageBilling && <section className="space-y-3 border-b-thin border-border pb-4" aria-labelledby="stripe-payment-heading">
+        <h3 id="stripe-payment-heading" className="text-xs font-bold uppercase tracking-wider">オンライン決済</h3>
+        <p className="text-[11px] text-muted-foreground">Stripe の安全な決済画面でイベント利用料とサークル枠をお支払いできます。</p>
+        <div className="flex flex-wrap items-center gap-3">
+          <label htmlFor="billing-circle-tier" className="text-xs">サークル上限</label>
+          <select
+            id="billing-circle-tier"
+            className="min-h-11 border-thick border-border bg-input px-3 text-sm"
+            value={selectedTier}
+            onChange={(event) => setSelectedTier(Number(event.target.value))}
+            disabled={tiers.isLoading || !tiers.data?.maxCircles.length || checkout.isPending}
+          >
+            {(tiers.data?.maxCircles ?? [1]).map((limit) => <option key={limit} value={limit}>{limit} サークル</option>)}
+          </select>
+          <Button onClick={() => checkout.mutate()} disabled={tiers.isLoading || !tiers.data?.maxCircles.length || checkout.isPending}>
+            {checkout.isPending ? "接続中…" : "支払いへ進む"}
+          </Button>
+        </div>
+        {checkout.isError && <p role="alert" className="text-xs text-error">決済画面を開けませんでした。時間をおいて再度お試しください。</p>}
+        {tiers.isError && <p role="alert" className="text-xs text-error">支払いプランを取得できませんでした。</p>}
+        {new URLSearchParams(window.location.search).get("payment") === "success" && (
+          <p role="status" className="text-xs text-success">お支払いを受け付けました。契約状態への反映まで少しお待ちください。</p>
+        )}
+        {new URLSearchParams(window.location.search).get("payment") === "cancelled" && (
+          <p role="status" className="text-xs text-muted-foreground">決済はキャンセルされました。</p>
+        )}
+      </section>}
+
       <Card className="rounded-none bg-background shadow-none">
         <CardContent className="pt-6">
           <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3 text-xs">

@@ -46,6 +46,13 @@ export interface WorkerEnv {
   CLEANUP_ENABLED?: string;
   // 2026-10-03: 運用時の削除確認とログ量の調整用。秘密値ではない。
   CLEANUP_DRY_RUN?: string;
+  // 2026-11-04: Stripe Checkout の接続値。金額・価格は Stripe 側で管理し、秘密値をWorker環境から読む。
+  STRIPE_SECRET_KEY?: string;
+  STRIPE_WEBHOOK_SECRET?: string;
+  STRIPE_PRICE_EVENT?: string;
+  STRIPE_PRICE_CIRCLES_2?: string;
+  STRIPE_PRICE_CIRCLES_5?: string;
+  STRIPE_PRICE_CIRCLES_10?: string;
   VAPID_PUBLIC_KEY?: string;
   VAPID_PRIVATE_KEY?: string;
   VAPID_SUBJECT?: string;
