@@ -642,7 +642,8 @@ adminRoutes.delete("/events/:id", requireSudo, async (c) => {
   if (!isFreshlyAuthenticated(c.get("session")!, Date.now())) {
     apiError("REAUTH_REQUIRED", "イベント削除にはパスキーでの再認証が必要です");
   }
-  // /events/:id にマッチした時点で id は必ず存在する。\n  const id = c.req.param("id")!;
+  // /events/:id にマッチした時点で id は必ず存在する。
+  const id = c.req.param("id")!;
   const existing = await db
     .select({ deletedAt: event.deletedAt })
     .from(event)
