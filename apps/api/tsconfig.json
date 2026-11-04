@@ -8,7 +8,7 @@
 			"@cloudflare/workers-types",
 			// cloudflare:test モジュールの型 (test/ 配下の統合テスト用)。
 			// 0.18 ではパッケージルートは pool 実装の型なので /types を明示する
-			"@cloudflare/vitest-pool-workers/types"
+			"@cloudflare/vitest-plugin/types"
 		]
 	},
 	"include": ["src", "test", "vitest.config.ts", "worker-configuration.d.ts"]
