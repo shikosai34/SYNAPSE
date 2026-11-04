@@ -28,11 +28,11 @@
     "zod": "catalog:"
   },
   "devDependencies": {
-    "@cloudflare/vitest-pool-workers": "^0.18.0",
     "@cloudflare/workers-types": "^4.20250620.0",
     "@types/node": "^22.13.11",
     "typescript": "^5.8.2",
     "vitest": "~4.1.12",
-    "wrangler": "^4.134.0"
+    "wrangler": "^4.134.0",
+    "@cloudflare/vitest-plugin": "1.4.11"
   }
 }

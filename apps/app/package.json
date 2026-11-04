@@ -11,7 +11,7 @@
     "deploy": "CI=true WRANGLER_SEND_METRICS=false wrangler deploy"
   },
   "dependencies": {
-    "@better-auth/passkey": "^1.6.23",
+    "@better-auth/passkey": "1.7.16",
     "@fesflow/config": "workspace:*",
     "@radix-ui/react-tabs": "^1.1.13",
     "@tanstack/react-query": "^5.85.5",
@@ -45,7 +45,7 @@
     "@vitejs/plugin-react": "^4.3.4",
     "tailwindcss": "^4.1.10",
     "typescript": "^5.8.2",
-    "vite": "^6.4.4",
+    "vite": "^6.4.5",
     "wrangler": "^4.134.0"
   }
 }
