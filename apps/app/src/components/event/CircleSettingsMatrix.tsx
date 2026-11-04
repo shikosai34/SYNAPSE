@@ -55,6 +55,16 @@ export function CircleSettingsMatrix({ eventId, event }: { eventId: string; even
     }
   }, [circles, eventId, saved]);
 
+  // 2026-11-04: 親イベントOFFによる書き戻しは反映し、他項目の未保存入力は保持する。
+  useEffect(() => {
+    if (event?.allowWristbandlessOrder !== false) return;
+    const clear = (current: Record<string, CircleSettings>) => Object.fromEntries(
+      Object.entries(current).map(([id, value]) => [id, { ...value, allowWristbandlessOrder: false }]),
+    );
+    setSaved(clear);
+    setDrafts(clear);
+  }, [event?.allowWristbandlessOrder]);
+
   const changedCircleIds = circles
     .filter((circle) => drafts[circle.id] && !sameSettings(drafts[circle.id], saved[circle.id]))
     .map((circle) => circle.id);
@@ -115,10 +125,11 @@ export function CircleSettingsMatrix({ eventId, event }: { eventId: string; even
   };
 
   const selectClass = "min-w-32 border-thick border-border bg-background px-2 py-2 text-xs font-mono focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2";
-  const checkbox = (checked: boolean, label: string, onChange: (checked: boolean) => void) => (
+  const checkbox = (checked: boolean, label: string, onChange: (checked: boolean) => void, disabled = false) => (
     <label className="flex min-w-28 items-center gap-2 whitespace-nowrap text-xs">
       <input
         type="checkbox"
+        disabled={disabled}
         checked={checked}
         aria-label={label}
         onChange={(event) => onChange(event.target.checked)}
@@ -170,6 +181,7 @@ export function CircleSettingsMatrix({ eventId, event }: { eventId: string; even
                   <th scope="col" className="min-w-40 border-b-thick border-border p-3">出店エリア</th>
                   <th scope="col" className="min-w-36 border-b-thick border-border p-3">未登録バンド警告</th>
                   <th scope="col" className="min-w-40 border-b-thick border-border p-3">未登録での注文</th>
+                  <th scope="col" className="min-w-48 border-b-thick border-border p-3">リストバンドなし注文を受け付ける</th>
                   <th scope="col" className="min-w-32 border-b-thick border-border p-3">レビュー公開</th>
                   <th scope="col" className="min-w-32 border-b-thick border-border p-3">平均評価表示</th>
                   <th scope="col" className="min-w-32 border-b-thick border-border p-3">星表示</th>
@@ -236,6 +248,11 @@ export function CircleSettingsMatrix({ eventId, event }: { eventId: string; even
                       </td>
                       <td className="p-3">{checkbox(settings.warnOnUnregisteredWristband, `${circle.name} 未登録バンド警告`, (v) => change({ warnOnUnregisteredWristband: v }))}</td>
                       <td className="p-3">{checkbox(settings.allowUnregisteredWristbandOrder, `${circle.name} 未登録バンド注文許可`, (v) => change({ allowUnregisteredWristbandOrder: v }))}</td>
+                      {/* 2026-11-04: 既存の行draftで保存し、親イベント不許可時は有効化させない。 */}
+                      <td className="p-3">
+                        {checkbox(settings.allowWristbandlessOrder, `${circle.name} リストバンドなし注文を受け付ける`, (v) => change({ allowWristbandlessOrder: v }), !event?.allowWristbandlessOrder)}
+                        {!event?.allowWristbandlessOrder && <p className="mt-1 max-w-48 text-[10px] text-muted-foreground">イベント側で許可されていないため有効化できません</p>}
+                      </td>
                       <td className="p-3">{checkbox(settings.reviewPublication.publishReviews, `${circle.name} レビュー公開`, (v) => updateReview({ publishReviews: v }))}</td>
                       <td className="p-3">{checkbox(settings.reviewPublication.showAverageRating, `${circle.name} 平均評価表示`, (v) => updateReview({ showAverageRating: v }))}</td>
                       <td className="p-3">{checkbox(settings.reviewPublication.showStars, `${circle.name} 星表示`, (v) => updateReview({ showStars: v }))}</td>

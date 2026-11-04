@@ -212,6 +212,12 @@ export function CircleManageModal({
             </label>
             <p className="text-[10px] text-muted-foreground">警告を有効にすると、アレルギー情報と注文番号を確認できないことをレジに表示します。</p>
           </div>
+          {/* 2026-11-04: 未発行来場者の受付は親イベントの許可に従い、既存draft/遷移ガードに含める。 */}
+          <label className="flex items-center gap-3 text-xs font-bold">
+            <input type="checkbox" checked={draft.allowWristbandlessOrder} disabled={saveSettings.isPending || !event?.allowWristbandlessOrder} onChange={(e) => setDraft((current) => ({ ...current, allowWristbandlessOrder: e.target.checked }))} />
+            リストバンドなし注文を受け付ける
+          </label>
+          {!event?.allowWristbandlessOrder && <p className="text-xs text-muted-foreground">イベント側で許可されていないため有効化できません</p>}
           <Button
             type="button"
             className="w-full"

@@ -579,6 +579,14 @@ function RegisterPageContent() {
     queryFn: () => eventApi.get(circle!.eventId),
     enabled: !!circle?.eventId,
   });
+  // 2026-11-04: バンド未発行の注文提示コードは、未登録の物理バンド許可とは別の実効条件で受け付ける。
+  const pendingWristbandlessCustomer = !!pendingUnregisteredCustomer
+    && !pendingUnregisteredCustomer.wristband && pendingUnregisteredCustomer.familyBandCount === 0;
+  const canAcceptPendingCustomer = pendingWristbandlessCustomer
+    ? registerEvent?.allowWristbandlessOrder === true && registerSettings.allowWristbandlessOrder
+      && pendingUnregisteredCustomer?.user.eventId === circle?.eventId
+      && pendingUnregisteredCustomer?.user.status !== "banned"
+    : registerSettings.allowUnregisteredWristbandOrder;
   const effectivePayments = (() => {
     const eventMethods = parseEventPaymentMethods(registerEvent?.paymentMethods);
     const accepted = parseCircleSettings(circle?.settings).acceptedPayments;
@@ -1137,7 +1145,7 @@ function RegisterPageContent() {
       <Modal
         isOpen={!!pendingUnregisteredCustomer}
         title="[入場登録されていません]"
-        subtitle="このリストバンドは入場登録が完了していません。"
+        subtitle={pendingWristbandlessCustomer ? "リストバンド未発行の来場者の事前注文です。" : "このリストバンドは入場登録が完了していません。"}
         onClose={() => setPendingUnregisteredCustomer(null)}
         maxWidth="md"
         zIndexClassName="z-[100]"
@@ -1146,7 +1154,7 @@ function RegisterPageContent() {
           <div className="flex items-start gap-3">
             <TriangleAlert className="mt-0.5 h-6 w-6 shrink-0" aria-hidden="true" />
             <div className="space-y-2">
-              <p className="font-headline text-base font-black">入場登録されていないリストバンドです</p>
+              <p className="font-headline text-base font-black">{pendingWristbandlessCustomer ? "リストバンドが発行されていない来場者です" : "入場登録されていないリストバンドです"}</p>
               <p className="text-sm font-bold leading-relaxed">アレルギー登録がされていないため、アレルギー情報を確認できません。既存の注文番号も確認できません。</p>
               <p className="text-xs leading-relaxed">注文を受けるときは、内容を確認してから担当者の判断で続行してください。</p>
             </div>
@@ -1156,17 +1164,17 @@ function RegisterPageContent() {
           <Button type="button" variant="outline" onClick={() => setPendingUnregisteredCustomer(null)}>
             閉じる
           </Button>
-          {registerSettings.allowUnregisteredWristbandOrder && pendingUnregisteredCustomer && (
+          {canAcceptPendingCustomer && pendingUnregisteredCustomer && (
             <Button
               type="button"
               variant="destructive"
               onClick={() => {
                 activateLookupCustomer(pendingUnregisteredCustomer, true);
                 setPendingUnregisteredCustomer(null);
-                toast.warning("入場登録前のリストバンドで注文を受け付けます");
+                toast.warning(pendingWristbandlessCustomer ? "リストバンドなしの事前注文を受け付けます" : "入場登録前のリストバンドで注文を受け付けます");
               }}
             >
-              入場登録していないリストバンドで注文を受ける
+              {pendingWristbandlessCustomer ? "リストバンドなしの事前注文を受ける" : "入場登録していないリストバンドで注文を受ける"}
             </Button>
           )}
         </div>

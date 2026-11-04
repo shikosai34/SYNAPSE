@@ -4,7 +4,7 @@ import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ModSandbox } from "@/components/ModSandbox";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { eventApi, circleApi, menuApi, preOrderApi, orderApi, wristbandApi, reviewApi, bundleDiscountApi, parseCircleSettings, type CreatePreOrderInput, type MenuWithToppings, type Topping, type PublicStoreReviewList } from "@/lib/api";
-import { useVisitor } from "@/hooks/useVisitor";
+import { useVisitor, ensureWristbandlessVisitor } from "@/hooks/useVisitor";
 import { useSessionState } from "@/hooks/useSessionState";
 import { getCouponsForCircle, type StoredCoupon } from "@/lib/coupon-storage";
 import { cn } from "@/lib/utils";
@@ -272,6 +272,8 @@ function MenuPageContent() {
   const [cart, setCart] = useSessionState<CartLine[]>(`${visitorOrderStateKey}:cart`, []);
   const [selectedMenuCategory, setSelectedMenuCategory] = useSessionState<string | null>(`${visitorOrderStateKey}:category`, null);
   const [hydratedDraftKey, setHydratedDraftKey] = useState<string | null>(null);
+  // 2026-11-04: 注文提示用コードは入場用マイQRと別に扱い、入場登録へ流用しない。
+  const [isOrderCodeOpen, setIsOrderCodeOpen] = useState(false);
   const [isQrOpen, setIsQrOpen] = useState(false);
   const [isReviewsOpen, setIsReviewsOpen] = useState(false);
   const [appOrigin, setAppOrigin] = useState("");
@@ -502,6 +504,15 @@ function MenuPageContent() {
   // 2026-10-22: 開催前はメニュー閲覧だけにし、カート・注文・QR操作を止める。
   const eventUpcoming = circleEvent?.lifecycleStatus === "upcoming";
   const preOrderAcceptanceEnabled = parseCircleSettings(circleData?.settings).preOrderEnabled;
+  // 2026-11-04: 未発行の端末にも注文IDを用意するが、入場登録・スマホQRは従来どおり別途必要。
+  const wristbandlessOrderEnabled = circleEvent?.allowWristbandlessOrder === true
+    && parseCircleSettings(circleData?.settings).allowWristbandlessOrder;
+  useEffect(() => {
+    if (visitorLoaded && !visitorUserId && !isMobileOrderRoute && preOrderAcceptanceEnabled
+      && wristbandlessOrderEnabled && circleData?.eventId && !eventEnded && !eventUpcoming && !isCircleEventError) {
+      ensureWristbandlessVisitor(circleData.eventId);
+    }
+  }, [visitorLoaded, visitorUserId, isMobileOrderRoute, preOrderAcceptanceEnabled, wristbandlessOrderEnabled, circleData?.eventId, eventEnded, eventUpcoming, isCircleEventError]);
   const preOrderAcceptanceDisabled = !isMobileOrderRoute && !!circleData && !preOrderAcceptanceEnabled;
   const orderEntryDisabled = eventEnded || eventUpcoming || isCircleEventLoading || isCircleEventError;
   const orderEntryDisabledLabel = eventUpcoming
@@ -871,6 +882,11 @@ function MenuPageContent() {
     }
   }, [selectedCircleId, circleData, cart]);
 
+  // 2026-11-04: サーバー保存済みの未発行注文に限り、レジで照会するベアラーIDを提示する。
+  const canDisplayOrderCode = !isMobileOrderRoute && wristbandlessOrderEnabled && !!userId && !activeWristband
+    && cart.length > 0 && draftIdentityRef.current?.key === draftKey
+    && draftIdentityRef.current?.updatedAt != null && !preOrderMutation.isPending && !preOrderMutation.isError;
+
   // 出店未選択のときの案内画面。
   // 2026-07-11: 従来は "ACCESS DENIED // 注文不可" という強い表現で、初見の来場者には
   // 拒否されたように見えて不親切だった。メニュー閲覧自体は自由なので、
@@ -1178,6 +1194,9 @@ function MenuPageContent() {
               >
                 <QrCode className="mr-2 h-5 w-5 shrink-0" />{myQrButtonLabel}
               </Button>
+              {canDisplayOrderCode && <Button type="button" variant="secondary" onClick={() => setIsOrderCodeOpen(true)}>
+                <QrCode className="mr-2 h-5 w-5" />事前注文の会計用コードを表示
+              </Button>}
               {cart.length > 0 && (
                 <Button
                   onClick={() => setIsCartOpen(true)}
@@ -1309,7 +1328,7 @@ function MenuPageContent() {
           </p>
         </div>
 
-        {/* 未入場 (リストバンド未発行) は注文不可。閲覧は自由だが「使う」には発行が必要。 */}
+        {/* 2026-11-04: opt-in時は匿名IDで事前注文できる。入場とマイQRの条件は別途維持する。 */}
         {!userId && (
           <div className="border-thick border-border bg-muted/30 p-3 space-y-1">
             <p className="text-xs font-black uppercase tracking-wide text-foreground">
@@ -1420,6 +1439,15 @@ function MenuPageContent() {
             )}
           </div>
         ) : null}
+      </Modal>
+
+      {/* 2026-11-04: /w/の入場URLは生成しない。注文照会用の生IDだけをレジへ提示する。 */}
+      <Modal isOpen={isOrderCodeOpen && canDisplayOrderCode} onClose={() => setIsOrderCodeOpen(false)} title="[事前注文の会計用コード]" maxWidth="md">
+        <div className="space-y-3 text-center">
+          <p className="text-sm">レジで提示して会計してください。入場用のQRではありません。</p>
+          <QRCodeSVG value={userId} size={200} level="M" title="事前注文の会計用コード" className="mx-auto block" />
+          <p className="break-all text-xs font-bold">{userId}</p>
+        </div>
       </Modal>
 
       {/* 2026-10-08: 登録済みバンドがない場合は userId を代用したQRを生成しない。 */}

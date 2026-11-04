@@ -102,6 +102,8 @@ function CircleSettingsContent() {
   } | null>(null);
   // 2026-10-25: 未登録バンドはアレルギーと既存注文を確認できないため、警告と注文許可を個別設定する。
   const [warnOnUnregisteredWristband, setWarnOnUnregisteredWristband] = useState(true);
+  // 2026-11-04: 既存の保存/破棄スナップショットで未発行注文の設定も保護する。
+  const [allowWristbandlessOrder, setAllowWristbandlessOrder] = useState(false);
   const [allowUnregisteredWristbandOrder, setAllowUnregisteredWristbandOrder] = useState(false);
   const [reviewPublication, setReviewPublication] = useState<CircleReviewPublicationSettings>({
     publishReviews: false,
@@ -121,6 +123,7 @@ function CircleSettingsContent() {
     storeAreaId: null as string | null,
     warnOnUnregisteredWristband: true,
     allowUnregisteredWristbandOrder: false,
+    allowWristbandlessOrder: false,
     reviewPublication: {
       publishReviews: false,
       showAverageRating: false,
@@ -175,6 +178,7 @@ function CircleSettingsContent() {
       setStoreAreaId(s.storeAreaId);
       setWarnOnUnregisteredWristband(s.warnOnUnregisteredWristband);
       setAllowUnregisteredWristbandOrder(s.allowUnregisteredWristbandOrder);
+      setAllowWristbandlessOrder(s.allowWristbandlessOrder);
       setReviewPublication(s.reviewPublication);
       setSettingsSnapshot({
         orderFlowMode: s.orderFlowMode,
@@ -186,6 +190,7 @@ function CircleSettingsContent() {
         storeAreaId: s.storeAreaId,
         warnOnUnregisteredWristband: s.warnOnUnregisteredWristband,
         allowUnregisteredWristbandOrder: s.allowUnregisteredWristbandOrder,
+        allowWristbandlessOrder: s.allowWristbandlessOrder,
         reviewPublication: s.reviewPublication,
       });
     }
@@ -246,7 +251,7 @@ function CircleSettingsContent() {
   // 「運用設定」の保存。circleApi.updateSettings は settings カラムを丸ごと上書きするため、
   // 注文モード・拡張機能・支払い方法・レビュー公開設定を常にまとめて送る。旧stock値も後方互換用に保持する。
   // 2026-10-25: JSON.stringify による dirty 判定を使うため、snapshot とキー順を一致させる。
-  const settingsDraft = { orderFlowMode, preOrderEnabled, mobileOrderEnabled, stockEnabled, staffEnabled, acceptedPayments, storeAreaId, warnOnUnregisteredWristband, allowUnregisteredWristbandOrder, reviewPublication };
+  const settingsDraft = { orderFlowMode, preOrderEnabled, mobileOrderEnabled, stockEnabled, staffEnabled, acceptedPayments, storeAreaId, warnOnUnregisteredWristband, allowUnregisteredWristbandOrder, allowWristbandlessOrder, reviewPublication };
   const updateSettings = useMutation({
     mutationFn: async (draft: typeof settingsDraft) =>
       circleApi.updateSettings(circleId, {
@@ -260,6 +265,7 @@ function CircleSettingsContent() {
         reviewPublication: draft.reviewPublication,
         warnOnUnregisteredWristband: draft.warnOnUnregisteredWristband,
         allowUnregisteredWristbandOrder: draft.allowUnregisteredWristbandOrder,
+        allowWristbandlessOrder: draft.allowWristbandlessOrder,
       }),
     onSuccess: (_result, draft) => {
       toast.success("運用設定を保存しました");
@@ -344,6 +350,7 @@ function CircleSettingsContent() {
       setReviewPublication(settingsSnapshot.reviewPublication);
       setWarnOnUnregisteredWristband(settingsSnapshot.warnOnUnregisteredWristband);
       setAllowUnregisteredWristbandOrder(settingsSnapshot.allowUnregisteredWristbandOrder);
+      setAllowWristbandlessOrder(settingsSnapshot.allowWristbandlessOrder);
     },
   });
 
@@ -582,6 +589,13 @@ function CircleSettingsContent() {
                 onToggle={() => setAllowUnregisteredWristbandOrder((value) => !value)}
               />
             </div>
+
+            {/* 2026-11-04: 親イベントを取得できない場合もfail closedにする。 */}
+            <label className="flex items-center gap-3 text-xs font-bold">
+              <input type="checkbox" checked={allowWristbandlessOrder} disabled={!eventData?.allowWristbandlessOrder} onChange={(e) => setAllowWristbandlessOrder(e.target.checked)} />
+              リストバンドなし注文を受け付ける
+            </label>
+            {!eventData?.allowWristbandlessOrder && <p className="text-xs text-muted-foreground">イベント側で許可されていないため有効化できません</p>}
 
             {/* 2026-09-27: 商品在庫管理は組み込みのため商品フォームから個別に設定する。 */}
             <div className="space-y-2 border-t-thin border-border pt-4">

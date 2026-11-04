@@ -666,6 +666,8 @@ export interface EventTheme {
   endDate?: string | Date | null;
   hasPhysicalWristband?: boolean;
   allowSelfIssue?: boolean;
+  // 2026-11-04: 未発行注文はサークル側の許可と組み合わせる。
+  allowWristbandlessOrder?: boolean;
 }
 
 
@@ -1183,6 +1185,8 @@ export interface CircleSettings {
   // 2026-10-25: 入場登録前のバンドは情報不足をレジで明示し、注文を受ける場合だけ担当者に選ばせる。
   warnOnUnregisteredWristband: boolean;
   allowUnregisteredWristbandOrder: boolean;
+  // 2026-11-04: 未発行の来場者を対象とし、未登録バンドの例外注文とは分離する。
+  allowWristbandlessOrder: boolean;
   // 2026-10-16 (#126): event.storeAreas のどの位置に出店するかを参照するID。
   storeAreaId: string | null;
   reviewPublication: CircleReviewPublicationSettings;
@@ -1201,6 +1205,7 @@ export function parseCircleSettings(raw?: string | null): CircleSettings {
     // 2026-10-25: 既存サークルにも未登録警告を適用し、注文許可は明示的に選ぶまで無効にする。
     warnOnUnregisteredWristband: true,
     allowUnregisteredWristbandOrder: false,
+    allowWristbandlessOrder: false,
     storeAreaId: null,
     reviewPublication: {
       publishReviews: false,
@@ -1236,6 +1241,7 @@ export function parseCircleSettings(raw?: string | null): CircleSettings {
         : [],
       warnOnUnregisteredWristband: parsed?.warnOnUnregisteredWristband !== false,
       allowUnregisteredWristbandOrder: parsed?.allowUnregisteredWristbandOrder === true,
+      allowWristbandlessOrder: parsed?.allowWristbandlessOrder === true,
       storeAreaId: typeof parsed?.storeAreaId === "string" ? parsed.storeAreaId : null,
       // 2026-10-21: 既存店舗はレビューを未公開として扱い、明示的な公開設定なしに文章や評価を配信しない。
       reviewPublication: {
@@ -1479,6 +1485,8 @@ export interface CreateEventInput {
   endDate?: string;
   hasPhysicalWristband?: boolean;
   allowSelfIssue?: boolean;
+  // 2026-11-04: 未発行注文はサークル側の許可と組み合わせる。
+  allowWristbandlessOrder?: boolean;
   fontFamily?: "mono" | "sans" | "serif";
   primaryColor?: string;
   primaryTextColor?: string;

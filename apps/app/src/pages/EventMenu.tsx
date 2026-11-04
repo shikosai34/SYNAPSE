@@ -17,7 +17,7 @@ import { groupCirclesByStoreArea } from "@/lib/store-areas";
  *
  * リストバンドでイベントが特定できる前提で、そのイベントに紐づくサークル一覧と
  * 各サークルのメニューへの導線を提供する「下見」画面。閲覧は誰でも可。実際の注文は
- * 発行済みリストバンドが必要 (Menu 側でゲート)。
+ * 2026-11-04: 注文は原則発行済みバンドが必要。双方opt-inの店舗のみ未発行注文を受け付ける。
  *
  * - /visitor/events            … 入場済みなら自分のイベントへ、未入場ならイベント選択
  * - /visitor/events/:eventId   … 指定イベントのサークル一覧
@@ -207,8 +207,10 @@ function EventMenuContent({
             <div className="space-y-1">
               <p className="text-xs font-black uppercase tracking-wide">閲覧モード</p>
               <p className="text-[11px] text-muted-foreground leading-relaxed">
-                メニューの下見はどなたでもご覧いただけます。事前注文・スタンプ・抽選などを使うには、
-                受付でリストバンドの発行を受けるか、お持ちのリストバンドの QR を読み取って入場してください。
+                {/* 2026-11-04: イベント許可だけで全店舗が受付可能と誤認させず、店舗側の許可も必要と伝える。 */}
+                {event?.allowWristbandlessOrder
+                  ? "リストバンドなし注文に対応した出店では、発行前でも事前注文できます。スタンプ・抽選などの利用には入場登録が必要です。"
+                  : "メニューの下見はどなたでもご覧いただけます。事前注文・スタンプ・抽選などを使うには、受付でリストバンドの発行を受けるか、お持ちのリストバンドの QR を読み取って入場してください。"}
               </p>
             </div>
           </div>

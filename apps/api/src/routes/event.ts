@@ -19,7 +19,7 @@ import {
   eventAnnouncement,
   eventAgeSnapshot,
 } from "@fesflow/db";
-import { eq, and, inArray, isNull, isNotNull, desc, gte, lt } from "drizzle-orm";
+import { eq, and, inArray, isNull, isNotNull, desc, gte, lt, sql } from "drizzle-orm";
 import { ulid } from "ulidx";
 import { getAdminSession, getSession, hasPermission } from "../utils/auth";
 import type { AppEnv } from "../types";
@@ -146,6 +146,8 @@ eventRoutes.get("/:id", async (c) => {
       textColor: event.textColor,
       hasPhysicalWristband: event.hasPhysicalWristband,
       allowSelfIssue: event.allowSelfIssue,
+      // 2026-11-04: 公開メニューでも未発行注文の実効条件を判定する。
+      allowWristbandlessOrder: event.allowWristbandlessOrder,
     })
     .from(event)
     .where(and(eq(event.id, id), isNull(event.deletedAt)));
@@ -1570,6 +1572,7 @@ eventRoutes.post(
       endDate: z.string().optional(),
       hasPhysicalWristband: z.boolean().optional(),
       allowSelfIssue: z.boolean().optional(),
+      allowWristbandlessOrder: z.boolean().optional(),
       fontFamily: z.enum(["mono", "sans", "serif"]).optional(),
       primaryColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
       primaryTextColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
@@ -1602,6 +1605,8 @@ eventRoutes.post(
       endDate: input.endDate ? new Date(input.endDate) : undefined,
       hasPhysicalWristband: input.hasPhysicalWristband ?? true,
       allowSelfIssue: input.allowSelfIssue ?? true,
+      // 2026-11-04: 従来の発行必須方針は明示許可まで維持する。
+      allowWristbandlessOrder: input.allowWristbandlessOrder ?? false,
       fontFamily: input.fontFamily ?? "mono",
       primaryColor: input.primaryColor ?? "#000000",
       primaryTextColor: input.primaryTextColor ?? "#FFFFFF",
@@ -1680,6 +1685,7 @@ eventRoutes.put(
       endDate: z.string().nullable().optional(),
       hasPhysicalWristband: z.boolean().optional(),
       allowSelfIssue: z.boolean().optional(),
+      allowWristbandlessOrder: z.boolean().optional(),
     })
   ),
   async (c) => {
@@ -1712,13 +1718,15 @@ eventRoutes.put(
         ...updateData,
       });
     } else {
-      await db
-        .update(event)
-        .set({
-          ...updateData,
-          updatedAt: new Date(),
-        })
-        .where(eq(event.id, id));
+      // 2026-11-04: イベントOFFと配下の受付OFFを同じD1トランザクションで確定し、再ONで意図せず復活させない。
+      const updateEvent = db.update(event).set({ ...updateData, updatedAt: new Date() }).where(eq(event.id, id));
+      if (input.allowWristbandlessOrder === false) {
+        await db.batch([updateEvent, db.update(circle).set({
+          settings: sql`json_set(CASE WHEN json_valid(${circle.settings}) AND json_type(${circle.settings}) = 'object' THEN ${circle.settings} ELSE '{}' END, '$.allowWristbandlessOrder', json('false'))`,
+        }).where(eq(circle.eventId, id))]);
+      } else {
+        await updateEvent;
+      }
     }
 
     const updated = await db.select().from(event).where(eq(event.id, id));
