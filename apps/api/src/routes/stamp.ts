@@ -16,6 +16,7 @@ import { and, asc, desc, eq, isNull, like, ne, or, sql } from "drizzle-orm";
 import { ulid } from "ulidx";
 import { getSession, hasPermission } from "../utils/auth";
 import type { AppEnv } from "../types";
+import { isEventDateExpired } from "../utils/event-date";
 import {
   evaluateStampRallyQualification,
   requiredCirclesForArea,
@@ -117,7 +118,7 @@ function toIsoDate(value: Date | number | null | undefined): string | null {
 // 2026-10-21: 景品交換は終了状態・終了日時の両方で停止し、達成状況の閲覧は残す。
 function isEventEnded(eventRow: { lifecycleStatus: string | null; endDate: Date | null }): boolean {
   return eventRow.lifecycleStatus === "ended" || eventRow.lifecycleStatus === "archived"
-    || (!!eventRow.endDate && eventRow.endDate.getTime() <= Date.now());
+    || isEventDateExpired(eventRow.endDate);
 }
 
 async function resolveVisitor(db: AppEnv["Variables"]["db"], eventId: string, code: string) {

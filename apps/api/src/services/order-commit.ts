@@ -95,7 +95,8 @@ export async function commitOrder(db: D1, command: OrderCommand, input: CommitOr
       EXISTS (SELECT 1 FROM circle c JOIN event e ON e.id=c.event_id JOIN event_user u ON u.event_id=e.id
         WHERE c.id=? AND c.deleted_at IS NULL AND u.id=? AND u.status!='banned'
         AND e.deleted_at IS NULL AND e.lifecycle_status='live' AND e.billing_status!='suspended'
-        AND (e.end_date IS NULL OR e.end_date>=?)
+        -- 2026-10-24: end_date は日付入力をUTC午前0時で保存するため、日本時間の当日終わりまで受付する。
+        AND (e.end_date IS NULL OR e.end_date + 54000000 > ?)
         AND (?!='mobile' OR json_extract(c.settings,'$.mobileOrderEnabled')=1))
       AND NOT EXISTS (SELECT 1 FROM json_each(?) j LEFT JOIN menu m ON m.id=json_extract(j.value,'$.id')
         WHERE m.id IS NULL OR m.circle_id!=? OR m.sold_out=1
